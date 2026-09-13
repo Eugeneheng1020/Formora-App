@@ -217,7 +217,7 @@ final class AppState {
         chat = ChatRunner(conversations: conversations, agents: agents, providers: providers, client: chatClient)
         self.bobModel = bobModel
         bob = BobSession(providers: providers, agents: agents, conversations: conversations, chat: chat, skills: skills, mcp: mcp,
-                         notifications: notifications, model: bobModel, client: chatClient)
+                         notifications: notifications, model: bobModel, client: chatClient, memory: memory)
         // 9e: Bob arranges group work with the model chosen on his page.
         chat.conductorModel = { [weak bobModel, weak providers] in
             guard let bobModel, let providers else { return nil }

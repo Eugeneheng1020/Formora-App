@@ -253,10 +253,17 @@ private struct BobStepCard: View {
                 .padding(.bottom, 10)
                 .padding(.horizontal, 10)
             }
-            if let card = step.card {
+            // Undone, the file isn't what the card says any more: only the line below speaks for it.
+            if let card = step.card, step.result?.change?.undone != true {
                 BobResultCard(result: card) { go(card.jump) }
                     .padding(.horizontal, 8)
                     .padding(.bottom, 8)
+            }
+            // D95: what a write or an edit changed, and the way back.
+            if let result = step.result, let change = result.change, let path = result.savedPath {
+                BobChangeLine(state: state, stepID: step.id, path: path, change: change)
+                    .padding(.horizontal, 10)
+                    .padding(.bottom, 9)
             }
         }
         .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Palette.surfaceRaised.color))
@@ -271,10 +278,14 @@ private struct BobStepCard: View {
         case "formora_help", "read", "fetch": Icons.file
         case "glob", "grep", "web_search", "formora_state": Icons.search
         case "mcp_catalog", "mcp_add": Icons.plug
-        case "skill_create": Icons.sparkle
+        case let name where name.hasPrefix(MCPTools.prefix): Icons.plug
+        case "skill_create", "skill": Icons.sparkle
         case "folder_create": Icons.files
         case "notification_set": Icons.bell
         case "open_url": Icons.arrowUpRight
+        case "write", "edit": Icons.pencil
+        case "bash": Icons.terminal
+        case "remember", "memory_clear": Icons.bulb
         default: Icons.chip
         }
     }
@@ -310,6 +321,41 @@ private struct BobStepCard: View {
             Task { await state.files?.reveal(relativePath: path) }
         case nil:
             break
+        }
+    }
+}
+
+/// Under a step that wrote a file (D95): what changed, 撤销 while the file is still what Bob wrote, then 已撤销.
+private struct BobChangeLine: View {
+    let state: AppState
+    let stepID: String
+    let path: String
+    let change: FileChange
+    @State private var problem: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Text(change.undone == true ? "已撤销：\(path) 回到了修改之前" : "改了 \(path)（+\(change.added) −\(change.removed) 行）")
+                    .font(FormoraFont.mono(10.5))
+                    .foregroundStyle(Palette.inkFaint.color)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .accessibilityIdentifier("bob.change")
+                Spacer(minLength: 6)
+                if change.undone != true, FileHistory.canUndo(change) {
+                    Button("撤销") { problem = state.bob.undo(stepID) }
+                        .buttonStyle(FormoraButtonStyle(kind: .ghost))
+                        .disabled(state.bob.isBusy)
+                        .accessibilityIdentifier("bob.undo")
+                }
+            }
+            if let problem {
+                Text(problem)
+                    .font(FormoraFont.ui(11))
+                    .foregroundStyle(Palette.alert.color)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 }

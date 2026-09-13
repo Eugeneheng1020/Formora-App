@@ -61,6 +61,22 @@ enum MCPTools {
         return bindings
     }
 
+    /// Bob's (D95): every enabled server's every tool — no Agent's MCP tab in between.
+    @MainActor
+    static func allBindings(in store: MCPStore) -> [MCPBinding] {
+        var seen = Set<String>()
+        var bindings: [MCPBinding] = []
+        for server in store.servers where server.isEnabled && (!server.isStdio || MCPBuild.supportsStdio) {
+            for tool in server.tools {
+                let name = name(server: server.name, serverID: server.id, tool: tool.name)
+                guard seen.insert(name).inserted else { continue }
+                bindings.append(MCPBinding(spec: spec(server: server, tool: tool, name: name), serverID: server.id,
+                                           serverName: server.name, toolName: tool.name))
+            }
+        }
+        return bindings
+    }
+
     static func spec(server: MCPServerConfig, tool: MCPTool, name: String) -> ToolSpec {
         let about = [tool.summary, tool.title].compactMap { $0 }.first { !$0.isEmpty } ?? tool.name
         return ToolSpec(name: name, description: "\(about) (MCP server \(server.name))",

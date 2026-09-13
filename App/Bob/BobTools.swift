@@ -58,8 +58,16 @@ enum BobTools {
         parameters: #"{"type":"object","properties":{"setting":{"type":"string","enum":["desktop","sound","badge"]},"on":{"type":"boolean"}},"required":["setting","on"]}"#,
         tier: .write)
 
-    /// Everything Bob is offered.
+    /// Everything he remembers, gone, when the user asks — it asks first (D95: his memory has no page of its own).
+    static let memoryClear = ToolSpec(
+        name: "memory_clear",
+        description: "Forget everything you remember, in every project, when the user asks you to. The user is asked first.",
+        parameters: #"{"type":"object","properties":{}}"#,
+        tier: .write)
+
+    /// Everything Bob is offered — and every enabled MCP server's tools, added per request (D95).
     static let all: [ToolSpec] = [help, state, AgentTools.read, AgentTools.glob, AgentTools.grep, AgentTools.webSearch, AgentTools.fetch,
+                                  AgentTools.write, AgentTools.edit, AgentTools.bash, SkillTools.load, MemoryTools.remember, memoryClear,
                                   MCPConnect.catalogSpec, MCPConnect.addSpec, skillCreate, folderCreate, notificationSet, AgentTools.openURL]
 
     static func tier(_ name: String) -> ToolTier? { all.first { $0.name == name }?.tier }
@@ -77,6 +85,14 @@ enum BobTools {
         let model: ModelReference?
         /// The model answering now, when its provider searches the web natively.
         let search: ChatTarget?
+        /// His memory, the same in every project (D95).
+        var memory: MemoryStore?
+        /// Where a file's earlier text is kept for 撤销 — the Agents' folder (10d).
+        var history: URL?
+        var mcpClient = MCPClient()
+
+        /// Every installed Skill's folder: his reading tools may look in them.
+        @MainActor var skillFolders: [URL] { skills.skills.compactMap { skills.folder(of: $0) } }
     }
 
     enum Step {
@@ -178,14 +194,69 @@ enum BobTools {
             return .ask(summary: "读取网页", detail: text("url")) {
                 (await AgentTools.run(call, root: context.project?.root, search: context.search), nil)
             }
+        // D95 (user 2026-09-13): every Skill, his own memory, the project's files and commands, every MCP tool. What only
+        // reads runs; every change waits on its card (D55).
+        case SkillTools.load.name:
+            let skills = context.skills.skills
+            guard let skill = SkillTools.find(text("name"), in: skills) else {
+                return .done(.failed("没有叫「\(text("name"))」的 Skill。已安装的：" + skills.map { "「\($0.name)」" }.joined(separator: "、")), nil)
+            }
+            return .done(.done(SkillTools.loaded(skill, folder: context.skills.folder(of: skill))), nil)
+        case MemoryTools.remember.name:
+            guard let memory = context.memory else { return .done(.failed("这里没有记忆。"), nil) }
+            return .done(MemoryTools.run(call.arguments, store: memory, agent: Conductor.bobID, project: BobSession.everywhere), nil)
+        case memoryClear.name:
+            guard let memory = context.memory, let current = memory.text(agent: Conductor.bobID, project: BobSession.everywhere) else {
+                return .done(.done("本来就没有记着什么，不用清空。"), nil)
+            }
+            let count = current.split(separator: "\n").filter { $0.hasPrefix("- ") }.count
+            return .ask(summary: "清空 Bob 的记忆", detail: "一共 \(count) 条，清掉后在哪个项目里都不再记得") {
+                memory.rewrite("", agent: Conductor.bobID, project: BobSession.everywhere)
+                return (.done("记忆清空了。"), nil)
+            }
+        case AgentTools.write.name, AgentTools.edit.name:
+            guard let root = context.project?.root else { return .done(.failed("现在没有打开的项目，写不了文件。"), nil) }
+            let path = text("path")
+            let counts = FileHistory.preview(call, root: root).map(lineCounts) ?? ""
+            let verb = call.name == AgentTools.write.name ? "写文件" : "改文件"
+            return .ask(summary: "\(verb)「\(path)」", detail: "\(context.project?.name ?? "项目")/\(path)" + counts) {
+                let result = await AgentTools.run(call, root: root, readRoots: context.skillFolders, history: context.history)
+                guard result.status == .done, let saved = result.savedPath else { return (result, nil) }
+                return (result, BobResult(title: "已\(result.isNewFile == true ? "写好" : "改好")「\((saved as NSString).lastPathComponent)」",
+                                          meta: "\(context.project?.name ?? "项目")/\(saved)", jump: .file(saved)))
+            }
+        case AgentTools.bash.name:
+            guard let root = context.project?.root else { return .done(.failed("现在没有打开的项目，运行不了命令。"), nil) }
+            let command = text("command")
+            let risk = CommandRisk.reason(command).map { "。注意：\($0)" } ?? ""
+            return .ask(summary: "在项目里运行命令", detail: command + risk) {
+                (await AgentTools.run(call, root: root), nil)
+            }
         default:
+            if call.name.hasPrefix(MCPTools.prefix) {
+                guard let binding = MCPTools.allBindings(in: context.mcp).first(where: { $0.spec.name == call.name }) else {
+                    return .done(.failed("\(call.name) 不在现在能用的 MCP 工具里（那个服务可能停用了）。"), nil)
+                }
+                if binding.spec.tier == .read {
+                    return .done(await MCPTools.call(binding, arguments: call.arguments, store: context.mcp, client: context.mcpClient), nil)
+                }
+                return .ask(summary: "用 \(binding.serverName) 的「\(binding.toolName)」", detail: String(call.arguments.prefix(300))) {
+                    (await MCPTools.call(binding, arguments: call.arguments, store: context.mcp, client: context.mcpClient), nil)
+                }
+            }
             guard [AgentTools.read.name, AgentTools.glob.name, AgentTools.grep.name, AgentTools.webSearch.name]
                     .contains(call.name) else { return .done(.failed("没有 \(call.name) 这个工具。"), nil) }
             if call.name != AgentTools.webSearch.name, context.project?.root == nil {
                 return .done(.failed("现在没有打开的项目，看不了项目里的文件。"), nil)
             }
-            return .done(await AgentTools.run(call, root: context.project?.root, search: context.search), nil)
+            return .done(await AgentTools.run(call, root: context.project?.root, search: context.search, readRoots: context.skillFolders), nil)
         }
+    }
+
+    /// 「 · +2 −1 行」 from a preview's diff, for a card waiting for 允许.
+    static func lineCounts(_ diff: String) -> String {
+        let lines = diff.split(separator: "\n", omittingEmptySubsequences: false)
+        return " · +\(lines.filter { $0.hasPrefix("+") }.count) −\(lines.filter { $0.hasPrefix("-") }.count) 行"
     }
 
     enum NotificationSetting: String {

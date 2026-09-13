@@ -64,6 +64,9 @@ final class BobSession {
     @ObservationIgnored private let notifications: NotificationSettings
     @ObservationIgnored let model: BobModel
     @ObservationIgnored private let client: ChatClient
+    /// His own memory, the same in every project (D95).
+    @ObservationIgnored let memory: MemoryStore
+    @ObservationIgnored private let mcpClient: MCPClient
     @ObservationIgnored var userName: () -> String = { "" }
     /// The wait before retry `attempt` of a transient failure; tests make it instant.
     @ObservationIgnored var retryDelay: (Int) -> Duration = { .seconds($0) }
@@ -86,9 +89,14 @@ final class BobSession {
         ExampleGroup(title: "替你改设置", items: ["帮我建一个叫「验收标准检查」的 Skill", "接入 Notion", "关掉消息提示音"]),
     ]
     static let noModel = "Bob 还没有可用的模型：先去「模型」给一个服务商填上 API Key。"
+    /// The project his memory is filed under: none in particular (D95).
+    static let everywhere = UUID(uuidString: "B0B00000-0000-4000-8000-0000000000EE")!
 
     init(providers: ProviderStore, agents: AgentStore, conversations: ConversationStore, chat: ChatRunner, skills: SkillLibrary,
-         mcp: MCPStore, notifications: NotificationSettings, model: BobModel, client: ChatClient = ChatClient()) {
+         mcp: MCPStore, notifications: NotificationSettings, model: BobModel, client: ChatClient = ChatClient(),
+         memory: MemoryStore = MemoryStore(folder: nil), mcpClient: MCPClient = MCPClient()) {
+        self.memory = memory
+        self.mcpClient = mcpClient
         self.providers = providers
         self.agents = agents
         self.conversations = conversations
@@ -152,6 +160,25 @@ final class BobSession {
         history = []
     }
 
+    /// 撤销 on a step that wrote a file (D95, 10d): the file back to before it, the step marked, and Bob told before his
+    /// next answer. `nil`: done; otherwise why not.
+    func undo(_ stepID: String) -> String? {
+        guard !isBusy else { return "Bob 正在做事，等他停下来再撤销。" }
+        for entry in entries.indices {
+            guard let index = entries[entry].steps.firstIndex(where: { $0.id == stepID }) else { continue }
+            guard let result = entries[entry].steps[index].result, let change = result.change, let path = result.savedPath else {
+                return "这一步没有改文件。"
+            }
+            guard FileHistory.canUndo(change) else { return "这次修改撤不回去。" }
+            guard let root = project?.root else { return "项目文件夹现在打不开。" }
+            if let problem = FileHistory.undo(change, path: path, root: root, history: chat.fileHistoryFolder) { return problem }
+            entries[entry].steps[index].result?.change?.undone = true
+            history.append(ChatTurn(role: .user, text: "〔用户撤销了对 \(path) 的这次修改，文件回到了修改之前的样子〕"))
+            return nil
+        }
+        return "找不到这次修改。"
+    }
+
     private func end() {
         task = nil
         isBusy = false
@@ -173,7 +200,7 @@ final class BobSession {
         var calls = 0
         while calls < Self.callLimit {
             guard !Task.isCancelled else { return }
-            let tools = sendsTools ? BobTools.all : []
+            let tools = sendsTools ? BobTools.all + MCPTools.allBindings(in: mcp).map(\.spec) : []
             guard let request = ChatWire.request(target, system: systemPrompt(), history: history, reasoning: .auto, sendsReasoning: false,
                                                  tools: tools) else {
                 entries.append(Entry(role: .bob, text: "", failure: "「\(reference.providerID)」的 Base URL 无效"))
@@ -249,7 +276,8 @@ final class BobSession {
     /// Reading runs; a change waits on its card (B5).
     private func perform(_ call: ToolCall, search: ChatTarget?) async -> (ToolResult, BobResult?) {
         let context = BobTools.Context(agents: agents, conversations: conversations, chat: chat, providers: providers, skills: skills,
-                                       mcp: mcp, notifications: notifications, project: project, model: model.current(providers), search: search)
+                                       mcp: mcp, notifications: notifications, project: project, model: model.current(providers), search: search,
+                                       memory: memory, history: chat.fileHistoryFolder, mcpClient: mcpClient)
         switch await BobTools.prepare(call, context: context) {
         case let .done(result, card):
             return (result, card)
@@ -279,8 +307,12 @@ final class BobSession {
         context.append("今天是 \(SystemPrompt.dateText(date))。")
         let name = userName().trimmingCharacters(in: .whitespacesAndNewlines)
         if !name.isEmpty { context.append("称呼用户时用「\(name)」。") }
+        // D95: his own memory, not the project's — the lines gone stale left out (10j).
+        if let remembered = memory.promptText(agent: Conductor.bobID, project: Self.everywhere) {
+            context.append("\n\n你的记忆（你自己记下的，不分项目；和现在的情况冲突时以现在为准）：\n" + remembered)
+        }
         return """
-        你叫 Bob，住在 Formora 里。你有两件事要做：回答关于 Formora 的问题，以及替用户改设置。
+        你叫 Bob，住在 Formora 里。你帮用户三件事：回答关于 Formora 的问题，替他改设置，以及直接动手做事——用 Skill、用已接入的 MCP 服务、在当前项目里读写文件和运行命令。
 
         回答问题时：
         - 先查再答。产品怎么用、某个功能是什么意思、指令干什么用——用 formora_help 读说明；现在有哪些 Agent、任务跑到哪、文件在哪个目录、配了哪些模型——用 formora_state 查真实状态。两个都查不到的，说不知道，不要编。
@@ -290,7 +322,11 @@ final class BobSession {
 
         动手时：
         - 用户说要做什么，就用工具直接做，不要只回答怎么做：接入 MCP 服务（mcp_catalog 看目录、mcp_add 接入，接完会自动测试连接，要登录的会打开浏览器）、创建 Skill（skill_create，指令正文要写得像给同事的操作说明）、在当前项目建文件夹（folder_create）、改通知设置（notification_set）、在用户的浏览器里打开网址（open_url）。
-        - 看项目文件和搜索之外的每一步——读网页、接入、新建、打开——都会先弹给用户确认，这是有意的。用户没同意就别换个工具再试一次。
+        - 要做的事有对应的 Skill，先用 skill 读它的做法；所有已安装的 Skill 你都能用。
+        - 已接入的 MCP 服务的工具你都能用（名字以 mcp__ 开头）：只读的直接用，会改东西的每一步会先问用户。
+        - 在当前项目里写文件、改文件（write / edit）和运行命令（bash），和 Agent 一样只在项目文件夹里；没打开项目时告诉用户做不了。
+        - 用户说以后都要怎样、或者定下了什么约定，用 remember 记下来，一句话一条；你的记忆不分项目，每次对话都带着。用户想看你记了什么，照下面「你的记忆」告诉他；让你全忘掉，用 memory_clear（会先问他）。
+        - 看文件、搜索、读 Skill、记东西、只读的 MCP 工具之外的每一步——读网页、接入、新建、写文件、改文件、运行命令、会改东西的 MCP 工具、打开网址——都会先弹给用户确认，这是有意的。用户没同意就别换个工具再试一次。
         - 需要用户提供的东西（名字、地址）没有时，先问，别编。
         - 接入要选文件夹的服务（mcp_catalog 里写着「要选…（folder）」的，比如 Obsidian 的笔记库）：问用户那个文件夹的完整路径，填进 mcp_add 的 folder。要填好几项的（写着括号里名字的，比如飞书的 app_id 和 app_secret）：按括号里的名字放进 values。
         - 接入要令牌的服务（mcp_catalog 里写着「要填…」的）：用户还没给令牌，就照目录里的说明告诉他去哪儿生成、要勾哪些权限，请他直接贴在对话里。他贴的令牌你看到的是 $$SECRET_…$$ 占位符：原样填进 mcp_add 的 token，令牌会直接存进钥匙串；不要复述它，也不要让他自己去设置里填。
