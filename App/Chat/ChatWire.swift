@@ -206,6 +206,14 @@ enum ChatWire {
                 body["tools"] = tools.map { ["type": "function", "function": ["name": $0.name, "description": $0.description, "parameters": $0.schema]] }
             }
             applyCompletionsReasoning(&body, dialect: dialect, level: level)
+            // DeepSeek and Z.ai, thinking, want every tool-call round since the last user message back with its thinking
+            // (L7), and refuse the request without it (400). A round another model did — a fallback taking over from a
+            // primary that doesn't think every round — has none to give: this request goes without thinking, the
+            // switch 关闭 already uses (user 2026-09-14).
+            if dialect == .deepSeek || dialect == .zai, lacksThinking(history) {
+                body["thinking"] = ["type": "disabled"]
+                body["reasoning_effort"] = nil
+            }
             return body
 
         case .openAIResponses:
@@ -428,6 +436,12 @@ enum ChatWire {
         }
         flush()
         return contents.map { ["role": $0.role, "parts": $0.parts] }
+    }
+
+    /// A tool-call round since the last user turn without the thinking that went with it.
+    static func lacksThinking(_ history: [ChatTurn]) -> Bool {
+        let start = (history.lastIndex { $0.role == .user } ?? -1) + 1
+        return history[start...].contains { $0.role == .assistant && !$0.toolCalls.isEmpty && ($0.thinking ?? "").isEmpty }
     }
 
     private static func applyCompletionsReasoning(_ body: inout [String: Any], dialect: ReasoningDialect, level: ReasoningLevel) {
