@@ -1,7 +1,9 @@
 import SwiftUI
 
 /// 设置 → Bob (7h, B1): the model he answers with, and what to ask him. Talking to him is the floating panel at the
-/// bottom-right of 设置 (spec §8.8; user 2026-09-12: 「设置 tab 只用于切换模型和列举示例」).
+/// bottom-right of 设置 (spec §8.8; user 2026-09-12: 「设置 tab 只用于切换模型和列举示例」). Laid out like the other
+/// settings pages (user 2026-09-13): the model on a standard setting row, each group of examples as full-width rows
+/// under a heading the way 设置 → Hooks titles its groups.
 struct BobSection: View {
     let state: AppState
 
@@ -12,25 +14,22 @@ struct BobSection: View {
             SettingsSectionHead(category: .bob, note: model == nil ? BobSession.noModel
                                     : "点设置页右下角的圆形按钮和 Bob 说话。这里选他用的模型，看看能问他什么") { EmptyView() }
             BobModelRow(state: state)
-                .padding(.top, 20)
-                .padding(.bottom, 22)
-            VStack(alignment: .leading, spacing: 20) {
-                ForEach(BobSession.examples) { group in
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(group.title)
-                            .font(FormoraFont.ui(12.5, weight: 600))
-                            .foregroundStyle(Palette.ink.color)
-                        ForEach(group.items, id: \.self) { item in
-                            BobExampleRow(text: item, isEnabled: model != nil) {
-                                state.bobPanelOpen = true
-                                state.bob.send(item)
-                            }
+            ForEach(BobSession.examples) { group in
+                Text(group.title)
+                    .font(FormoraFont.ui(13, weight: 600))
+                    .foregroundStyle(Palette.ink.color)
+                    .padding(.top, 18)
+                    .padding(.bottom, 10)
+                VStack(spacing: 0) {
+                    ForEach(group.items, id: \.self) { item in
+                        BobExampleRow(text: item, isEnabled: model != nil) {
+                            state.bobPanelOpen = true
+                            state.bob.send(item)
                         }
                     }
                 }
+                .overlay(alignment: .top) { Rectangle().fill(Palette.line.color).frame(height: 1) }
             }
-            .padding(.top, 20)
-            .overlay(alignment: .top) { Rectangle().fill(Palette.line.color).frame(height: 1) }
         }
         .task { await state.providers.loadAllConfigured() }
     }
@@ -43,14 +42,12 @@ private struct BobModelRow: View {
     var body: some View {
         let options = BobModel.options(state.providers)
         let current = state.bobModel.current(state.providers)
-        HStack(spacing: 10) {
-            Text("模型")
-                .font(FormoraFont.ui(12.5, weight: 600))
-                .foregroundStyle(Palette.ink.color)
+        // The page's note already says where to get one.
+        let description = options.isEmpty && current == nil ? "还没有配好的模型"
+            : state.bobModel.chosen == nil ? "默认用第一个配好的模型，它不能用了会自动换下一个"
+            : "Bob 回答问题、替你改设置都用这个模型"
+        SettingRow(label: "模型", description: description) {
             if options.isEmpty, current == nil {
-                Text("还没有配好的模型")
-                    .font(FormoraFont.ui(12))
-                    .foregroundStyle(Palette.inkFaint.color)
                 Button("去「模型」配一个") { state.settingsCategory = .models }
                     .buttonStyle(FormoraButtonStyle())
                     .accessibilityIdentifier("bob.goModels")
@@ -83,18 +80,14 @@ private struct BobModelRow: View {
                 .menuStyle(.borderlessButton)
                 .fixedSize()
                 .accessibilityIdentifier("bob.model")
-                if state.bobModel.chosen == nil {
-                    Text("默认用第一个配好的模型，它不能用了会自动换下一个")
-                        .font(FormoraFont.ui(11))
-                        .foregroundStyle(Palette.inkFaint.color)
-                }
             }
-            Spacer(minLength: 0)
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("bob.modelRow")
     }
 }
 
-/// One thing to ask: the words, and 「问 Bob」, which opens his panel and asks it.
+/// One thing to ask, as a full-width row: the words, and 「问 Bob」, which opens his panel and asks it.
 private struct BobExampleRow: View {
     let text: String
     let isEnabled: Bool
@@ -104,7 +97,7 @@ private struct BobExampleRow: View {
         HStack(spacing: 10) {
             Text(text)
                 .font(FormoraFont.ui(12.5))
-                .foregroundStyle(Palette.inkMuted.color)
+                .foregroundStyle(Palette.ink.color)
                 .lineLimit(1)
             Spacer(minLength: 8)
             Button("问 Bob", action: ask)
@@ -112,11 +105,9 @@ private struct BobExampleRow: View {
                 .disabled(!isEnabled)
                 .accessibilityIdentifier("bob.example")
         }
-        .padding(.vertical, 7)
-        .padding(.leading, 12)
-        .padding(.trailing, 8)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Palette.surface.color))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Palette.line.color, lineWidth: 1))
-        .frame(maxWidth: 560, alignment: .leading)
+        .padding(.vertical, 11)
+        .overlay(alignment: .bottom) { Rectangle().fill(Palette.line.color).frame(height: 1) }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("bob.exampleRow")
     }
 }
