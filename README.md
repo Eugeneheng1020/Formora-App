@@ -10,6 +10,19 @@
 
 Formora 是原生的 macOS 应用（SwiftUI），不需要自己的服务器：模型用你自己的 API Key 直接调用，对话、文件和记忆都留在你的电脑上。
 
+<p align="center"><img src="docs/screenshots/messages-group.png" alt="群聊：@ 谁就交给谁，几个岗位接力" width="880"></p>
+
+## 截图
+
+| | |
+|---|---|
+| ![看板](docs/screenshots/board.png) | ![Agent](docs/screenshots/agents.png) |
+| **看板**：一次派活一张卡片，谁交给了谁用线连着，点开看「运行过程」 | **Agent**：主模型、备用模型、权限模式、旁审、允许操作电脑 |
+| ![文件](docs/screenshots/files.png) | ![MCP](docs/screenshots/mcp.png) |
+| **文件**：项目文件树和预览，Agent 写的文件都在这里 | **MCP**：30 个推荐服务，多数一键接入 |
+| ![单聊](docs/screenshots/messages-direct.png) | ![Bob](docs/screenshots/bob.png) |
+| **单聊**：Agent 先把需求问清楚，再动手 | **Bob**：设置里的助手，替你接服务、建 Skill、改设置 |
+
 ## 下载安装
 
 1. 到 [Releases](https://github.com/Eugeneheng1020/Formora-App/releases) 下载最新的 `Formora-<版本>.dmg`。
