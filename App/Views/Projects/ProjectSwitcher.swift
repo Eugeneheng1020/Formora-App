@@ -94,6 +94,11 @@ struct ProjectMenuView: View {
             MenuActionRow(icon: Icons.plus, title: "新建项目", identifier: "projectMenu.new") {
                 state.projectMenu = .newProject
             }
+            // D98: the launch screen's 「打开已有项目」 here too — 新建项目 makes a new empty folder inside the one picked.
+            MenuActionRow(icon: Icons.files, title: "打开已有项目", identifier: "projectMenu.openExisting") {
+                state.projectMenu = nil
+                state.guardNavigation("打开已有项目") { _ = session.openExistingFolder() }
+            }
             MenuActionRow(icon: Icons.settings, title: "管理项目", identifier: "projectMenu.manage") {
                 state.openManageProjects()
             }
