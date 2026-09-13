@@ -3,7 +3,7 @@ import SwiftUI
 /// 设置 → Bob (7h, B1): the model he answers with, how far he goes without asking, whether he may operate the Mac, and
 /// what to ask him. Talking to him is the floating panel at the bottom-right of 设置 (spec §8.8; user 2026-09-12:
 /// 「设置 tab 只用于切换模型和列举示例」). Laid out like the other settings pages (user 2026-09-13): each setting on a
-/// standard row; the examples as a hand of cards (user 2026-09-13), one drawn out to read with his answer.
+/// standard row; the examples as a stacked deck of cards (user 2026-09-14), one read at a time with his answer.
 struct BobSection: View {
     let state: AppState
 
@@ -20,11 +20,11 @@ struct BobSection: View {
                 .font(FormoraFont.ui(13, weight: 600))
                 .foregroundStyle(Palette.ink.color)
                 .padding(.top, 18)
-            Text("点一张牌，看 Bob 会怎么回答；「问 Bob」打开浮窗直接问他。")
+            Text("翻一翻，看 Bob 会怎么回答；「问 Bob」打开浮窗直接问他。")
                 .font(FormoraFont.ui(11.5))
                 .foregroundStyle(Palette.inkFaint.color)
                 .padding(.top, 4)
-            BobExampleHand(state: state)
+            BobExampleDeck(state: state)
         }
         .task { await state.providers.loadAllConfigured() }
     }

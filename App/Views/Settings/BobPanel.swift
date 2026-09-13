@@ -490,7 +490,7 @@ private struct BobInput: View {
                          identifier: "bob.input", onSubmit: submit,
                          onPasteImage: { bob.attachPasted($0) },
                          onPasteFiles: { urls in Task { await bob.attach(urls) } },
-                         onMentionKey: key, fontSize: 12.5)
+                         onMentionKey: key, listOpen: { !suggestions.isEmpty }, fontSize: 12.5)
             .frame(height: min(max(height, 24), 110))
             .onChange(of: bob.input) { selection = 0 }
             .padding(.vertical, 6)

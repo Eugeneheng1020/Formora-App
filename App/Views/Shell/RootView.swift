@@ -168,11 +168,6 @@ struct RootView: View {
                               onConfirm: { state.discardDraftAndProceed() })
             }
 
-            // 设置 → Bob: the example card drawn out of his hand (user 2026-09-13), over the window like a dialog.
-            if state.selectedSection == .settings, let index = state.bobExampleOpen, BobExamples.all.indices.contains(index) {
-                BobExampleOverlay(state: state, index: index)
-            }
-
             // The reasoning menu opens upward from its pill, above every column (spec §9.9); any click
             // outside closes it, like the project menu.
             if let id = state.reasoningMenuFor {
@@ -197,10 +192,7 @@ struct RootView: View {
         .onChange(of: state.selectedSection) { _, section in
             if section == .files { Task { await state.files?.refresh() } }
             // Bob only lives in 设置: the panel closes with it (spec §8.8).
-            if section != .settings {
-                state.bobPanelOpen = false
-                state.bobExampleOpen = nil
-            }
+            if section != .settings { state.bobPanelOpen = false }
         }
         // Coming back to the window reads the reply that is on screen.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in

@@ -97,7 +97,8 @@ struct ComposerView: View {
                                  placeholder: placeholder, identifier: "composer.input",
                                  onSubmit: send, onPasteImage: pasteImage, onPasteFiles: add, memberNames: memberNames,
                                  onToken: { token = $0 }, onMentionKey: handleKey, controller: controller,
-                                 autofocus: !onBoard, history: { [conversation] in Self.sentTexts(conversation) }, onEscape: escape)
+                                 autofocus: !onBoard, history: { [conversation] in Self.sentTexts(conversation) }, onEscape: escape,
+                                 listOpen: { showsPopover })
                     // `.composer-editor`: 22 min + 3 padding above and below, at most 160.
                     .frame(height: min(max(height, 28), 160))
                 HStack(spacing: 6) {
@@ -833,6 +834,8 @@ struct ComposerTextView: NSViewRepresentable {
     var history: () -> [String] = { [] }
     /// Esc with no list open; `true` when it did something — a running reply stops (9b, Q4).
     var onEscape: () -> Bool = { false }
+    /// The list over it (「/」, 「@」) is open: Return is the list's, even mid-composition.
+    var listOpen: () -> Bool = { false }
     /// Bob's smaller panel (D96) sets it lower.
     var fontSize: CGFloat = 13.5
 
@@ -882,7 +885,9 @@ struct ComposerTextView: NSViewRepresentable {
         context.coordinator.parent = self
         guard let view = scroll.documentView as? ComposerNSTextView else { return }
         controller?.textView = view
-        if view.string != text {
+        // Mid-composition the view holds the input method's letters, which the binding hasn't seen: writing it back
+        // wiped them and left the input method out of step — Return then went nowhere (user 2026-09-14).
+        if view.string != text, !view.hasMarkedText() {
             view.string = text
             view.setSelectedRange(NSRange(location: (text as NSString).length, length: 0))
             context.coordinator.measure(view)
@@ -894,6 +899,7 @@ struct ComposerTextView: NSViewRepresentable {
         view.placeholder = placeholder
         view.onPasteImage = onPasteImage
         view.onPasteFiles = onPasteFiles
+        view.listOpen = listOpen
         view.onFocus = { focused in DispatchQueue.main.async { context.coordinator.parent.isFocused = focused } }
         view.needsDisplay = true
     }
@@ -1041,6 +1047,25 @@ final class ComposerNSTextView: NSTextView {
         let accepted = super.becomeFirstResponder()
         if accepted { onFocus?(true) }
         return accepted
+    }
+
+    /// The list over the composer (「/」, 「@」) is open.
+    var listOpen: (() -> Bool)?
+
+    /// With the list open, Return picks its highlighted row even while an input method is still composing — Pinyin's
+    /// letters after 「/」 — which would take the key to commit them (user 2026-09-14): they are committed as typed,
+    /// the list filters on them, and Return goes on to the list.
+    override func keyDown(with event: NSEvent) {
+        let isReturn = event.keyCode == 36 || event.keyCode == 76
+        if isReturn, hasMarkedText(), listOpen?() == true {
+            unmarkText()
+            inputContext?.discardMarkedText()
+            didChangeText()
+            // After the token those letters make has reached the list.
+            DispatchQueue.main.async { [weak self] in self?.doCommand(by: #selector(NSResponder.insertNewline(_:))) }
+            return
+        }
+        super.keyDown(with: event)
     }
 
     override func resignFirstResponder() -> Bool {

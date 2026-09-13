@@ -177,9 +177,6 @@ final class AppState {
     var settingsCategory: SettingsCategory = .account
     /// Bob's floating panel over 设置 (7h, B1); leaving 设置 closes it.
     var bobPanelOpen = false
-    /// The example card drawn out of 设置 → Bob's hand, by its place in `BobExamples.all` (user 2026-09-13); leaving
-    /// 设置 puts it back.
-    var bobExampleOpen: Int?
     /// A command's one-off output under the thread, per conversation (7d, D2).
     var commandCards: [UUID: CommandCard] = [:]
     /// `/clear` waits for its confirmation (R1).
