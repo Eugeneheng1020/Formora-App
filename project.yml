@@ -17,8 +17,8 @@ settings:
     # DEVELOPMENT_TEAM and CODE_SIGN_STYLE: Automatic, and remove CODE_SIGN_IDENTITY.
     CODE_SIGN_STYLE: Manual
     CODE_SIGN_IDENTITY: "-"
-    MARKETING_VERSION: "0.1.5"
-    CURRENT_PROJECT_VERSION: "6"
+    MARKETING_VERSION: "0.1.6"
+    CURRENT_PROJECT_VERSION: "7"
 targets:
   Formora:
     type: application

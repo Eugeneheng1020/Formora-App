@@ -77,6 +77,8 @@ struct FormoraApp: App {
         state.chat.projectName = { [weak session] id in session?.projects.first { $0.id == id }?.name }
         // 10d: files as they were before an Agent wrote them, for 撤销 — outside every project.
         state.chat.fileHistoryFolder = support?.appendingPathComponent("FileHistory", isDirectory: true)
+        // D96: the files the user hands Bob — Formora's own folder, not a project's.
+        state.bob.attachmentsFolder = support?.appendingPathComponent(BobAttachments.folderName, isDirectory: true)
         // 10l: the copies members working side by side work in — Formora's own folder; one left by a crash goes now.
         let laneCopies = support?.appendingPathComponent("LaneCopies", isDirectory: true)
         if let laneCopies { try? FileManager.default.removeItem(at: laneCopies) }

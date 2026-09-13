@@ -33,6 +33,8 @@ final class BobSession {
         var steps: [Step] = []
         var failure: String?
         var note: String?
+        /// The files the user sent with it (D96).
+        var attachments: [BobAttachment] = []
     }
 
     /// A step waiting for 允许 / 不用了 (B5).
@@ -51,6 +53,15 @@ final class BobSession {
     private(set) var running: String?
     var input = ""
     var project: Project?
+    /// Files waiting to go with the next message (D96).
+    private(set) var pending: [BobAttachment] = []
+    /// Videos still being cut into frames: the message waits for them.
+    private(set) var preparing = 0
+    /// Where the files the user gives him are kept: Formora's own folder, not a project (D96).
+    @ObservationIgnored var attachmentsFolder: URL?
+    /// The files of the user's turns, by their place in `history`: put in only when a request is made, pictures for a
+    /// model that sees them.
+    @ObservationIgnored private var attached: [Int: [BobAttachment]] = [:]
 
     @ObservationIgnored private var history: [ChatTurn] = []
     @ObservationIgnored private var task: Task<Void, Never>?
@@ -110,17 +121,126 @@ final class BobSession {
 
     // MARK: From the page
 
-    func send(_ raw: String) {
+    /// A message, or one of his panel's `/` commands (D96): /clear, /memory and /help are answered here without the
+    /// model; what the panel does — a copy, an export, a settings page — comes back for it to do.
+    @discardableResult
+    func send(_ raw: String, attachments: [BobAttachment] = []) -> BobCommand.Action? {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !isBusy, !text.isEmpty else { return }
-        entries.append(Entry(role: .user, text: text))
-        history.append(ChatTurn(role: .user, text: text))
+        guard !isBusy, !text.isEmpty || !attachments.isEmpty else { return nil }
+        var asked = text
+        // A command is a command even with files waiting; `sendInput` leaves them for the next message.
+        switch BobCommands.parse(text) {
+        case .command(let command):
+            input = ""
+            switch command.action {
+            case .clear:
+                clear()
+            case .memory:
+                entries.append(Entry(role: .user, text: text))
+                entries.append(Entry(role: .bob, text: memoryReply))
+            case .help:
+                entries.append(Entry(role: .user, text: text))
+                entries.append(Entry(role: .bob, text: BobCommands.helpText))
+            case .dump, .export, .go:
+                return command.action
+            }
+            return nil
+        case .unknown(let why):
+            input = ""
+            entries.append(Entry(role: .user, text: text))
+            entries.append(Entry(role: .bob, text: "", failure: why))
+            return nil
+        case .skill(let name, let argument):
+            asked = "用 Skill「\(name)」的做法来做" + (argument.isEmpty ? "。" : "：\(argument)")
+        case .text:
+            break
+        }
+        entries.append(Entry(role: .user, text: text, attachments: attachments))
+        history.append(ChatTurn(role: .user, text: asked))
+        if !attachments.isEmpty { attached[history.count - 1] = attachments }
         input = ""
         isBusy = true
         task = Task { [weak self] in
             await self?.run()
             self?.end()
         }
+        return nil
+    }
+
+    /// The input and the files waiting with it: they go with a message or a Skill; a command runs and leaves them for
+    /// the next message.
+    @discardableResult
+    func sendInput() -> BobCommand.Action? {
+        guard !isBusy else { return nil }
+        switch BobCommands.parse(input.trimmingCharacters(in: .whitespacesAndNewlines)) {
+        case .command, .unknown:
+            return send(input)
+        case .skill, .text:
+            let files = pending
+            pending = []
+            return send(input, attachments: files)
+        }
+    }
+
+    /// Files for the next message (D96): copied into Formora's own folder; a video is cut into frames first.
+    func attach(_ urls: [URL]) async {
+        guard let folder = attachmentsFolder else { return }
+        for url in urls {
+            guard var item = try? BobAttachments.store(url, in: folder) else { continue }
+            pending.append(item)
+            guard item.kind == .video else { continue }
+            preparing += 1
+            if let sampled = await BobVideo.sample(item.url) {
+                item.frames = sampled.frames
+                item.duration = sampled.duration
+                if let index = pending.firstIndex(where: { $0.id == item.id }) { pending[index] = item }
+            }
+            preparing -= 1
+        }
+    }
+
+    /// A picture pasted into his input.
+    func attachPasted(_ png: Data) {
+        guard let folder = attachmentsFolder, let item = try? BobAttachments.storePasted(png, in: folder) else { return }
+        pending.append(item)
+    }
+
+    func removePending(_ id: UUID) {
+        pending.removeAll { $0.id == id }
+    }
+
+    /// The conversation as text: /dump copies it, /export wraps it in a page.
+    func transcript() -> String {
+        entries.map { entry in
+            switch entry.role {
+            case .user:
+                return "你：" + entry.text + (entry.attachments.isEmpty ? "" : "\n附件：" + entry.attachments.map(\.name).joined(separator: "、"))
+            case .bob:
+                var lines = ["Bob：" + entry.text]
+                lines += entry.steps.map { step in
+                    "  · " + step.call.summary + (step.result.map { $0.status == .done ? "（完成）" : "（没有完成）" } ?? "")
+                }
+                if let failure = entry.failure { lines.append("  ！" + failure) }
+                return lines.joined(separator: "\n")
+            }
+        }.joined(separator: "\n\n")
+    }
+
+    func exportHTML() -> String {
+        let escaped = transcript().replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+        return """
+        <!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>和 Bob 的对话</title>
+        <style>body{font:15px/1.7 -apple-system,sans-serif;max-width:760px;margin:40px auto;padding:0 20px;color:#222}pre{white-space:pre-wrap;font:inherit}</style>
+        <h1>和 Bob 的对话</h1><pre>\(escaped)</pre></html>
+        """
+    }
+
+    private var memoryReply: String {
+        guard let text = memory.text(agent: Conductor.bobID, project: Self.everywhere) else {
+            return "我还没有记下什么。你说以后都要怎样，我会记下来。"
+        }
+        return "我记着这些（不分项目）：\n\n" + text
     }
 
     /// 允许 / 不用了 on the card.
@@ -158,6 +278,7 @@ final class BobSession {
         guard !isBusy else { return }
         entries = []
         history = []
+        attached = [:]
     }
 
     /// 撤销 on a step that wrote a file (D95, 10d): the file back to before it, the step marked, and Bob told before his
@@ -179,6 +300,24 @@ final class BobSession {
         return "找不到这次修改。"
     }
 
+    /// What the model reads: each turn with its files — pictures only for a model that sees them (D96).
+    private func requestHistory(seesImages: Bool) -> [ChatTurn] {
+        history.indices.map { index in
+            guard let files = attached[index] else { return history[index] }
+            return BobAttachments.turn(history[index].text, files, seesImages: seesImages)
+        }
+    }
+
+    /// Asked only when a picture or a video was given; when nothing says yet, the provider's list is read once.
+    private func seesImages(_ reference: ModelReference) async -> Bool {
+        guard attached.values.contains(where: { $0.contains { $0.kind == .image || $0.kind == .video } }) else { return false }
+        if providers.modelInfo(reference.providerID, reference.modelID)?.acceptsImages == nil,
+           providers.modelLists[reference.providerID] == nil {
+            await providers.loadModels(reference.providerID)
+        }
+        return providers.seesImages(reference.providerID, reference.modelID)
+    }
+
     private func end() {
         task = nil
         isBusy = false
@@ -194,6 +333,7 @@ final class BobSession {
             entries.append(Entry(role: .bob, text: "", failure: Self.noModel))
             return
         }
+        let sees = await seesImages(reference)
         var sendsTools = true
         var note: String?
         var attempts = 0
@@ -201,7 +341,8 @@ final class BobSession {
         while calls < Self.callLimit {
             guard !Task.isCancelled else { return }
             let tools = sendsTools ? BobTools.all + MCPTools.allBindings(in: mcp).map(\.spec) : []
-            guard let request = ChatWire.request(target, system: systemPrompt(), history: history, reasoning: .auto, sendsReasoning: false,
+            guard let request = ChatWire.request(target, system: systemPrompt(), history: requestHistory(seesImages: sees), reasoning: .auto,
+                                                 sendsReasoning: false,
                                                  tools: tools) else {
                 entries.append(Entry(role: .bob, text: "", failure: "「\(reference.providerID)」的 Base URL 无效"))
                 return
@@ -277,7 +418,7 @@ final class BobSession {
     private func perform(_ call: ToolCall, search: ChatTarget?) async -> (ToolResult, BobResult?) {
         let context = BobTools.Context(agents: agents, conversations: conversations, chat: chat, providers: providers, skills: skills,
                                        mcp: mcp, notifications: notifications, project: project, model: model.current(providers), search: search,
-                                       memory: memory, history: chat.fileHistoryFolder, mcpClient: mcpClient)
+                                       memory: memory, history: chat.fileHistoryFolder, mcpClient: mcpClient, attachmentsFolder: attachmentsFolder)
         switch await BobTools.prepare(call, context: context) {
         case let .done(result, card):
             return (result, card)

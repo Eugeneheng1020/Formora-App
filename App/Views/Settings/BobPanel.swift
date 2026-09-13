@@ -1,4 +1,6 @@
+import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Bob's way in (7h, B1; spec §8.8): a 46pt round button at the bottom-right of 设置, on every category; it opens a
 /// 380-wide bubble with his conversation over the page you are on — you say 「接入 Notion」 looking at the MCP list, and
@@ -81,6 +83,12 @@ private struct BobPanel: View {
         // The shape casts the shadow, not the log (9a): a shadow of the content was redrawn with every streamed word.
         .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Palette.surface.color).shadow(color: .black.opacity(0.4), radius: 28, y: 12))
         .onExitCommand { state.bobPanelOpen = false }
+        // D96: files dropped anywhere on the panel go with the next message.
+        .dropDestination(for: URL.self) { urls, _ in
+            guard model != nil, !bob.isBusy else { return false }
+            Task { await bob.attach(urls) }
+            return true
+        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("bob.panel")
     }
@@ -170,17 +178,30 @@ private struct BobEntryView: View {
     var body: some View {
         switch entry.role {
         case .user:
-            Text(entry.text)
-                .font(FormoraFont.ui(12.5))
-                .foregroundStyle(Palette.ink.color)
-                .textSelection(.enabled)
-                .padding(.vertical, 8)
-                .padding(.horizontal, 12)
-                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Palette.surfaceRaised.color))
-                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Palette.line.color, lineWidth: 1))
-                .frame(maxWidth: 270, alignment: .trailing)
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .accessibilityIdentifier("bob.user")
+            VStack(alignment: .trailing, spacing: 4) {
+                if !entry.text.isEmpty {
+                    Text(entry.text)
+                        .font(FormoraFont.ui(12.5))
+                        .foregroundStyle(Palette.ink.color)
+                        .textSelection(.enabled)
+                        .padding(.vertical, 8)
+                        .padding(.horizontal, 12)
+                        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Palette.surfaceRaised.color))
+                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Palette.line.color, lineWidth: 1))
+                        .frame(maxWidth: 270, alignment: .trailing)
+                        .accessibilityIdentifier("bob.user")
+                }
+                // D96: the files that went with it.
+                if !entry.attachments.isEmpty {
+                    Text("附件：" + entry.attachments.map(\.name).joined(separator: "、"))
+                        .font(FormoraFont.mono(10.5))
+                        .foregroundStyle(Palette.inkFaint.color)
+                        .lineLimit(2)
+                        .frame(maxWidth: 270, alignment: .trailing)
+                        .accessibilityIdentifier("bob.userAttachments")
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
         case .bob:
             VStack(alignment: .leading, spacing: 8) {
                 if !entry.text.isEmpty {
@@ -396,28 +417,197 @@ private struct BobResultCard: View {
 }
 
 /// The input: Return sends, 停止 while he works. Typing only redraws the send button (spec §8.8).
+/// One thing 「/」 offers: one of his commands, or a Skill to ask for.
+private struct BobSuggestion: Identifiable {
+    let name: String
+    let note: String
+    let command: BobCommand?
+
+    var id: String { name }
+}
+
+/// The input (D96): 「/」 lists his commands and every Skill; the paperclip, ⌘V or a drop on the panel add files, a
+/// video is cut into frames before it can go. Return sends, 停止 while he works.
 private struct BobInput: View {
     let state: AppState
     let isEnabled: Bool
+    @State private var selection = 0
+    @State private var height: CGFloat = 24
+    @State private var isFocused = false
 
-    private var canSend: Bool { isEnabled && !state.bob.isBusy && !state.bob.input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var bob: BobSession { state.bob }
+
+    private var canSend: Bool {
+        isEnabled && !bob.isBusy && bob.preparing == 0
+            && (!bob.input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !bob.pending.isEmpty)
+    }
+
+    /// While the first word after 「/」 is being typed.
+    private var suggestions: [BobSuggestion] {
+        let text = bob.input
+        guard isEnabled, text.hasPrefix("/"), !text.contains(where: \.isWhitespace) else { return [] }
+        let query = String(text.dropFirst())
+        let needle = FileSearch.normalize(query)
+        let commands = BobCommands.matching(query).map { BobSuggestion(name: $0.name, note: $0.note, command: $0) }
+        let skills = state.skills.skills
+            .filter { needle.isEmpty || FileSearch.normalize("skill:\($0.id) \($0.name)").contains(needle) }
+            .map { BobSuggestion(name: "/skill:\($0.id)", note: $0.name, command: nil) }
+        return Array((commands + skills).prefix(10))
+    }
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 9) {
-            TextField(isEnabled ? "让 Bob 帮你做点什么…" : "先给 Bob 选一个模型",
-                      text: Binding(get: { state.bob.input }, set: { state.bob.input = $0 }), axis: .vertical)
-                .textFieldStyle(.plain)
-                .font(FormoraFont.ui(12.5))
-                .lineLimit(1...5)
-                .onSubmit { if canSend { state.bob.send(state.bob.input) } }
-                .disabled(!isEnabled || state.bob.isBusy)
-                .padding(.vertical, 6)
-                .padding(.horizontal, 10)
-                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Palette.surfaceRaised.color))
-                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Palette.line.color, lineWidth: 1))
-                .accessibilityIdentifier("bob.input")
+        VStack(alignment: .leading, spacing: 8) {
+            if !suggestions.isEmpty { popup }
+            if !bob.pending.isEmpty { chips }
+            HStack(alignment: .bottom, spacing: 9) {
+                IconActionButton(icon: Icons.paperclip, label: "添加附件", identifier: "bob.attach") { pickFiles() }
+                    .disabled(!isEnabled || bob.isBusy)
+                field
+                sendButton
+            }
+        }
+        .opacity(isEnabled ? 1 : 0.55)
+    }
+
+    /// The main composer's text view: a SwiftUI field's editor keeps ⌘V to itself, so a picture would never arrive.
+    private var field: some View {
+        ComposerTextView(text: Binding(get: { bob.input }, set: { bob.input = $0 }), height: $height, isFocused: $isFocused,
+                         isEditable: isEnabled && !bob.isBusy,
+                         placeholder: isEnabled ? "让 Bob 帮你做点什么…　/ 指令" : "先给 Bob 选一个模型",
+                         identifier: "bob.input", onSubmit: submit,
+                         onPasteImage: { bob.attachPasted($0) },
+                         onPasteFiles: { urls in Task { await bob.attach(urls) } },
+                         onMentionKey: key, fontSize: 12.5)
+            .frame(height: min(max(height, 24), 110))
+            .onChange(of: bob.input) { selection = 0 }
+            .padding(.vertical, 6)
+            .padding(.horizontal, 10)
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Palette.surfaceRaised.color))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Palette.line.color, lineWidth: 1))
+            .accessibilityIdentifier("bob.input")
+    }
+
+    private var popup: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(suggestions.enumerated()), id: \.element.id) { index, item in
+                Button { accept(item) } label: {
+                    HStack(spacing: 8) {
+                        Text(item.name).font(FormoraFont.mono(11.5)).foregroundStyle(Palette.ink.color).lineLimit(1)
+                        Text(item.note).font(FormoraFont.ui(11)).foregroundStyle(Palette.inkFaint.color).lineLimit(1)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.vertical, 5)
+                    .padding(.horizontal, 9)
+                    .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(index == selection ? Palette.surfaceRaised.color : .clear))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("bob.suggest.\(item.name)")
+            }
+        }
+        .padding(4)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Palette.surface.color))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Palette.line.color, lineWidth: 1))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("bob.suggestions")
+    }
+
+    private var chips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(bob.pending) { item in
+                    HStack(spacing: 5) {
+                        IconView(item.kind == .image ? Icons.image : item.kind == .video ? Icons.display : Icons.file, size: 11)
+                        Text(item.name).font(FormoraFont.mono(10.5)).lineLimit(1)
+                        if item.kind == .video, item.duration == nil, bob.preparing > 0 { ProgressView().controlSize(.mini) }
+                        Button { bob.removePending(item.id) } label: { IconView(Icons.close, size: 9) }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("移除 \(item.name)")
+                    }
+                    .foregroundStyle(Palette.inkMuted.color)
+                    .padding(.vertical, 4)
+                    .padding(.horizontal, 8)
+                    .background(Capsule().fill(Palette.surfaceRaised.color))
+                    .overlay(Capsule().strokeBorder(Palette.line.color, lineWidth: 1))
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("bob.attachment")
+                }
+            }
+        }
+    }
+
+    /// ↑ ↓ walk the open list and Return or Tab takes the highlighted line; `false` leaves the key to the text.
+    private func key(_ key: MentionKey) -> Bool {
+        let items = suggestions
+        guard !items.isEmpty else { return false }
+        switch key {
+        case .up: selection = (selection - 1 + items.count) % items.count
+        case .down: selection = (selection + 1) % items.count
+        case .accept: accept(items[min(selection, items.count - 1)])
+        case .cancel: bob.input = ""
+        }
+        return true
+    }
+
+    /// Return: the highlighted suggestion while the list is open, otherwise send.
+    private func submit() {
+        let items = suggestions
+        if items.indices.contains(selection) {
+            accept(items[selection])
+        } else if canSend {
+            perform(bob.sendInput())
+        }
+    }
+
+    /// A command runs at once; a Skill waits for what to do with it.
+    private func accept(_ item: BobSuggestion) {
+        if item.command != nil {
+            bob.input = item.name
+            perform(bob.sendInput())
+        } else {
+            bob.input = item.name + " "
+        }
+    }
+
+    /// What a command leaves to the panel.
+    private func perform(_ action: BobCommand.Action?) {
+        switch action {
+        case .dump:
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(bob.transcript(), forType: .string)
+            state.toasts.show("已复制和 Bob 的对话")
+        case .export:
+            let panel = NSSavePanel()
+            panel.allowedContentTypes = [.html]
+            panel.nameFieldStringValue = "和 Bob 的对话.html"
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            do {
+                try Data(bob.exportHTML().utf8).write(to: url, options: .atomic)
+                state.toasts.show("已导出", note: url.lastPathComponent)
+            } catch {
+                state.toasts.show("没有导出", note: error.localizedDescription, isError: true)
+            }
+        case .go(let category):
+            state.settingsCategory = category
+        default:
+            break
+        }
+    }
+
+    private func pickFiles() {
+        let panel = NSOpenPanel()
+        panel.title = "给 Bob 的附件"
+        panel.prompt = "添加"
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK else { return }
+        let urls = panel.urls
+        Task { await bob.attach(urls) }
+    }
+
+    private var sendButton: some View {
             Button {
-                if state.bob.isBusy { state.bob.stop() } else { state.bob.send(state.bob.input) }
+                if bob.isBusy { bob.stop() } else { perform(bob.sendInput()) }
             } label: {
                 IconView(state.bob.isBusy ? Icons.close : Icons.send, size: 14)
                     .foregroundStyle(Palette.accentInk.color)
@@ -429,7 +619,5 @@ private struct BobInput: View {
             .disabled(!state.bob.isBusy && !canSend)
             .accessibilityLabel(state.bob.isBusy ? "停止" : "发送")
             .accessibilityIdentifier(state.bob.isBusy ? "bob.stop" : "bob.send")
-        }
-        .opacity(isEnabled ? 1 : 0.55)
     }
 }

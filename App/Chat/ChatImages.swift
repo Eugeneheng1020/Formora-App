@@ -48,6 +48,15 @@ enum ChatImages {
         return image
     }
 
+    /// A frame (a video's, D96) as the model receives it: JPEG; its size was already fitted when it was cut.
+    static func encode(_ picture: CGImage) -> ChatImage? {
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(destination, picture, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return ChatImage(mediaType: "image/jpeg", base64: (data as Data).base64EncodedString())
+    }
+
     private static func encode(_ url: URL) -> ChatImage? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil), CGImageSourceGetCount(source) > 0,
               let (width, height) = pixelSize(url) else { return nil }

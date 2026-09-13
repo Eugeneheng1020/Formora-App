@@ -90,9 +90,11 @@ enum BobTools {
         /// Where a file's earlier text is kept for 撤销 — the Agents' folder (10d).
         var history: URL?
         var mcpClient = MCPClient()
+        /// Where the files the user gave him are (D96).
+        var attachmentsFolder: URL?
 
-        /// Every installed Skill's folder: his reading tools may look in them.
-        @MainActor var skillFolders: [URL] { skills.skills.compactMap { skills.folder(of: $0) } }
+        /// Every installed Skill's folder, and the files the user gave him: his reading tools may look in them.
+        @MainActor var readRoots: [URL] { skills.skills.compactMap { skills.folder(of: $0) } + (attachmentsFolder.map { [$0] } ?? []) }
     }
 
     enum Step {
@@ -220,7 +222,7 @@ enum BobTools {
             let counts = FileHistory.preview(call, root: root).map(lineCounts) ?? ""
             let verb = call.name == AgentTools.write.name ? "写文件" : "改文件"
             return .ask(summary: "\(verb)「\(path)」", detail: "\(context.project?.name ?? "项目")/\(path)" + counts) {
-                let result = await AgentTools.run(call, root: root, readRoots: context.skillFolders, history: context.history)
+                let result = await AgentTools.run(call, root: root, readRoots: context.readRoots, history: context.history)
                 guard result.status == .done, let saved = result.savedPath else { return (result, nil) }
                 return (result, BobResult(title: "已\(result.isNewFile == true ? "写好" : "改好")「\((saved as NSString).lastPathComponent)」",
                                           meta: "\(context.project?.name ?? "项目")/\(saved)", jump: .file(saved)))
@@ -246,10 +248,12 @@ enum BobTools {
             }
             guard [AgentTools.read.name, AgentTools.glob.name, AgentTools.grep.name, AgentTools.webSearch.name]
                     .contains(call.name) else { return .done(.failed("没有 \(call.name) 这个工具。"), nil) }
-            if call.name != AgentTools.webSearch.name, context.project?.root == nil {
+            // With no project open, read still reaches the files the user gave him (D96).
+            let root = context.project?.root ?? (call.name == AgentTools.read.name ? context.attachmentsFolder : nil)
+            if call.name != AgentTools.webSearch.name, root == nil {
                 return .done(.failed("现在没有打开的项目，看不了项目里的文件。"), nil)
             }
-            return .done(await AgentTools.run(call, root: context.project?.root, search: context.search, readRoots: context.skillFolders), nil)
+            return .done(await AgentTools.run(call, root: root, search: context.search, readRoots: context.readRoots), nil)
         }
     }
 

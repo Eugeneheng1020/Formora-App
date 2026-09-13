@@ -833,6 +833,8 @@ struct ComposerTextView: NSViewRepresentable {
     var history: () -> [String] = { [] }
     /// Esc with no list open; `true` when it did something — a running reply stops (9b, Q4).
     var onEscape: () -> Bool = { false }
+    /// Bob's smaller panel (D96) sets it lower.
+    var fontSize: CGFloat = 13.5
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -848,7 +850,7 @@ struct ComposerTextView: NSViewRepresentable {
         view.importsGraphics = false
         view.allowsUndo = true
         view.drawsBackground = false
-        view.font = FormoraFont.nsFont(.sora, size: 13.5, weight: 400)
+        view.font = FormoraFont.nsFont(.sora, size: fontSize, weight: 400)
         view.textColor = NSColor(Palette.ink.color)
         view.insertionPointColor = NSColor(Palette.accent.color)
         view.textContainerInset = NSSize(width: 0, height: 3)
@@ -1045,6 +1047,13 @@ final class ComposerNSTextView: NSTextView {
         let accepted = super.resignFirstResponder()
         if accepted { onFocus?(false) }
         return accepted
+    }
+
+    /// A plain-text view turns 粘贴 off when the pasteboard holds only a picture (a screenshot), so ⌘V would never
+    /// reach `paste` below.
+    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        if item.action == #selector(paste(_:)), isEditable, onPasteImage != nil, NSImage.canInit(with: .general) { return true }
+        return super.validateUserInterfaceItem(item)
     }
 
     override func paste(_ sender: Any?) {
