@@ -28,7 +28,8 @@ enum MCPConnect {
             } else if entry.usesOAuth {
                 access = "浏览器登录" + (entry.field != nil ? "，也可以填令牌" : "")
             } else if let field = entry.field {
-                access = "要填「\(field.label)」"
+                // Where to make one (D93): Bob tells the user, who pastes it in the chat.
+                access = "要填「\(field.label)」：" + field.hint.trimmingCharacters(in: CharacterSet(charactersIn: "。"))
             } else {
                 access = "不用登录"
             }

@@ -164,14 +164,15 @@ enum ChatWire {
     /// with its placeholders.
     static func shielded(system: String?, history: [ChatTurn], shield: SecretShield = .shared) -> (system: String?, history: [ChatTurn]) {
         var hidden = false
-        func hide(_ text: String) -> String {
-            let result = shield.hide(text)
+        func hide(_ text: String, typedByUser: Bool = false) -> String {
+            let result = shield.hide(text, typedByUser: typedByUser)
             if result.hidden { hidden = true }
             return result.text
         }
         let turns = history.map { turn -> ChatTurn in
             var turn = turn
-            turn.text = hide(turn.text)
+            // D93: in what the user typed, a key in any format after 令牌 / key / token.
+            turn.text = hide(turn.text, typedByUser: turn.role == .user)
             turn.toolCalls = turn.toolCalls.map { call in
                 var call = call
                 call.arguments = hide(call.arguments)
