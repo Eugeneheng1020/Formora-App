@@ -1,0 +1,19 @@
+{
+  "fill": {
+    "automatic-gradient": "srgb:0.12549,0.12941,0.15294,1.00000"
+  },
+  "groups": [
+    {
+      "layers": [
+        {
+          "image-name": "cube.png",
+          "name": "cube"
+        }
+      ],
+      "specular": true
+    }
+  ],
+  "supported-platforms": {
+    "squares": "shared"
+  }
+}

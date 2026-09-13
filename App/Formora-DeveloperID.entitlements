@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The Developer ID build (7j, B1′; user 2026-09-12): no App Sandbox. Inside it, accessibility calls to other apps
+	     fail even with the accessibility server's lookup allowed — a scratch copy without it read Finder's and
+	     TextEdit's windows at once. What stays is Formora's own fence: file tools inside the project folder, commands
+	     and computer use behind approval. Debug builds are this build; the App Store build keeps the sandbox. -->
+	<!-- Under the hardened runtime, Apple events are refused without asking unless this is present (old phase 0). -->
+	<key>com.apple.security.automation.apple-events</key>
+	<true/>
+</dict>
+</plist>

@@ -1,0 +1,7 @@
+# Build output and the project XcodeGen generates from project.yml
+build/
+Formora.xcodeproj/
+xcuserdata/
+*.xcarchive
+*.dmg
+.DS_Store

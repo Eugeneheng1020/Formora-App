@@ -1,0 +1,55 @@
+/* highlight.js theme in the Formora palette (docs/design/设计规范.md §1 plus two
+   scoped syntax hues). Dark-only, like the rest of the app. */
+.hljs {
+  color: #F1F1EF;
+  background: #131316;
+}
+.hljs-comment,
+.hljs-quote {
+  color: #55575C;
+  font-style: italic;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-section,
+.hljs-doctag,
+/* Preprocessor directives (#if, #define) come through as a keyword nested
+   inside a meta scope, so they need the descendant form, not a flat class. */
+.hljs-meta .hljs-keyword {
+  color: #8B93F8;
+}
+.hljs-string,
+.hljs-regexp,
+.hljs-addition,
+.hljs-attribute,
+.hljs-meta .hljs-string {
+  color: #3FCB8E;
+}
+.hljs-number,
+.hljs-meta,
+.hljs-selector-id,
+.hljs-template-variable {
+  color: #E8A85C;
+}
+.hljs-title,
+.hljs-title.function_,
+.hljs-title.class_,
+.hljs-type,
+.hljs-name,
+.hljs-tag,
+.hljs-attr,
+.hljs-selector-class,
+.hljs-built_in {
+  color: #7FD1F0;
+}
+.hljs-variable,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-link,
+.hljs-deletion,
+.hljs-subst {
+  color: #E8695C;
+}
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 700; }
