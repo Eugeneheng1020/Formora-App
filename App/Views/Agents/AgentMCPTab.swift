@@ -49,7 +49,7 @@ struct AgentMCPTab: View {
         let usable = store.isUsable(server.id)
         return VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 11) {
-                CapabilityMark(text: server.mark)
+                CapabilityMark(text: server.mark, icon: server.catalogID.flatMap(MCPCatalogEntry.entry)?.logoIcon)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(server.name).font(FormoraFont.ui(12.5, weight: 600)).foregroundStyle(Palette.ink.color)
                     Text("\(server.transportLabel) · \(server.endpointSummary)")

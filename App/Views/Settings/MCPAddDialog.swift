@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Adding an MCP server in three layers (spec §8.4) — 推荐 (one click, only what the user must supply),
@@ -10,7 +11,8 @@ struct MCPAddDialog: View {
     @State private var mode: AppState.MCPAddMode = .catalog
     @State private var entry: MCPCatalogEntry?
     @State private var name = ""
-    @State private var token = ""
+    /// What the entry asks for, by field id (D94).
+    @State private var values: [String: String] = [:]
     @State private var paste = ""
     @State private var manual = ManualForm()
     @State private var problem: String?
@@ -42,6 +44,7 @@ struct MCPAddDialog: View {
                 }
                 .frame(maxHeight: 470)
                 .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("mcpAdd.scroll")
                 Rectangle().fill(Palette.line.color).frame(height: 1)
                 footer
             }
@@ -87,7 +90,7 @@ struct MCPAddDialog: View {
     private var subtitle: String {
         if editingID != nil { return "连接信息全局保存；敏感请求头和环境变量写入 macOS 钥匙串。" }
         if let entry {
-            return entry.field == nil && !entry.usesOAuth ? "这个服务不需要额外信息，直接添加即可。" : "只需要下面这些信息，其余连接参数已经配好。"
+            return entry.fields.isEmpty && !entry.usesOAuth ? "这个服务不需要额外信息，直接添加即可。" : "只需要下面这些信息，其余连接参数已经配好。"
         }
         switch mode {
         case .catalog: return "从推荐里挑一个，或用另外两种方式接入。"
@@ -138,47 +141,60 @@ struct MCPAddDialog: View {
         }
     }
 
-    /// Layer 1. Transport and command never show — only name, summary and how it signs in.
+    /// Layer 1. Transport and command never show — only name, summary and how it signs in. In five groups, each row with
+    /// the brand's logo where there is one (D94).
     private var catalog: some View {
-        VStack(spacing: 0) {
-            ForEach(MCPCatalogEntry.all) { item in
-                let added = store.servers.contains { $0.catalogID == item.id }
-                HStack(spacing: 11) {
-                    CapabilityMark(text: item.mark)
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(item.name).font(FormoraFont.ui(12.5, weight: 600)).foregroundStyle(Palette.ink.color)
-                        Text(item.summary).font(FormoraFont.ui(11)).foregroundStyle(Palette.inkMuted.color).padding(.top, 2)
-                        HStack(spacing: 6) {
-                            if item.usesOAuth { SmallTag(text: "浏览器登录") }
-                            if item.field != nil { SmallTag(text: item.tokenIsRequired ? "需要令牌" : "可用令牌") }
-                            if item.isStdio, !MCPBuild.supportsStdio { SmallTag(text: "只有官网版能用") }
-                        }
-                        .padding(.top, 6)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    if added {
-                        SmallTag(text: "已添加")
-                    } else {
-                        Button("添加") { choose(item) }
-                            .buttonStyle(FormoraButtonStyle())
-                            .accessibilityIdentifier("mcpAdd.catalog.\(item.id)")
-                    }
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(MCPCatalogEntry.Category.allCases, id: \.self) { category in
+                Text(category.title)
+                    .font(FormoraFont.ui(12, weight: 600))
+                    .foregroundStyle(Palette.inkMuted.color)
+                    .padding(.top, category == MCPCatalogEntry.Category.allCases.first ? 0 : 18)
+                    .padding(.bottom, 6)
+                VStack(spacing: 0) {
+                    ForEach(MCPCatalogEntry.all.filter { $0.category == category }) { item in catalogRow(item) }
                 }
-                .padding(.vertical, 13)
-                .overlay(alignment: .bottom) { Rectangle().fill(Palette.line.color).frame(height: 1) }
+                .overlay(alignment: .top) { Rectangle().fill(Palette.line.color).frame(height: 1) }
             }
         }
-        .overlay(alignment: .top) { Rectangle().fill(Palette.line.color).frame(height: 1) }
+    }
+
+    private func catalogRow(_ item: MCPCatalogEntry) -> some View {
+        let added = store.servers.contains { $0.catalogID == item.id }
+        return HStack(spacing: 11) {
+            CapabilityMark(text: item.mark, icon: item.logoIcon)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(item.name).font(FormoraFont.ui(12.5, weight: 600)).foregroundStyle(Palette.ink.color)
+                Text(item.summary).font(FormoraFont.ui(11)).foregroundStyle(Palette.inkMuted.color).padding(.top, 2)
+                HStack(spacing: 6) {
+                    if item.usesOAuth { SmallTag(text: "浏览器登录") }
+                    if item.fields.contains(where: \.isSecret) { SmallTag(text: item.tokenIsRequired ? "需要令牌" : "可用令牌") }
+                    if item.fields.contains(where: \.isFolder) { SmallTag(text: "选文件夹") }
+                    if item.isStdio, !MCPBuild.supportsStdio { SmallTag(text: "只有官网版能用") }
+                }
+                .padding(.top, 6)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if added {
+                SmallTag(text: "已添加")
+            } else {
+                Button("添加") { choose(item) }
+                    .buttonStyle(FormoraButtonStyle())
+                    .accessibilityIdentifier("mcpAdd.catalog.\(item.id)")
+            }
+        }
+        .padding(.vertical, 13)
+        .overlay(alignment: .bottom) { Rectangle().fill(Palette.line.color).frame(height: 1) }
     }
 
     private func entryForm(_ item: MCPCatalogEntry) -> some View {
         VStack(alignment: .leading, spacing: 15) {
             field("显示名称") { InputField(placeholder: item.name, text: $name, identifier: "mcpAdd.name") }
-            if let token = item.field {
-                field(token.label) {
+            ForEach(item.fields, id: \.id) { entryField in
+                field(entryField.label) {
                     VStack(alignment: .leading, spacing: 5) {
-                        SecretInput(placeholder: token.placeholder, text: $token, identifier: "mcpAdd.token")
-                        Text(token.hint).font(FormoraFont.ui(11)).foregroundStyle(Palette.inkFaint.color).lineSpacing(2)
+                        input(entryField, of: item)
+                        Text(entryField.hint).font(FormoraFont.ui(11)).foregroundStyle(Palette.inkFaint.color).lineSpacing(2)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -188,6 +204,36 @@ struct MCPAddDialog: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    /// A secret in a secure field (the first keeps `mcpAdd.token`), a plain value in an ordinary one, a folder in a path
+    /// field with 「选择…」 beside it (D94).
+    @ViewBuilder private func input(_ entryField: MCPCatalogEntry.Field, of item: MCPCatalogEntry) -> some View {
+        let value = Binding(get: { values[entryField.id] ?? "" }, set: { values[entryField.id] = $0 })
+        switch entryField.kind {
+        case .secret:
+            let first = item.fields.first(where: \.isSecret)?.id == entryField.id
+            SecretInput(placeholder: entryField.placeholder, text: value, identifier: first ? "mcpAdd.token" : "mcpAdd.field.\(entryField.id)")
+        case .environment:
+            InputField(placeholder: entryField.placeholder, text: value, mono: true, identifier: "mcpAdd.field.\(entryField.id)")
+        case .folder:
+            HStack(spacing: 8) {
+                InputField(placeholder: entryField.placeholder, text: value, mono: true, identifier: "mcpAdd.folder")
+                Button("选择…") { chooseFolder(for: entryField) }
+                    .buttonStyle(FormoraButtonStyle())
+                    .accessibilityIdentifier("mcpAdd.chooseFolder")
+            }
+        }
+    }
+
+    private func chooseFolder(for entryField: MCPCatalogEntry.Field) {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "选择"
+        panel.message = entryField.hint
+        if panel.runModal() == .OK, let url = panel.url { values[entryField.id] = url.path }
     }
 
     /// Layer 2: shows only what was recognised (transport, endpoint, counts), not a field-by-field form.
@@ -283,9 +329,9 @@ struct MCPAddDialog: View {
     private func choose(_ item: MCPCatalogEntry) {
         problem = nil
         name = item.name
-        token = ""
-        if item.field == nil, item.note == nil {
-            add(item.config(name: item.name, token: ""))
+        values = [:]
+        if item.fields.isEmpty, item.note == nil {
+            add(item.config(name: item.name, values: [:]))
         } else {
             entry = item
         }
@@ -306,11 +352,15 @@ struct MCPAddDialog: View {
             return
         }
         if let entry {
-            if entry.tokenIsRequired, token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                problem = "请先填写「\(entry.field?.label ?? "令牌")」"
+            if let missing = entry.missing(values) {
+                problem = missing.isFolder ? "请先选「\(missing.label)」" : "请先填写「\(missing.label)」"
                 return
             }
-            add(entry.config(name: name, token: token))
+            if let folderProblem = entry.folderProblem(values) {
+                problem = folderProblem
+                return
+            }
+            add(entry.config(name: name, values: values))
             return
         }
         switch mode {

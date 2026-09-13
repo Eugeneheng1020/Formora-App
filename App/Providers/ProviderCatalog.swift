@@ -160,7 +160,8 @@ enum ProviderCatalog {
     static func builtIn(_ id: String) -> BuiltInProvider? { builtIns.first { $0.id == id } }
 }
 
-/// The bundled provider logos, parsed once.
+/// The bundled logos (simple-icons, CC0), parsed once: the model providers' and, since D94, the MCP catalog's — in the
+/// same folder, so neither repository's project.yml needed another resource folder.
 enum ProviderLogos {
     static func icon(_ name: String) -> SVGIcon? { all[name] }
 

@@ -101,12 +101,20 @@ extension Skill {
 /// `.capability-mark`: 32pt tile with the first two characters.
 struct CapabilityMark: View {
     let text: String
+    /// A brand's logo, single colour, in place of the letters (D94).
+    var icon: SVGIcon? = nil
 
     var body: some View {
-        Text(text)
-            .font(FormoraFont.mono(10, weight: 700))
+        Group {
+            if let icon {
+                IconView(icon, size: 16)
+            } else {
+                Text(text)
+                    .font(FormoraFont.mono(10, weight: 700))
+                    .lineLimit(1)
+            }
+        }
             .foregroundStyle(Palette.inkMuted.color)
-            .lineLimit(1)
             .frame(width: 32, height: 32)
             .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Palette.surfaceRaised.color))
             .frame(width: 36, alignment: .leading)

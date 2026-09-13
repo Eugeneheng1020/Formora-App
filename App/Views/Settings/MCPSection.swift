@@ -51,7 +51,7 @@ private struct MCPServerRow: View {
         let status = store.status(of: server.id)
         let users = store.usage(server.id)
         HStack(alignment: .center, spacing: 11) {
-            CapabilityMark(text: server.mark)
+            CapabilityMark(text: server.mark, icon: server.catalogID.flatMap(MCPCatalogEntry.entry)?.logoIcon)
             VStack(alignment: .leading, spacing: 0) {
                 Text(server.name).font(FormoraFont.ui(12.5, weight: 600)).foregroundStyle(Palette.ink.color)
                 Text("\(server.transportLabel) · \(server.endpointSummary)")

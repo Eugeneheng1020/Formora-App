@@ -13,10 +13,10 @@ enum MCPConnect {
 
     static let addSpec = ToolSpec(
         name: "mcp_add",
-        description: "Connect an MCP service: by `catalog_id` (from mcp_catalog), by `url` (a Streamable HTTP endpoint) with a `name`, or by `config` (a pasted JSON config). A `token` the user gave becomes the service's key (a header, or a local server's environment variable). It is tested at once; a service that needs signing in opens the user's browser."
+        description: "Connect an MCP service: by `catalog_id` (from mcp_catalog), by `url` (a Streamable HTTP endpoint) with a `name`, or by `config` (a pasted JSON config). A `token` the user gave becomes the service's key (a header, or a local server's environment variable); a service that asks for a folder takes the absolute path the user gave as `folder`, and one that asks for several values takes them in `values` under the names mcp_catalog shows. It is tested at once; a service that needs signing in opens the user's browser."
             + (MCPBuild.supportsStdio ? "" : " Only HTTP services work in this build.")
             + " Connecting enables it for no Agent — the user does that in the Agent's MCP tab.",
-        parameters: #"{"type":"object","properties":{"catalog_id":{"type":"string"},"url":{"type":"string"},"name":{"type":"string"},"config":{"type":"string","description":"A pasted MCP config, JSON"},"token":{"type":"string","description":"An API key or token the user gave"}}}"#,
+        parameters: #"{"type":"object","properties":{"catalog_id":{"type":"string"},"url":{"type":"string"},"name":{"type":"string"},"config":{"type":"string","description":"A pasted MCP config, JSON"},"token":{"type":"string","description":"An API key or token the user gave"},"folder":{"type":"string","description":"An absolute folder path the user gave, for a service that asks for a folder"},"values":{"type":"object","description":"Several values by the names mcp_catalog shows, e.g. {\"app_id\":\"…\",\"app_secret\":\"…\"}","additionalProperties":{"type":"string"}}}}"#,
         tier: .write)
 
     static func catalogText() -> String {
@@ -26,10 +26,16 @@ enum MCPConnect {
             if entry.isStdio, !MCPBuild.supportsStdio {
                 access = "要在本机启动，这个版本接不了"
             } else if entry.usesOAuth {
-                access = "浏览器登录" + (entry.field != nil ? "，也可以填令牌" : "")
-            } else if let field = entry.field {
-                // Where to make one (D93): Bob tells the user, who pastes it in the chat.
-                access = "要填「\(field.label)」：" + field.hint.trimmingCharacters(in: CharacterSet(charactersIn: "。"))
+                access = "浏览器登录" + (entry.fields.contains(where: \.isSecret) ? "，也可以填令牌" : "")
+            } else if !entry.fields.isEmpty {
+                // Where to make or find each (D93): Bob tells the user, who pastes it in the chat. The name to pass it
+                // under when there's a folder or several (D94).
+                let several = entry.fields.count > 1
+                access = entry.fields.map { field in
+                    let hint = field.hint.trimmingCharacters(in: CharacterSet(charactersIn: "。"))
+                    let key = several ? "（\(field.id)）" : field.isFolder ? "（folder）" : ""
+                    return (field.isFolder ? "要选" : "要填") + "「\(field.label)」\(key)：\(hint)"
+                }.joined(separator: "；")
             } else {
                 access = "不用登录"
             }
@@ -53,18 +59,22 @@ enum MCPConnect {
         let config: (server: MCPServerConfig, secrets: [String: String])
         if !text("catalog_id").isEmpty {
             let wanted = text("catalog_id")
-            guard let entry = MCPCatalogEntry.entry(wanted.lowercased())
-                    ?? MCPCatalogEntry.all.first(where: { FileSearch.normalize($0.name).contains(FileSearch.normalize(wanted)) }) else {
+            guard let entry = catalogEntry(wanted) else {
                 return .answer(.failed("推荐目录里没有「\(wanted)」。先用 mcp_catalog 看有哪些，或者要用户给地址。"), existing: nil)
             }
             if let existing = store.servers.first(where: { $0.catalogID == entry.id }) {
                 return .answer(.done("\(existing.name) 之前已经接入过了，没有重复添加。"), existing: existing.id)
             }
             if entry.isStdio, !MCPBuild.supportsStdio { return .answer(.failed("\(entry.name) 要在本机启动进程，这个版本接不了。"), existing: nil) }
-            if entry.tokenIsRequired, token.isEmpty {
-                return .answer(.failed("接入 \(entry.name) 要先有「\(entry.field?.label ?? "令牌")」。向用户要，别编。"), existing: nil)
+            let values = values(args, for: entry)
+            if let missing = entry.missing(values) {
+                let what = missing.isFolder ? "「\(missing.label)」的完整路径（放在 folder 里）" : "「\(missing.label)」"
+                return .answer(.failed("接入 \(entry.name) 要先有\(what)。向用户要，别编。"), existing: nil)
             }
-            config = entry.config(name: "", token: token)
+            if let problem = entry.folderProblem(values) {
+                return .answer(.failed(problem + "。请用户确认路径。"), existing: nil)
+            }
+            config = entry.config(name: "", values: values)
         } else if !text("config").isEmpty {
             switch MCPConfigParser.parse(text("config")) {
             case .failure(let problem): return .answer(.failed("这段配置读不出来：\(problem.message)"), existing: nil)
@@ -99,15 +109,33 @@ enum MCPConnect {
         return .add(server: config.server, secrets: config.secrets)
     }
 
-    /// The command an `mcp_add` would start on this Mac, for its approval card (9d, S6); `nil` for a web address.
+    /// By id, or by a name that contains what was asked for.
+    nonisolated static func catalogEntry(_ wanted: String) -> MCPCatalogEntry? {
+        MCPCatalogEntry.entry(wanted.lowercased())
+            ?? MCPCatalogEntry.all.first { FileSearch.normalize($0.name).contains(FileSearch.normalize(wanted)) }
+    }
+
+    /// What a call gives for an entry's fields (D94): `values` by name, `token` for its first secret, `folder` for its folder.
+    nonisolated static func values(_ args: [String: Any], for entry: MCPCatalogEntry) -> [String: String] {
+        func text(_ key: String) -> String { (args[key] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
+        var values = (args["values"] as? [String: Any] ?? [:]).compactMapValues { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }
+        if !text("token").isEmpty, let field = entry.fields.first(where: \.isSecret), (values[field.id] ?? "").isEmpty {
+            values[field.id] = text("token")
+        }
+        if !text("folder").isEmpty, let field = entry.fields.first(where: \.isFolder), (values[field.id] ?? "").isEmpty {
+            values[field.id] = text("folder")
+        }
+        return values
+    }
+
+    /// The command an `mcp_add` would start on this Mac, for its approval card (9d, S6) — with the folder it was given
+    /// (D94); `nil` for a web address.
     nonisolated static func commandLine(_ arguments: String) -> String? {
         let args = ToolArguments.parse(arguments) ?? [:]
         func text(_ key: String) -> String { (args[key] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
         let transport: MCPServerConfig.Transport?
         if !text("catalog_id").isEmpty {
-            let wanted = text("catalog_id")
-            transport = (MCPCatalogEntry.entry(wanted.lowercased())
-                ?? MCPCatalogEntry.all.first { FileSearch.normalize($0.name).contains(FileSearch.normalize(wanted)) })?.transport
+            transport = catalogEntry(text("catalog_id")).map { $0.config(name: "", values: values(args, for: $0)).server.transport }
         } else if !text("config").isEmpty, case .success(let parsed) = MCPConfigParser.parse(text("config")) {
             transport = parsed.transport
         } else {
