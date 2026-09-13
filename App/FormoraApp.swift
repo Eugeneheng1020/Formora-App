@@ -90,8 +90,14 @@ struct FormoraApp: App {
             state.chat.desktop = MacDesktop()
             state.chat.screenshotFolder = support?.appendingPathComponent("Screenshots", isDirectory: true)
             let brake = ComputerGuard()
-            brake.onStop = { [weak state] id in state?.chat.stop(id) }
+            brake.onStop = { [weak state] id in
+                if id == BobSession.operatingID { state?.bob.stop() } else { state?.chat.stop(id) }
+            }
             state.chat.onOperating = { id, operating in brake.set(id, operating: operating) }
+            // D97: Bob on the same Mac, behind the same bar.
+            state.bob.desktop = state.chat.desktop
+            state.bob.screenshotFolder = support?.appendingPathComponent("Screenshots/Bob", isDirectory: true)
+            state.bob.onOperating = { operating in brake.set(BobSession.operatingID, operating: operating) }
         }
         if let section = VerificationHooks.initialSection(for: profile) { state.select(section) }
         VerificationHooks.applyOverlay(to: state, profile: profile)

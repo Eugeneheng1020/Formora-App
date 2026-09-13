@@ -16,13 +16,17 @@ final class BobModel {
     }
 
     private(set) var chosen: ModelReference?
+    /// 设置 → Bob's 「允许操作电脑」 (D97): off until the user turns it on, like an Agent's.
+    private(set) var allowsComputer: Bool
     @ObservationIgnored private let defaults: UserDefaults?
 
     static let key = "bob.model"
+    static let computerKey = "bob.allowsComputer"
 
     /// `defaults == nil` keeps the choice in memory (tests).
     init(defaults: UserDefaults?) {
         self.defaults = defaults
+        allowsComputer = defaults?.bool(forKey: Self.computerKey) ?? false
         if let data = defaults?.data(forKey: Self.key) { chosen = try? JSONDecoder().decode(ModelReference.self, from: data) }
     }
 
@@ -34,6 +38,11 @@ final class BobModel {
         } else {
             defaults?.removeObject(forKey: Self.key)
         }
+    }
+
+    func setAllowsComputer(_ on: Bool) {
+        allowsComputer = on
+        defaults?.set(on, forKey: Self.computerKey)
     }
 
     static func options(_ providers: ProviderStore) -> [Option] {

@@ -14,6 +14,7 @@ struct BobSection: View {
             SettingsSectionHead(category: .bob, note: model == nil ? BobSession.noModel
                                     : "点设置页右下角的圆形按钮和 Bob 说话。这里选他用的模型，看看能问他什么") { EmptyView() }
             BobModelRow(state: state)
+            BobComputerRow(state: state)
             ForEach(BobSession.examples) { group in
                 Text(group.title)
                     .font(FormoraFont.ui(13, weight: 600))
@@ -84,6 +85,42 @@ private struct BobModelRow: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("bob.modelRow")
+    }
+}
+
+/// 「允许操作电脑」 (D97): off by default, like an Agent's (7j, B3). A build without it keeps the switch off and says why;
+/// with it on and a permission missing, the row says which and offers 设置 → 电脑操作.
+private struct BobComputerRow: View {
+    let state: AppState
+
+    var body: some View {
+        let isOn = ComputerBuild.isAvailable && state.bobModel.allowsComputer
+        let missing = isOn ? state.computer.missing : []
+        SettingRow(label: "允许操作电脑",
+                   description: ComputerBuild.isAvailable
+                       ? "看屏幕、点按和打字、用脚本控制其他应用。每次回答第一次动手前先问你，屏幕顶部随时能停"
+                       : "只有官网下载的版本能用：App Store 不允许应用申请这类权限") {
+            HStack(spacing: 10) {
+                if !missing.isEmpty {
+                    Text("还缺：\(missing.map(\.title).joined(separator: "、"))")
+                        .font(FormoraFont.ui(11.5))
+                        .foregroundStyle(Palette.alert.color)
+                    Button("去设置") { state.settingsCategory = .computer }
+                        .buttonStyle(FormoraButtonStyle(kind: .ghost))
+                        .accessibilityIdentifier("bob.computer.permissions")
+                }
+                FormoraSwitch(isOn: Binding(get: { isOn }, set: { set($0) }), label: "允许操作电脑", identifier: "bob.allowsComputer")
+                    .disabled(!ComputerBuild.isAvailable)
+            }
+        }
+        .task(id: isOn) { if isOn { await state.computer.refresh() } }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("bob.computerRow")
+    }
+
+    private func set(_ on: Bool) {
+        state.bobModel.setAllowsComputer(on)
+        state.toasts.show("已保存", note: on ? "Bob 允许操作电脑：开" : "Bob 允许操作电脑：关", seconds: 2)
     }
 }
 
