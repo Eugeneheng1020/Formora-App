@@ -18,15 +18,20 @@ final class BobModel {
     private(set) var chosen: ModelReference?
     /// 设置 → Bob's 「允许操作电脑」 (D97): off until the user turns it on, like an Agent's.
     private(set) var allowsComputer: Bool
+    /// 设置 → Bob's 「权限模式」 (user 2026-09-13): the three an Agent has, 每次询问 until the user changes it — what he
+    /// did before there was a choice (D55). What asks whatever the mode is `BobSession.alwaysAsks`.
+    private(set) var approvalMode: ApprovalMode
     @ObservationIgnored private let defaults: UserDefaults?
 
     static let key = "bob.model"
     static let computerKey = "bob.allowsComputer"
+    static let approvalKey = "bob.approvalMode"
 
     /// `defaults == nil` keeps the choice in memory (tests).
     init(defaults: UserDefaults?) {
         self.defaults = defaults
         allowsComputer = defaults?.bool(forKey: Self.computerKey) ?? false
+        approvalMode = defaults?.string(forKey: Self.approvalKey).flatMap(ApprovalMode.init(rawValue:)) ?? .alwaysAsk
         if let data = defaults?.data(forKey: Self.key) { chosen = try? JSONDecoder().decode(ModelReference.self, from: data) }
     }
 
@@ -44,6 +49,22 @@ final class BobModel {
         allowsComputer = on
         defaults?.set(on, forKey: Self.computerKey)
     }
+
+    func setApprovalMode(_ mode: ApprovalMode) {
+        approvalMode = mode
+        defaults?.set(mode.rawValue, forKey: Self.approvalKey)
+    }
+
+    /// What each mode means for him: his changes are settings as well as files.
+    static func note(_ mode: ApprovalMode) -> String {
+        switch mode {
+        case .alwaysAsk: "查看、搜索直接做；写文件、改设置、读网页、运行命令之前都先问你。"
+        case .write: "查看、写项目文件、建 Skill、建文件夹、改通知设置、不删数据的 MCP 工具直接做；读网页、运行命令、打开网址之前先问你。"
+        case .yolo: "所有操作直接做，不再询问。只在你信得过的时候用。"
+        }
+    }
+
+    static let alwaysAsked = "危险命令（删除、sudo 这类）、接入 MCP 服务、清空记忆、会删数据的 MCP 工具，不管哪一档都先问你。"
 
     static func options(_ providers: ProviderStore) -> [Option] {
         providers.entries.filter { providers.hasKey($0.id) }.compactMap { entry in

@@ -122,7 +122,7 @@ private struct BobPanel: View {
         VStack(alignment: .leading, spacing: 12) {
             if bob.entries.isEmpty, !bob.isBusy {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text(model == nil ? BobSession.noModel : BobSession.hint)
+                    Text(model == nil ? BobSession.noModel : BobSession.hint(state.bobModel.approvalMode))
                         .font(FormoraFont.ui(12))
                         .foregroundStyle(Palette.inkMuted.color)
                         .lineSpacing(4)
@@ -131,19 +131,32 @@ private struct BobPanel: View {
                         Button("去选模型") { state.settingsCategory = .bob }
                             .buttonStyle(FormoraButtonStyle())
                     } else {
-                        ForEach(BobSession.suggestions, id: \.self) { suggestion in
-                            Button { bob.send(suggestion) } label: {
-                                Text(suggestion)
-                                    .font(FormoraFont.ui(12))
-                                    .foregroundStyle(Palette.inkMuted.color)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.vertical, 7)
-                                    .padding(.horizontal, 11)
-                                    .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Palette.surfaceRaised.color))
-                                    .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Palette.line.color, lineWidth: 1))
+                        // What to ask (user 2026-09-13): the cards on his page, by kind; a click asks. A question that
+                        // needs a file stays on the cards, where 问 Bob leaves it in the input for the file.
+                        ForEach(BobExample.Group.allCases) { group in
+                            let items = BobExamples.all.filter { $0.group == group && $0.attachment == nil }
+                            if !items.isEmpty {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text(group.title)
+                                        .font(FormoraFont.ui(10.5, weight: 600))
+                                        .foregroundStyle(Palette.inkFaint.color)
+                                    ForEach(items) { example in
+                                        Button { bob.send(example.question) } label: {
+                                            Text(example.question)
+                                                .font(FormoraFont.ui(12))
+                                                .foregroundStyle(Palette.inkMuted.color)
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                                .padding(.vertical, 7)
+                                                .padding(.horizontal, 11)
+                                                .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Palette.surfaceRaised.color))
+                                                .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Palette.line.color, lineWidth: 1))
+                                        }
+                                        .buttonStyle(.plain)
+                                        .accessibilityIdentifier("bob.suggestion")
+                                    }
+                                }
+                                .padding(.top, 2)
                             }
-                            .buttonStyle(.plain)
-                            .accessibilityIdentifier("bob.suggestion")
                         }
                     }
                 }
@@ -254,7 +267,7 @@ private struct BobStepCard: View {
             if let waiting {
                 VStack(alignment: .leading, spacing: 9) {
                     // The line above already names the step: here, what exactly it touches.
-                    Text((waiting.detail.isEmpty ? waiting.summary : waiting.detail) + "。Bob 改东西之前都要你点允许。")
+                    Text((waiting.detail.isEmpty ? waiting.summary : waiting.detail) + "。你点「允许」才会做。")
                         .font(FormoraFont.ui(11.5))
                         .foregroundStyle(Palette.inkMuted.color)
                         .lineSpacing(3)
