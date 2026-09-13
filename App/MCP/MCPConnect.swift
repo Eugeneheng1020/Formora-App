@@ -13,14 +13,17 @@ enum MCPConnect {
 
     static let addSpec = ToolSpec(
         name: "mcp_add",
-        description: "Connect an MCP service: by `catalog_id` (from mcp_catalog), by `url` (a Streamable HTTP endpoint) with a `name`, or by `config` (a pasted JSON config). A `token` the user gave goes to the service's key header. It is tested at once; a service that needs signing in opens the user's browser. Only HTTP services work in this build. Connecting enables it for no Agent — the user does that in the Agent's MCP tab.",
+        description: "Connect an MCP service: by `catalog_id` (from mcp_catalog), by `url` (a Streamable HTTP endpoint) with a `name`, or by `config` (a pasted JSON config). A `token` the user gave becomes the service's key (a header, or a local server's environment variable). It is tested at once; a service that needs signing in opens the user's browser."
+            + (MCPBuild.supportsStdio ? "" : " Only HTTP services work in this build.")
+            + " Connecting enables it for no Agent — the user does that in the Agent's MCP tab.",
         parameters: #"{"type":"object","properties":{"catalog_id":{"type":"string"},"url":{"type":"string"},"name":{"type":"string"},"config":{"type":"string","description":"A pasted MCP config, JSON"},"token":{"type":"string","description":"An API key or token the user gave"}}}"#,
         tier: .write)
 
     static func catalogText() -> String {
         MCPCatalogEntry.all.map { entry in
             let access: String
-            if entry.isStdio {
+            // A local (stdio) server is only out of reach outside the Developer ID build (9d; D92 found it said so everywhere).
+            if entry.isStdio, !MCPBuild.supportsStdio {
                 access = "要在本机启动，这个版本接不了"
             } else if entry.usesOAuth {
                 access = "浏览器登录" + (entry.field != nil ? "，也可以填令牌" : "")
@@ -29,7 +32,7 @@ enum MCPConnect {
             } else {
                 access = "不用登录"
             }
-            // The caveat too (D91): Figma's own sign-in refuses Formora, and Bob should say so rather than try it.
+            // The caveat too (D91): what a service needs or can't do, so Bob says so rather than guess.
             return "- \(entry.id)：\(entry.name)——\(entry.summary)（\(access)）" + (entry.note.map { " \($0)" } ?? "")
         }.joined(separator: "\n")
     }

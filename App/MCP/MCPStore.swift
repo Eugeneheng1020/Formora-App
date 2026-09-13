@@ -298,11 +298,7 @@ final class MCPStore {
         } catch {
             loopback.stop()
             activity[id] = nil
-            var message = (error as? MCPOAuthError)?.message ?? error.localizedDescription
-            // A service that won't have Formora (Figma, D91): where to go instead.
-            if (error as? MCPOAuthError) == .notAllowed, let hint = server.catalogID.flatMap(MCPCatalogEntry.entry)?.refusedHint {
-                message += "。" + hint
-            }
+            let message = (error as? MCPOAuthError)?.message ?? error.localizedDescription
             record(id, succeeded: false, message: message, needsSignIn: true)
         }
     }

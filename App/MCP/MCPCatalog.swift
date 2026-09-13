@@ -4,7 +4,7 @@ import Foundation
 /// Carried over from the old app (2026-09-07): every endpoint was checked against the vendor's own docs;
 /// Google Drive stayed out (it needs a hand-made OAuth client).
 struct MCPCatalogEntry: Identifiable, Equatable, Sendable {
-    /// A token the user types; it becomes a secret header.
+    /// A token the user types; it becomes a secret header, or a local (stdio) server's environment variable.
     struct Field: Equatable, Sendable {
         let header: String
         let label: String
@@ -25,10 +25,10 @@ struct MCPCatalogEntry: Identifiable, Equatable, Sendable {
     let docs: String
     /// A caveat to read before adding.
     var note: String?
-    /// Said after 「not on its list」 when the service refuses to register Formora — where to go instead.
-    var refusedHint: String?
     /// Said instead of the network error when a server on this Mac doesn't answer — how to switch it on.
     var offlineHint: String?
+    /// Non-secret environment variables a local (stdio) server starts with.
+    var environment: [String: String] = [:]
 
     var mark: String { String(name.prefix(2)).uppercased() }
     var isStdio: Bool { if case .stdio = transport { true } else { false } }
@@ -39,7 +39,7 @@ struct MCPCatalogEntry: Identifiable, Equatable, Sendable {
     func config(name: String, token: String) -> (server: MCPServerConfig, secrets: [String: String]) {
         let shown = name.trimmingCharacters(in: .whitespaces)
         var server = MCPServerConfig(id: MCPServerConfig.newID(), name: shown.isEmpty ? self.name : shown,
-                                     transport: transport, catalogID: id)
+                                     transport: transport, plainEnvironment: environment, catalogID: id)
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
         if let field, !trimmed.isEmpty {
             server.auth = .header(name: field.header)
@@ -66,14 +66,19 @@ struct MCPCatalogEntry: Identifiable, Equatable, Sendable {
         MCPCatalogEntry(id: "notion", name: "Notion", summary: "搜索工作区、读写页面与数据库",
                         transport: .http(url: "https://mcp.notion.com/mcp"), usesOAuth: true,
                         docs: "https://developers.notion.com/guides/mcp/overview"),
-        // Figma admits only clients in its MCP catalog (https://www.figma.com/mcp-catalog/); registration answers 403.
-        // Kept for when Figma lists Formora — the developer waitlist:
-        // https://form.asana.com/?k=kBG-ejRQTdY8x_H6a4vM3Q&d=10497086658021 (user 2026-09-13, D91).
-        MCPCatalogEntry(id: "figma", name: "Figma", summary: "读取设计稿、Dev Mode 上下文，创建图形",
-                        transport: .http(url: "https://mcp.figma.com/mcp"), usesOAuth: true,
-                        docs: "https://help.figma.com/hc/en-us/articles/35281350665623",
-                        note: "Figma 只让它 MCP 目录里的应用用浏览器登录，Formora 还不在目录里，所以现在登录不了。有 Figma 付费版的 Dev 或 Full 席位的话，改用「Figma 桌面版」。",
-                        refusedHint: "有 Figma 付费版的 Dev 或 Full 席位的话，改用推荐目录里的「Figma 桌面版」"),
+        // Figma with a token (user 2026-09-13, D92). Figma's own server (https://mcp.figma.com/mcp) admits only clients in
+        // its MCP catalog — registration answers 403, a personal access token gets 401 — so Framelink, open source (MIT,
+        // github.com/GLips/Figma-Context-MCP), reads designs through the REST API with the user's token. Pinned: it holds
+        // the token, so only a version that was checked runs. For when Formora is listed, Figma's developer waitlist:
+        // https://form.asana.com/?k=kBG-ejRQTdY8x_H6a4vM3Q&d=10497086658021
+        MCPCatalogEntry(id: "figma-token", name: "Figma", summary: "读取设计稿的图层、样式与文字，导出切图",
+                        transport: .stdio(command: "npx", args: ["-y", "figma-developer-mcp@0.13.2", "--stdio"]), usesOAuth: false,
+                        field: Field(header: "FIGMA_API_KEY", label: "Figma 个人访问令牌", placeholder: "figd_…",
+                                     hint: "在 Figma 的「设置 → 安全 → 个人访问令牌」里生成，至少勾选读取文件内容（file_content:read），保存到 macOS 钥匙串。",
+                                     prefix: ""),
+                        docs: "https://github.com/GLips/Figma-Context-MCP",
+                        note: "用开源的 Framelink 服务（不是 Figma 官方出的）拿你的令牌读取设计稿：只读，不改画布。它在本机用 npx 启动，要装了 node；第一次启动要下载，最长等 60 秒。只有官网版能用。它的使用数据统计已关掉。",
+                        environment: ["FRAMELINK_TELEMETRY": "off"]),
         // The Figma app's own server on this Mac: no sign-in and no client list, but a Dev or Full seat on a paid plan.
         MCPCatalogEntry(id: "figma-desktop", name: "Figma 桌面版", summary: "连本机的 Figma 应用：读取选中的图层与设计上下文",
                         transport: .http(url: "http://127.0.0.1:3845/mcp"), usesOAuth: false,
