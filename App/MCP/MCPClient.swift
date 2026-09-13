@@ -20,6 +20,14 @@ enum MCPFailure: Error, Equatable, Sendable {
         case .unsupported(let detail): detail
         }
     }
+
+    /// Nothing answered: not running, not reachable, or too slow.
+    var isUnreachable: Bool {
+        switch self {
+        case .network, .timedOut: true
+        default: false
+        }
+    }
 }
 
 struct MCPListing: Equatable, Sendable {

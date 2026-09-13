@@ -29,7 +29,8 @@ enum MCPConnect {
             } else {
                 access = "不用登录"
             }
-            return "- \(entry.id)：\(entry.name)——\(entry.summary)（\(access)）"
+            // The caveat too (D91): Figma's own sign-in refuses Formora, and Bob should say so rather than try it.
+            return "- \(entry.id)：\(entry.name)——\(entry.summary)（\(access)）" + (entry.note.map { " \($0)" } ?? "")
         }.joined(separator: "\n")
     }
 

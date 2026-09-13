@@ -81,7 +81,7 @@ private struct MCPServerRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 8) {
-                if status == .needsSignIn {
+                if case .needsSignIn = status {
                     Button("浏览器登录") { Task { await store.signIn(server.id) } }
                         .buttonStyle(FormoraButtonStyle())
                         .accessibilityIdentifier("mcp.signIn.\(server.id)")

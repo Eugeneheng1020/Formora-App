@@ -24,7 +24,9 @@ enum MCPProblem: Error, Equatable, Sendable {
 @Observable
 final class MCPStore {
     enum Status: Equatable, Sendable {
-        case configured, testing, waitingForBrowser, needsSignIn, unsupported, disabled
+        case configured, testing, waitingForBrowser, unsupported, disabled
+        /// `reason`: why the last sign-in didn't work; `nil` when it just hasn't been done yet.
+        case needsSignIn(reason: String?)
         case connected(tools: Int)
         case failed(String)
 
@@ -45,7 +47,7 @@ final class MCPStore {
             switch self {
             case .connected(let tools): "\(tools) 个工具"
             case .failed(let message): message
-            case .needsSignIn: "点「浏览器登录」在浏览器里完成授权"
+            case .needsSignIn(let reason): reason ?? "点「浏览器登录」在浏览器里完成授权"
             case .waitingForBrowser: "在打开的浏览器页面里完成登录，最长等 5 分钟"
             case .unsupported: "它要在本机启动进程，App Store 版的沙盒里跑不了"
             default: nil
@@ -55,6 +57,9 @@ final class MCPStore {
         var isConnected: Bool { if case .connected = self { true } else { false } }
     }
 
+    /// What a plain 401 records: nothing tried yet, so the row says how to sign in. Any other message on a
+    /// needs-sign-in record is why the sign-in failed, and the row shows that instead (D91).
+    static let signInPrompt = "需要在浏览器里登录"
     static let fileName = "MCPServers.json"
     static let baseService = "com.eugenecheng.formora.mcp"
 
@@ -96,7 +101,7 @@ final class MCPStore {
         if server.isStdio, !MCPBuild.supportsStdio { return .unsupported }
         guard let test = server.lastTest else { return .configured }
         if test.succeeded { return .connected(tools: server.tools.count) }
-        if test.needsSignIn == true { return .needsSignIn }
+        if test.needsSignIn == true { return .needsSignIn(reason: test.message == Self.signInPrompt ? nil : test.message) }
         return .failed(test.message ?? "连接失败")
     }
 
@@ -250,11 +255,13 @@ final class MCPStore {
                 record(id, succeeded: false, message: "令牌无效或已过期（401）")
             } else {
                 setAuth(id, .oauth)
-                record(id, succeeded: false, message: "需要在浏览器里登录", needsSignIn: true)
+                record(id, succeeded: false, message: Self.signInPrompt, needsSignIn: true)
                 if allowSignIn { await signIn(id) }
             }
         case .failure(let failure):
-            record(id, succeeded: false, message: failure.message)
+            // A server on this Mac that isn't running says how to switch it on (Figma 桌面版, D91).
+            let hint = failure.isUnreachable ? server.catalogID.flatMap(MCPCatalogEntry.entry)?.offlineHint : nil
+            record(id, succeeded: false, message: hint ?? failure.message)
         }
     }
 
@@ -291,7 +298,11 @@ final class MCPStore {
         } catch {
             loopback.stop()
             activity[id] = nil
-            let message = (error as? MCPOAuthError)?.message ?? error.localizedDescription
+            var message = (error as? MCPOAuthError)?.message ?? error.localizedDescription
+            // A service that won't have Formora (Figma, D91): where to go instead.
+            if (error as? MCPOAuthError) == .notAllowed, let hint = server.catalogID.flatMap(MCPCatalogEntry.entry)?.refusedHint {
+                message += "。" + hint
+            }
             record(id, succeeded: false, message: message, needsSignIn: true)
         }
     }

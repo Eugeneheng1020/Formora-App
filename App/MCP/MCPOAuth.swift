@@ -22,12 +22,14 @@ struct OAuthServerMetadata: Equatable, Sendable {
 }
 
 enum MCPOAuthError: Error, Equatable, Sendable {
-    case discovery(String), registration(String), denied(String), stateMismatch, token(String)
+    /// `notAllowed`: registration answered 401/403 — the service admits only clients it approved (Figma, 2026-09-13, D91).
+    case discovery(String), registration(String), notAllowed, denied(String), stateMismatch, token(String)
 
     var message: String {
         switch self {
         case .discovery(let detail): "找不到这个服务的登录地址：\(detail)"
         case .registration(let detail): "没能向服务注册 Formora：\(detail)"
+        case .notAllowed: "这个服务只让它认可的应用用浏览器登录，Formora 不在它的名单上，所以没有打开浏览器"
         case .denied(let reason): "登录没有完成：\(reason)"
         case .stateMismatch: "登录回跳和发出的请求对不上，已拒绝"
         case .token(let detail): "没能换到令牌：\(detail)"
@@ -150,6 +152,7 @@ struct MCPOAuth: Sendable {
             "token_endpoint_auth_method": .string("none"),
         ]).encoded()
         let (data, response) = try await http(request)
+        if [401, 403].contains(response.statusCode) { throw MCPOAuthError.notAllowed }
         guard (200..<300).contains(response.statusCode), let clientID = JSONValue.parse(data)?["client_id"]?.string else {
             throw MCPOAuthError.registration(Self.errorText(data, status: response.statusCode))
         }
