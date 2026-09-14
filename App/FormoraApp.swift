@@ -109,15 +109,16 @@ struct FormoraApp: App {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
         let logFolder = AppLog.folder(profileName: profile.name)
-        AppLog.shared.start(folder: logFolder, redact: { SecretShield.shared.redact($0) }, version: "\(version) (\(build))")
+        // Not under XCTest: the unit tests host the app and must never reach the feed, show an update, or write the
+        // user's log.
+        let underTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil || NSClassFromString("XCTestCase") != nil
+        if !underTests { AppLog.shared.start(folder: logFolder, redact: { SecretShield.shared.redact($0) }, version: "\(version) (\(build))") }
         state.diagnosticSources = DiagnosticSources(
             logs: logFolder, conversations: support?.appendingPathComponent(ConversationStore.folderName, isDirectory: true),
             exportFolder: profile.isDefault ? FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first
                 : support?.appendingPathComponent("Diagnostics", isDirectory: true),
             profileName: profile.name)
         let feedOverride = UserDefaults.standard.string(forKey: AppUpdater.feedKey)
-        // Not under XCTest: the unit tests host the app and must never reach the feed or show an update.
-        let underTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil || NSClassFromString("XCTestCase") != nil
         if !underTests, profile.isDefault || feedOverride != nil { state.updater = AppUpdater(feedOverride: feedOverride) }
         // `-FormoraCheckUpdate YES` (QA): press 检查更新 two seconds in, so Sparkle's window can be screenshotted.
         if !underTests, UserDefaults.standard.bool(forKey: "FormoraCheckUpdate") {
