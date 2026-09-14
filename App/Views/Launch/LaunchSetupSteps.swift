@@ -172,6 +172,8 @@ struct AgentSetupStep: View {
     @State private var providerID: String?
     @State private var modelID = ""
     @State private var readingModels = false
+    /// The provider's models, for the menu (user 2026-09-14: the key alone didn't say which model).
+    @State private var models: [ModelInfo] = []
     @State private var problem: String?
 
     private var role: AgentRole { AgentRole.role(roleID) }
@@ -188,6 +190,10 @@ struct AgentSetupStep: View {
             FormLabel(text: "名字")
             FormoraTextField(placeholder: "给它起个名字", text: $name, isInvalid: problem != nil, identifier: "launch.agent.name")
             if let problem { InlineError(text: problem, identifier: "launch.agent.problem") }
+            if providerID != nil {
+                FormLabel(text: "模型").padding(.top, 14)
+                modelMenu
+            }
             Hint(text: modelLine).padding(.top, 10)
             Spacer(minLength: 12)
             StepButtons(primary: "创建并继续", isEnabled: projectID != nil && !name.trimmingCharacters(in: .whitespaces).isEmpty && !readingModels,
@@ -208,7 +214,39 @@ struct AgentSetupStep: View {
         guard let providerID else { return "还没配模型：先建好，之后在「Agent」页给它选一个。" }
         if readingModels { return "正在读取模型列表…" }
         let provider = state.providers.entry(providerID)?.name ?? providerID
-        return modelID.isEmpty ? "用 \(provider)，模型之后在「Agent」页选。" : "用 \(provider) 的 \(modelID)，之后可以在「Agent」页改。"
+        return modelID.isEmpty ? "用 \(provider)，模型之后在「Agent」页选。" : "用 \(provider) 的这个模型，之后可以在「Agent」页改。"
+    }
+
+    /// The provider's models; the first is chosen until the user picks another.
+    private var modelMenu: some View {
+        Menu {
+            ForEach(models) { model in
+                Button { modelID = model.id } label: {
+                    if model.id == modelID {
+                        Label(model.name ?? model.id, systemImage: "checkmark")
+                    } else {
+                        Text(model.name ?? model.id)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Text(readingModels ? "正在读取模型列表…" : (models.first { $0.id == modelID }?.name ?? (modelID.isEmpty ? "选一个模型" : modelID)))
+                    .font(FormoraFont.mono(12))
+                    .foregroundStyle(Palette.ink.color)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                IconView(Icons.chevronUpDown, size: 11).foregroundStyle(Palette.inkFaint.color)
+            }
+            .padding(.horizontal, 11)
+            .frame(height: 36)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Palette.surfaceRaised.color))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Palette.lineStrong.color, lineWidth: 1))
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .disabled(readingModels || models.isEmpty)
+        .accessibilityIdentifier("launch.agent.model")
     }
 
     private func roleChip(_ option: AgentRole) -> some View {
@@ -235,11 +273,12 @@ struct AgentSetupStep: View {
         readingModels = true
         await providers.loadModels(entry.id)
         readingModels = false
-        if case .loaded(let models) = providers.modelLists[entry.id], let first = models.first {
-            modelID = first.id
+        if case .loaded(let listed) = providers.modelLists[entry.id], !listed.isEmpty {
+            models = listed
         } else {
-            modelID = entry.commonModels.first?.id ?? ""
+            models = entry.commonModels
         }
+        modelID = models.first?.id ?? ""
     }
 
     private func create() {

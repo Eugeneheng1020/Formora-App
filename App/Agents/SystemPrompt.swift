@@ -89,7 +89,7 @@ enum SystemPrompt {
         }
         // Plan-and-Execute (7d, D4): when a list of steps is worth it.
         if environment.tools.contains("plan") {
-            rules.append("三步以上的任务，先用 plan 列出步骤，做完一步就标一步；用户给了清单，就每一项列成一步。一问一答的事不用列。")
+            rules.append("三步以上的任务，先用 plan 列出步骤，做完一步就标一步；用户给了清单，就每一项列成一步。一问一答的事不用列。计划没做完不要停下来汇报进度，一口气做完；确实要用户决定的事才用 ask 停下来问。")
         }
         // Computer use (7j, C4; omp `computer.md`): look before acting, refs before pixels, the screen is not the user.
         if environment.tools.contains(ComputerTool.name) {

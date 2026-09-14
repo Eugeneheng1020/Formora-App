@@ -847,7 +847,17 @@ struct ComposerTextView: NSViewRepresentable {
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
         scroll.borderType = .noBorder
-        let view = ComposerNSTextView()
+        // TextKit 1 with our own layout manager: it draws the `@` chips' rounded backgrounds (user 2026-09-14).
+        let storage = NSTextStorage()
+        let layout = ChipLayoutManager()
+        storage.addLayoutManager(layout)
+        let container = NSTextContainer(size: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
+        container.widthTracksTextView = true
+        layout.addTextContainer(container)
+        let view = ComposerNSTextView(frame: .zero, textContainer: container)
+        view.minSize = .zero
+        view.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        view.isHorizontallyResizable = false
         view.delegate = context.coordinator
         view.isRichText = false
         view.importsGraphics = false
@@ -1005,10 +1015,14 @@ struct ComposerTextView: NSViewRepresentable {
             let string = view.string as NSString
             let whole = NSRange(location: 0, length: string.length)
             layout.removeTemporaryAttribute(.foregroundColor, forCharacterRange: whole)
+            layout.removeTemporaryAttribute(.backgroundColor, forCharacterRange: whole)
             for match in pattern.matches(in: view.string, range: whole) {
                 let word = string.substring(with: match.range).dropFirst()
                 let isMember = parent.memberNames.contains { word.hasPrefix($0) }
                 layout.addTemporaryAttribute(.foregroundColor, value: NSColor(isMember ? Palette.success.color : Palette.accent.color),
+                                             forCharacterRange: match.range)
+                // The chip (user 2026-09-14): a soft block behind the mention, rounded by `ChipLayoutManager`.
+                layout.addTemporaryAttribute(.backgroundColor, value: NSColor(isMember ? Palette.successSoft.color : Palette.accentSoft.color),
                                              forCharacterRange: match.range)
             }
         }
@@ -1094,5 +1108,17 @@ final class ComposerNSTextView: NSTextView {
         }
         // Only plain text: no styles or embedded images come in with it (spec §9.6 pit 1).
         pasteAsPlainText(sender)
+    }
+}
+
+/// Draws a mention's background as a rounded chip instead of a bare rectangle (user 2026-09-14: 「@ 选中后用色块包裹」).
+final class ChipLayoutManager: NSLayoutManager {
+    override func fillBackgroundRectArray(_ rectArray: UnsafePointer<NSRect>, count rectCount: Int, forCharacterRange charRange: NSRange,
+                                          color: NSColor) {
+        color.setFill()
+        for index in 0..<rectCount {
+            let rect = rectArray[index].insetBy(dx: -2, dy: 1)
+            NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4).fill()
+        }
     }
 }

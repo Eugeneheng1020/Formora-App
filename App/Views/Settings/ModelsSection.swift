@@ -115,7 +115,8 @@ private struct ProviderRow: View {
                     .padding(.leading, 47)
                     .padding(.bottom, 12)
             }
-            if isOpen {
+            // A key cleared while the list was open left it spinning (user 2026-09-14): no key, no list.
+            if isOpen, providers.hasKey(entry.id) {
                 ModelListPanel(entry: entry, providers: providers)
                     .padding(.leading, 47) // = 36 + 11: aligned to the name, like `.mcp-row` config
                     .padding(.bottom, 14)

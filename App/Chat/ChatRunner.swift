@@ -67,6 +67,8 @@ final class ChatRunner {
     nonisolated static let retryLimit = 10
     nonisolated static let repeatLimit = 5
     nonisolated static let emptyLimit = 3
+    /// How often a run is sent back to its plan's open steps (omp's todo reminder: three attempts).
+    nonisolated static let planContinueLimit = 3
     nonisolated static let lengthLimit = 3
     /// How often a Stop hook may send the Agent back to work in one run (7b′, H6).
     nonisolated static let stopLimit = 3
@@ -813,6 +815,8 @@ final class ChatRunner {
         var reviewed = false
         var toolTurns = 0
         var planNudged = false
+        /// Times this run was sent back to its plan's open steps (user 2026-09-14).
+        var planContinues = 0
         /// An `ask` waits for the user: the run ends on it (D6).
         var asked = false
         /// The model refused native tools in this run: they go as text from here on (D8).
@@ -941,6 +945,17 @@ final class ChatRunner {
                     if steering[id]?.isEmpty == false {
                         conversations.append(reply, to: id)
                         deliverSteering(id)
+                        continue
+                    }
+                    // The plan's open steps (user 2026-09-14; omp's todo reminder): a reply that stops with steps still open
+                    // is sent back to them, at most three times a run. Not in plan mode (the plan is for the user), not a
+                    // hand-off; a question is a call, so it never comes here.
+                    if state.planContinues < Self.planContinueLimit, !conversation.planMode,
+                       let open = conversations.conversation(id)?.plan.filter(\.isOpen), !open.isEmpty,
+                       trailingHandoff(reply.text, conversationID: id, agent: agent).handoff == nil {
+                        state.planContinues += 1
+                        conversations.append(reply, to: id)
+                        nudge(id, runID: runID, "计划里还有 \(open.count) 步没做完：\(open.map { "「\($0.text)」" }.joined(separator: "、"))。接着做，做完一步标一步，全部做完再回复；确实要用户决定的事，用 ask 问他，不要停下来等。")
                         continue
                     }
                     // Stop hooks may send it back to work (H6), at most three times a run.
@@ -1087,18 +1102,22 @@ final class ChatRunner {
                     state.note = "这个模型不支持工具调用，这次只能对话，不能查看或修改文件"
                     continue
                 }
-                if arrived, let draft = drafts.removeValue(forKey: id) {
-                    return .interrupted(Turn(text: draft.text, thinking: draft.thinking, usage: draft.usage, model: draft.model,
-                                             startedAt: draft.startedAt, thinkingSeconds: draft.thinkingSeconds), failure)
-                }
+                // A transient failure — throttling, the host's own error, the network, a stream the host cut short (user
+                // 2026-09-14: OpenRouter's upstream dropping the connection mid-reply) — waits and goes again on the same
+                // model. What had arrived is dropped; the retry starts the reply over.
                 if failure.isTransient, attempts < Self.retryLimit {
                     attempts += 1
-                    notice = "服务商暂时不可用，正在第 \(attempts) 次重试（\(failure.message)）"
+                    notice = arrived ? "回复中途断了（\(failure.message)），正在第 \(attempts) 次重试"
+                        : "服务商暂时不可用，正在第 \(attempts) 次重试（\(failure.message)）"
                     drafts[id]?.note = notice
                     waiting[id] = failure.isRateLimit ? "等待限流" : "等待重试"
                     try? await Task.sleep(for: retryDelay(attempts))
                     waiting[id] = nil
                     continue
+                }
+                if arrived, let draft = drafts.removeValue(forKey: id) {
+                    return .interrupted(Turn(text: draft.text, thinking: draft.thinking, usage: draft.usage, model: draft.model,
+                                             startedAt: draft.startedAt, thinkingSeconds: draft.thinkingSeconds), failure)
                 }
                 lastFailure = failure
                 state.model += 1

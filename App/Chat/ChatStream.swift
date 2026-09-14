@@ -119,7 +119,12 @@ enum ChatFailure: Error, Equatable, Sendable {
         case .network, .timedOut: return true
         case .provider(let message):
             let text = message.lowercased()
-            return ["overload", "rate limit", "rate_limit", "timeout", "temporarily", "try again"].contains { text.contains($0) }
+            // A stream the host cut short counts too (user 2026-09-14: OpenRouter's 「Upstream error … Response payload is
+            // not completed」): what arrived is dropped and the reply goes again.
+            return ["overload", "rate limit", "rate_limit", "timeout", "temporarily", "try again", "upstream error",
+                    "payload is not completed", "not enough data", "transferencodingerror", "connection reset", "unexpected end",
+                    "stream ended", "incomplete", "socket hang up", "bad gateway", "gateway timeout", "service unavailable",
+                    "internal server error"].contains { text.contains($0) }
         case .cancelled, .empty: return false
         }
     }

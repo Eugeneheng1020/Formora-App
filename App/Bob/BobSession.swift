@@ -413,8 +413,10 @@ final class BobSession {
                     note = "这个模型不支持工具调用，Bob 这次只能凭说明回答，查不了现状、改不了设置"
                     continue
                 }
-                if text.isEmpty, failure.isTransient, attempts < Self.retryLimit {
+                // Even mid-reply (user 2026-09-14): what arrived is dropped, the reply goes again.
+                if failure.isTransient, attempts < Self.retryLimit {
                     attempts += 1
+                    draft = ""
                     try? await Task.sleep(for: retryDelay(attempts))
                     continue
                 }

@@ -429,9 +429,10 @@ enum VerificationHooks {
             let named = settings.string(forKey: boardConversationKey).flatMap { name in
                 store.conversations.first { $0.groupName == name || $0.title == name }?.id
             }
-            let id = named ?? seeded
+            let long = settings.bool(forKey: boardLongRunKey) ? seedLongRun(into: state, project: project.id) : nil
+            let id = long ?? named ?? seeded
             state.boardConversationID = id
-            if named != nil { state.selectedConversationID = id }
+            if named != nil || long != nil { state.selectedConversationID = id }
             if settings.bool(forKey: boardLiveKey), let conversation = store.conversation(id),
                let waiting = state.boardCards(conversation).first(where: { $0.status == .pending }) {
                 state.boardFocus = waiting.id
@@ -497,6 +498,10 @@ enum VerificationHooks {
     static let seedBoardKey = "FormoraSeedBoard"
     static let boardFocusKey = "FormoraBoardFocus"
     static let boardConversationKey = "FormoraBoardConversation"
+    /// `-FormoraBoardLongRun YES` (with `-FormoraSeedBoard YES`): 「长记录压力测试」, one card whose run has hundreds of
+    /// entries — long thinking, long Markdown, steps with long outputs — to scroll 「运行过程」 through (user 2026-09-14:
+    /// the panel crashed on a long run on another Mac). It is the chain shown; `-FormoraBoardFocus 0` focuses its card.
+    static let boardLongRunKey = "FormoraBoardLongRun"
     /// `-FormoraBoardLive YES` (9c): the board's waiting card starts thinking and writing, as a model would, and is focused.
     static let boardLiveKey = "FormoraBoardLive"
 
@@ -554,6 +559,44 @@ enum VerificationHooks {
 
     /// `-FormoraComposerText @`: the selected conversation's composer starts with this text (a group shows its `@` list).
     static let composerTextKey = "FormoraComposerText"
+
+    private static func seedLongRun(into state: AppState, project: UUID) -> UUID? {
+        let store = state.conversations
+        guard let design = state.agents.agents.first(where: { $0.roleID == "design" }),
+              let dev = state.agents.agents.first(where: { $0.roleID == "dev" }),
+              let group = try? store.createGroup(name: "长记录压力测试", memberIDs: [design.id, dev.id], projectID: project,
+                                                 reasonFor: { _ in nil }) else { return nil }
+        store.append(Message(role: .user, text: "@产品设计（小设） 把会员体系的需求、方案和验收标准逐条过一遍，每一条都写清楚", assignees: [design.id]),
+                     to: group.id)
+        let paragraph = "会员等级按近 90 天消费额升降：银卡 500、金卡 2000、黑卡 8000，保级给 30 天缓冲；权益分折扣、积分倍率、专属客服三类，每一级递增。"
+        for round in 1...60 {
+            let thinking = (1...4).map { "第 \(round) 轮第 \($0) 段：" + paragraph }.joined(separator: " ")
+            let text = """
+            ## 第 \(round) 条：\(["等级规则", "权益", "保级", "验收标准"][round % 4])
+
+            \(paragraph)
+
+            - 触发：\(paragraph.prefix(30))
+            - 例外：\(paragraph.suffix(30))
+
+            ```swift
+            let threshold = [500, 2000, 8000][\(round % 3)]
+            ```
+
+            | 等级 | 门槛 | 备注 |
+            |---|---|---|
+            | 银卡 | 500 | 第 \(round) 轮 |
+            """
+            let calls = (1...3).map { step in
+                ToolCall(id: "long-\(round)-\(step)", name: "read", arguments: #"{"path":"PRD/会员等级体系_v1.md"}"#,
+                         result: ToolResult(status: .done, output: String(repeating: paragraph + "\n", count: 6), seconds: Double(step * 3)))
+            }
+            store.append(Message(role: .agent, agentID: design.id, speakerName: design.displayName, text: text, thinking: thinking,
+                                 usage: TokenUsage(input: 4000, output: 800), durationSeconds: 20, toolCalls: calls, runID: UUID()),
+                         to: group.id)
+        }
+        return group.id
+    }
 
     private static func seedBoard(into state: AppState, project: UUID) -> UUID? {
         let store = state.conversations

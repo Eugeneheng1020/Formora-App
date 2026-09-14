@@ -401,6 +401,8 @@ private struct MessageRow: View {
     private var isEditing: Bool { !isQueued && !isEarlier && state.editingMessage == message.id }
     /// 10e: 修改 while the pointer is on it.
     private var showsEdit: Bool { isHovering && !isQueued && !isEarlier && state.canEdit(message, in: conversation) }
+    /// 复制 while the pointer is on it (user 2026-09-14).
+    private var showsCopy: Bool { isHovering && !isEditing && !message.text.isEmpty }
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -411,6 +413,7 @@ private struct MessageRow: View {
                     bubble
                     HStack(spacing: 10) {
                         if showsEdit { editButton }
+                        if showsCopy { CopyButton(text: message.text, state: state) }
                         Text(isQueued ? "它做完这一步就会看到" : ConversationText.clock(message.createdAt))
                             .font(isQueued ? FormoraFont.ui(11) : FormoraFont.mono(10.5))
                             .foregroundStyle(Palette.inkFaint.color)
@@ -463,6 +466,7 @@ private struct MessageRow: View {
                         Task { await state.files?.reveal(relativePath: path) }
                         return .handled
                     })
+                    .contextMenu { Button("复制") { CopyButton.copy(message.text, state: state) } }
             }
             if !message.attachments.isEmpty {
                 FlowLayout(spacing: 6) {
@@ -493,6 +497,7 @@ private struct MessageRow: View {
                     guard let lower = AttributedString.Index(range.lowerBound, within: text),
                           let upper = AttributedString.Index(range.upperBound, within: text) else { continue }
                     text[lower..<upper].foregroundColor = Palette.accent.color
+                    text[lower..<upper].backgroundColor = Palette.accentSoft.color
                     text[lower..<upper].font = FormoraFont.mono(12.5)
                     text[lower..<upper].link = FileMentions.link(mention.path)
                 }
@@ -530,6 +535,13 @@ private struct AgentRunRow: View {
     private var agent: AgentRecord? { state.agents.agent(messages[0].agentID ?? conversation.agentID) }
     private var isRunning: Bool { state.chat.isRunning(conversation.id) }
 
+    @State private var isHovering = false
+
+    /// Every word of the run, for 复制 (user 2026-09-14) — a reply stopped halfway included.
+    private var spoken: String {
+        messages.filter { $0.marker == nil && $0.failure == nil }.map(\.text).filter { !$0.isEmpty }.joined(separator: "\n\n")
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             AgentFrameAvatar(state: state, agent: agent, fallbackName: messages[0].speakerName).padding(.top, 2)
@@ -546,12 +558,15 @@ private struct AgentRunRow: View {
                 if let draft {
                     DraftContent(state: state, conversation: conversation, draft: draft, follow: follow).id(ThreadView.draftAnchor)
                 } else if let last = messages.last {
-                    HStack(spacing: 6) {
-                        Text(ConversationText.clock(last.createdAt))
-                        if last.isStopped { Text("· 已停止") }
+                    HStack(spacing: 10) {
+                        HStack(spacing: 6) {
+                            Text(ConversationText.clock(last.createdAt))
+                            if last.isStopped { Text("· 已停止") }
+                        }
+                        .font(FormoraFont.mono(10.5))
+                        .foregroundStyle(Palette.inkFaint.color)
+                        if isHovering, !spoken.isEmpty { CopyButton(text: spoken, state: state) }
                     }
-                    .font(FormoraFont.mono(10.5))
-                    .foregroundStyle(Palette.inkFaint.color)
                     .padding(.horizontal, 3)
                 }
                 if showsPlanApproval {
@@ -566,6 +581,8 @@ private struct AgentRunRow: View {
         }
         .frame(maxWidth: 640, alignment: .leading)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .onHover { isHovering = $0 }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("message.agent")
     }
@@ -646,6 +663,7 @@ private struct AgentRunRow: View {
             .background(shape.fill(isFlashing ? Palette.accentSoft.color : Palette.surface.color))
             .overlay(shape.strokeBorder(isFlashing ? Palette.accent.color : Palette.line.color, lineWidth: 1))
             .animation(.easeOut(duration: 0.25), value: isFlashing)
+            .contextMenu { Button("复制") { CopyButton.copy(message.text, state: state) } }
     }
 
     /// Bob's sentence on the step waiting here (9e, J).
@@ -908,5 +926,32 @@ struct FlowLayout: Layout {
             x += size.width + spacing
             rowHeight = max(rowHeight, size.height)
         }
+    }
+}
+
+/// 复制 by a message's time (user 2026-09-14): the words to the clipboard, a toast saying so.
+struct CopyButton: View {
+    let text: String
+    let state: AppState
+
+    var body: some View {
+        Button { Self.copy(text, state: state) } label: {
+            HStack(spacing: 4) {
+                IconView(Icons.copy, size: 11)
+                Text("复制")
+            }
+            .font(FormoraFont.ui(11))
+            .foregroundStyle(Palette.inkMuted.color)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("复制这条消息的文字")
+        .accessibilityIdentifier("message.copy")
+    }
+
+    static func copy(_ text: String, state: AppState) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        state.toasts.show("已复制", seconds: 2)
     }
 }

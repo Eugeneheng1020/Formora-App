@@ -34,6 +34,11 @@ struct FormoraApp: App {
         let session = ProjectSession(store: store, picker: VerificationHooks.folderPicker(for: profile))
 
         let support = try? profile.applicationSupportDirectory()
+        // What the user opens and edits — Skills, hooks, memories, MCP — lives in ~/.formora (user 2026-09-14); an earlier
+        // version's comes over once.
+        let resources = UserResources.directory(for: profile)
+        if let support, let resources { UserResources.migrate(from: support, to: resources) }
+        let places = UserResources.places(support: support, directory: resources)
         let account = AccountStore(defaults: profile.makeUserDefaults(),
                                    folder: support?.appendingPathComponent("Account", isDirectory: true))
         let providers = ProviderStore(secrets: secrets, fileURL: support?.appendingPathComponent(ProviderConfig.fileName))
@@ -41,19 +46,19 @@ struct FormoraApp: App {
         VerificationHooks.seedProviderKeys(into: providers, profile: profile)
 
         let agents = AgentStore(container: container, avatarFolder: support?.appendingPathComponent("Agents", isDirectory: true))
-        let skills = SkillLibrary(folder: support?.appendingPathComponent("Skills", isDirectory: true),
+        let skills = SkillLibrary(folder: places.skills,
                                   builtInFolder: Bundle.main.url(forResource: "Skills", withExtension: nil),
                                   defaults: profile.makeUserDefaults())
         skills.installBuiltIns()
-        let mcp = MCPStore(secrets: mcpSecrets, fileURL: support?.appendingPathComponent(MCPStore.fileName))
+        let mcp = MCPStore(secrets: mcpSecrets, fileURL: places.mcp)
         // A stdio server starts in the open project's folder (9d, S2).
         mcp.projectRoot = { [weak session] in session?.accessibleRoot }
         let conversations = ConversationStore(folder: support?.appendingPathComponent(ConversationStore.folderName, isDirectory: true))
         let notificationSettings = NotificationSettings(defaults: profile.makeUserDefaults())
-        let hooks = HookStore(folder: support)
+        let hooks = HookStore(folder: places.hooks)
         let state = AppState(account: account, providers: providers, agents: agents, skills: skills, mcp: mcp,
                              conversations: conversations, notifications: notificationSettings, hooks: hooks,
-                             memory: MemoryStore(folder: support?.appendingPathComponent(MemoryStore.folderName, isDirectory: true)),
+                             memory: MemoryStore(folder: places.memory),
                              bobModel: BobModel(defaults: profile.makeUserDefaults()),
                              approvalRules: ApprovalRuleStore(fileURL: support?.appendingPathComponent(ApprovalRuleStore.fileName)))
         // Replies still streaming are kept as stopped, and background writes land, before the process goes.

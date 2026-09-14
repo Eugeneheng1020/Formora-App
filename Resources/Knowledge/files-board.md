@@ -7,7 +7,7 @@
 - Agent 写的文件就在项目文件夹里，通常放在 PRD/ 这类目录下。对话里的保存卡片写着「文件已保存 / 文件已修改」和真实路径，点「在文件中查看」会跳过来并选中那个文件。
 - 你发给 Agent 的附件和粘贴的图片会复制进项目里的「附件」目录。
 - Formora 不把文件存到别的地方：你在 Finder 里看到的就是同样的文件，Agent 只能在项目文件夹里读写。
-- Skill 的文件在 Formora 自己的资料目录里，「设置 → Skills」里能在 Finder 中打开。
+- Skill 的文件在你的用户目录下的 `~/.formora/skills`（官网版；App Store 版在它自己的容器里），「设置 → Skills」里能在 Finder 中打开。同一个 `~/.formora` 里还有全局 Hooks（hooks.json）、Agent 和 Bob 的记忆（memory）、MCP 服务的配置（mcp.json，密钥在钥匙串里）。
 
 ## 看板
 
