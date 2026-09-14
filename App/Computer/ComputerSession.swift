@@ -29,8 +29,14 @@ final class ComputerSession {
     private func beginTree(_ window: UInt32) -> Int {
         let next = (generations[window] ?? 0) + 1
         generations[window] = next
+        // Refs older than the generation before are dead (see `entry`): their entries go with them, so a long run
+        // that reads the same window a hundred times doesn't keep every node it ever saw (audit 2026-09-14).
+        entries = entries.filter { $0.value.window != window || $0.value.generation >= next - 1 }
         return next
     }
+
+    /// How many refs are held now (tests: bounded, whatever the run's length).
+    var refCount: Int { entries.count }
 
     private func register(_ node: AXNode, window: UInt32, generation: Int) -> String {
         counter += 1
@@ -40,7 +46,13 @@ final class ComputerSession {
     }
 
     private func entry(_ ref: String) throws -> Entry {
-        guard let entry = entries[ref] else { throw DesktopProblem("没有 \(ref) 这个 ref：先用 tree 或 find 拿到 ref") }
+        guard let entry = entries[ref] else {
+            // A ref handed out earlier and pruned since (`beginTree`) is stale, not unknown.
+            if ref.hasPrefix("e"), let number = Int(ref.dropFirst()), number > 0, number <= counter {
+                throw DesktopProblem("\(ref) 过期了：这个窗口已经重新读过两次。再读一次 tree，用新的 ref")
+            }
+            throw DesktopProblem("没有 \(ref) 这个 ref：先用 tree 或 find 拿到 ref")
+        }
         let current = generations[entry.window] ?? entry.generation
         guard entry.generation >= current - 1 else {
             throw DesktopProblem("\(ref) 过期了：这个窗口已经重新读过两次。再读一次 tree，用新的 ref")

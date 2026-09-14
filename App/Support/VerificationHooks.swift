@@ -222,6 +222,9 @@ enum VerificationHooks {
     static let hiddenViewKey = "FormoraHiddenView"
     /// `-FormoraComposerDraft YES`: the selected conversation's composer holds two attachments.
     static let composerDraftKey = "FormoraComposerDraft"
+    /// `-FormoraSeedPlan YES` (with `-FormoraConversation N`): the selected conversation carries a seven-step plan whose
+    /// steps wrap to two lines — the plan list crashed on them (user 2026-09-14).
+    static let seedPlanKey = "FormoraSeedPlan"
     /// `-FormoraReasoningMenu YES`: the reasoning menu opens on the selected conversation.
     static let reasoningMenuKey = "FormoraReasoningMenu"
 
@@ -447,6 +450,43 @@ enum VerificationHooks {
                 if cards.indices.contains(index) { state.boardFocus = cards[index].id }
             }
         }
+        if settings.bool(forKey: seedPlanKey), let id = state.selectedConversationID {
+            let steps = ["搭页面骨架：手机框、屏幕索引面板、深色视觉规范，先把三个主界面的空壳放好",
+                         "胶卷列表：按日期和胶卷类型分组，每卷显示封面、张数和拍摄设备",
+                         "单卷详情：网格看图，长按多选，支持按拍摄设备、镜头、感光度筛选",
+                         "导入流程：从相册或文件选扫描件，自动读 EXIF，补填胶卷元数据",
+                         "编辑元数据：胶卷型号、冲扫店、拍摄日期，批量改和单张改都要有",
+                         "搜索：按胶卷、设备、日期、标签搜，结果同样用网格显示",
+                         "验收标准与排期：每一条对着 PRD 的验收标准写清怎么验"]
+            // Every state: two done (the tick is an icon, not a shape), one dropped, one in progress, the rest open.
+            var plan = steps.map { PlanItem(text: $0) }
+            plan[0].status = .done
+            plan[1].status = .done
+            plan[2].status = .dropped
+            plan[3].status = .active
+            plan[6].byUser = true
+            store.setPlan(plan, in: id)
+        }
+        if let path = settings.string(forKey: importConversationKey), let project = currentProject,
+           let id = importConversation(at: path, into: state, project: project.id) {
+            state.selectedConversationID = id
+            state.boardConversationID = id
+            if let raw = settings.string(forKey: boardFocusKey), let index = Int(raw), let conversation = store.conversation(id) {
+                let cards = state.boardCards(conversation)
+                if cards.indices.contains(index) { state.boardFocus = cards[index].id }
+            }
+            // With `-FormoraBoardLive YES`: the run goes on — its longest thinking and reply streamed again, as a model would.
+            if settings.bool(forKey: boardLiveKey), let conversation = store.conversation(id), let agent = conversation.agentID {
+                let replies = conversation.messages.filter { $0.role == .agent }
+                let thinking = replies.compactMap(\.thinking).max { $0.count < $1.count } ?? liveThinking
+                let text = replies.map(\.text).max { $0.count < $1.count } ?? liveText
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(1))
+                    await state.chat.qaSimulateDraft(id, agent: agent, thinking: PerfTour.chunks(thinking, 6), text: PerfTour.chunks(text, 6),
+                                                     every: .milliseconds(40))
+                }
+            }
+        }
         if settings.bool(forKey: seedMarkdownKey), let project = currentProject, let id = seedMarkdown(into: state, project: project.id) {
             state.selectedConversationID = id
             state.boardConversationID = id
@@ -502,6 +542,11 @@ enum VerificationHooks {
     /// entries — long thinking, long Markdown, steps with long outputs — to scroll 「运行过程」 through (user 2026-09-14:
     /// the panel crashed on a long run on another Mac). It is the chain shown; `-FormoraBoardFocus 0` focuses its card.
     static let boardLongRunKey = "FormoraBoardLongRun"
+    /// `-FormoraImportConversation <path>` (with `-FormoraSeedAgents YES`): a conversation file another copy of Formora saved —
+    /// a real model's replies, thinking and steps — brought in as the seeded project's, every Agent in it the first
+    /// seeded one; shown in 消息 and on the board, `-FormoraBoardFocus N` focusing a card (user 2026-09-14: 「运行过程」
+    /// crashes on a real run).
+    static let importConversationKey = "FormoraImportConversation"
     /// `-FormoraBoardLive YES` (9c): the board's waiting card starts thinking and writing, as a model would, and is focused.
     static let boardLiveKey = "FormoraBoardLive"
 
@@ -559,6 +604,28 @@ enum VerificationHooks {
 
     /// `-FormoraComposerText @`: the selected conversation's composer starts with this text (a group shows its `@` list).
     static let composerTextKey = "FormoraComposerText"
+
+    private static func importConversation(at path: String, into state: AppState, project: UUID) -> UUID? {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              var conversation = try? JSONDecoder().decode(Conversation.self, from: data),
+              let agent = state.agents.agents.first else { return nil }
+        conversation.id = UUID()
+        conversation.projectID = project
+        if conversation.agentID != nil { conversation.agentID = agent.id }
+        conversation.members = conversation.members.map { member in
+            var member = member
+            member.agentID = agent.id
+            return member
+        }
+        conversation.messages = conversation.messages.map { message in
+            var message = message
+            if message.agentID != nil { message.agentID = agent.id }
+            if !message.assignees.isEmpty { message.assignees = [agent.id] }
+            return message
+        }
+        state.conversations.qaImport(conversation)
+        return conversation.id
+    }
 
     private static func seedLongRun(into state: AppState, project: UUID) -> UUID? {
         let store = state.conversations
@@ -788,6 +855,9 @@ enum VerificationHooks {
     /// `-FormoraFakeLLM http://127.0.0.1:8765/v1` (with `scripts/fake-llm.py` running): a custom provider pointing at
     /// the local fake model, and every seeded Agent answering with it — streamed replies without API credit.
     static let fakeLLMKey = "FormoraFakeLLM"
+    /// `-FormoraLiveModel deepseek/deepseek-flash` (with a `FORMORA_QA_KEY_<PROVIDER>` key in the environment): every seeded
+    /// Agent answers with that real model — a live run for a test to watch (user 2026-09-14: 「运行过程」 crashes on a real run).
+    static let liveModelKey = "FormoraLiveModel"
     /// `-FormoraAutoReply 文字`: shortly after launch, sends that text in the selected conversation.
     static let autoReplyKey = "FormoraAutoReply"
     /// `-FormoraAutoReplyAway YES`: after sending, shows another conversation, so the reply lands unread.
@@ -825,6 +895,12 @@ enum VerificationHooks {
                 try? state.agents.saveModel(agent, AgentModelDraft(providerID: provider, modelID: "fake-prd"), isConfigured: { _ in true })
             }
             state.bobModel.choose(ModelReference(providerID: provider, modelID: "fake-prd"))
+        }
+        if let spec = settings.string(forKey: liveModelKey), let slash = spec.firstIndex(of: "/") {
+            let provider = String(spec[..<slash]), model = String(spec[spec.index(after: slash)...])
+            for agent in state.agents.agents {
+                try? state.agents.saveModel(agent, AgentModelDraft(providerID: provider, modelID: model), isConfigured: { _ in true })
+            }
         }
         if settings.bool(forKey: probeComputerKey) {
             Task { @MainActor in

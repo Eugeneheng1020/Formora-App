@@ -15,8 +15,10 @@ struct PlanList: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             ForEach(items) { item in
-                HStack(alignment: .firstTextBaseline, spacing: 9) {
-                    mark(item.status).alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
+                // The mark sits on the first line by top alignment, not a baseline guide: a `firstTextBaseline` guide on
+                // a shape sent SwiftUI's layout into endless recursion once the text wrapped — the crash of 2026-09-14.
+                HStack(alignment: .top, spacing: 9) {
+                    mark(item.status).padding(.top, 2.5)
                     Text(item.text)
                         .font(FormoraFont.ui(12, weight: item.status == .active ? 600 : 400))
                         .foregroundStyle(item.status == .active ? Palette.accent.color

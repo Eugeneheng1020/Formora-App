@@ -47,13 +47,19 @@ struct BoardRunPanel: View {
                             .onDisappear { atEnd = false }
                     }
                     .font(FormoraFont.mono(Self.size))
-                    .textSelection(.enabled)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 12)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                // A run under way opens at its end; a finished one at its start.
-                .onAppear { if BoardRun.isLive(card.status) { reader.scrollTo(Self.end, anchor: .bottom) } }
+                // Opens at its end, the latest of the run (user 2026-09-14: 「重新打开必须是最新的内容」) — twice, since the lazy
+                // rows above only get their real heights once laid out, and the first jump lands short.
+                .onAppear {
+                    reader.scrollTo(Self.end, anchor: .bottom)
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(250))
+                        reader.scrollTo(Self.end, anchor: .bottom)
+                    }
+                }
                 .onChange(of: card.entries) { _, _ in follow(reader) }
             }
             statusLine
@@ -241,7 +247,9 @@ private struct CLILine<Content: View>: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(mark).foregroundStyle(color).frame(width: 10, alignment: .leading)
-            content.frame(maxWidth: .infinity, alignment: .leading)
+            // Selectable line by line: one selection group over a run's hundreds of lines cost every scroll a relayout of
+            // them all (audit 2026-09-14).
+            content.frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
         }
         .padding(.vertical, 3)
     }

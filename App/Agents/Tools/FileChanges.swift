@@ -132,7 +132,7 @@ enum LineDiff {
             let slice = lines[hunk]
             let oldCount = slice.filter { $0.mark != "+" }.count
             let newCount = slice.filter { $0.mark != "-" }.count
-            let first = slice.first!
+            guard let first = slice.first else { continue }
             text += "@@ -\(oldCount == 0 ? first.old : first.old + 1),\(oldCount) +\(newCount == 0 ? first.new : first.new + 1),\(newCount) @@\n"
             for line in slice { text += String(line.mark) + line.text + "\n" }
             if text.count > textLimit {

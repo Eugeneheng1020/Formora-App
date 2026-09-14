@@ -403,6 +403,7 @@ final class ChatRunner {
         if let copy = laneCopies.removeValue(forKey: id) { Task.detached { LaneCopies.remove(copy) } }
         queues[id] = nil
         steering[id] = nil
+        computerSessions[id] = nil
         relays[id] = nil
         autoruns[id] = nil
         conducts[id] = nil

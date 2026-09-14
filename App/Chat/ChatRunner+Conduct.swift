@@ -192,7 +192,12 @@ extension ChatRunner {
         conduct.mark = conversations.conversation(id)?.messages.count ?? 0
         conducts[id] = conduct
         guard stage.count > 1 else {
-            let step = stage[0]
+            // An empty stage can't happen (`Conductor.parse` drops them), but skipping it beats indexing into nothing.
+            guard let step = stage.first else {
+                conduct.stage += 1
+                conducts[id] = conduct
+                return runStage(id)
+            }
             let after = conduct.stage > 0 ? conduct.stages[conduct.stage - 1].map { name(of: $0.agentID) } : []
             if !step.brief.isEmpty || !after.isEmpty {
                 conversations.append(Message(role: .user, text: Conductor.stepBrief(step.brief, after: after), isHidden: true), to: id)
@@ -251,7 +256,8 @@ extension ChatRunner {
         guard let conduct = conducts[id] else { return nil }
         guard conduct.stage < conduct.stages.count else { return conduct.summarized ? "正在汇总" : nil }
         let names = conduct.stages[conduct.stage].map { name(of: $0.agentID) }
-        let now = names.count > 1 ? names.joined(separator: "、") + " 同时在做" : names[0] + " 在做"
+        guard let first = names.first else { return nil }
+        let now = names.count > 1 ? names.joined(separator: "、") + " 同时在做" : first + " 在做"
         return conduct.stages.count > 1 ? "第 \(conduct.stage + 1)/\(conduct.stages.count) 步 · " + now : now
     }
 

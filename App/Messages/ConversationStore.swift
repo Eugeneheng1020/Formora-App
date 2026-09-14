@@ -527,6 +527,9 @@ final class ConversationStore {
         UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true ? .image : .file
     }
 
+    /// QA only (`-FormoraImportConversation`): a conversation saved by another copy of Formora, whole.
+    func qaImport(_ conversation: Conversation) { insert(conversation) }
+
     // MARK: Internals
 
     private func insert(_ conversation: Conversation) {

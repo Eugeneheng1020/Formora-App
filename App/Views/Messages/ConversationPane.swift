@@ -268,7 +268,13 @@ private struct ThreadView: View {
                 if state.messageJump?.conversationID == id {
                     jump(proxy)
                 } else if let last = visible.last {
+                    // Twice (user 2026-09-14: 「重新打开必须是最新的内容」): the lazy rows above get their real heights only once
+                    // laid out, and the first jump can land short of the latest message.
                     Task { proxy.scrollTo(last.id, anchor: .bottom) }
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(250))
+                        proxy.scrollTo(visible.last?.id ?? last.id, anchor: .bottom)
+                    }
                 }
             }
             .onChange(of: state.messageJump) { jump(proxy) }
