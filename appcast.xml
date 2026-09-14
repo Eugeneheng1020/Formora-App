@@ -5,6 +5,15 @@
     <description>Formora 的更新</description>
     <language>zh-Hans</language>
     <item>
+      <title>1.0.4</title>
+      <pubDate>Tue, 15 Sep 2026 01:02:24 +0800</pubDate>
+      <sparkle:version>17</sparkle:version>
+      <sparkle:shortVersionString>1.0.4</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[<p>单元测试不再往用户的运行日志里写测试数据</p>]]></description>
+      <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.4/Formora-1.0.4.dmg" type="application/octet-stream" sparkle:edSignature="ahtQEacrRo0TA0fLv8GlFW4KmX892gLQE//thqgzsIlw5+fYyNaZaROKEzgm3OHIbTQZQ8zlfUHb+0hRJ6ysCA==" length="12504071"/>
+    </item>
+    <item>
       <title>1.0.3</title>
       <pubDate>Tue, 15 Sep 2026 00:51:39 +0800</pubDate>
       <sparkle:version>16</sparkle:version>
