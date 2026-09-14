@@ -9,9 +9,9 @@ struct ArchiveSection: View {
     var body: some View {
         let list = state.conversations.archived()
         VStack(alignment: .leading, spacing: 0) {
-            SettingsSectionHead(category: .archive, note: "已归档的会话不出现在消息列表里。可以恢复，也只有在这里才能删除。") { EmptyView() }
+            SettingsSectionHead(category: .archive, note: "归档的对话不在消息列表里，这里能恢复或删除。") { EmptyView() }
             if list.isEmpty {
-                Text("还没有归档的会话。在消息列表里右键一条会话，选「归档会话」把它移到这里。")
+                Text("还没有归档的会话；在消息列表里右键一条，选「归档会话」。")
                     .font(FormoraFont.ui(12))
                     .foregroundStyle(Palette.inkFaint.color)
                     .frame(maxWidth: .infinity)

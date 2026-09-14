@@ -3,7 +3,8 @@
 enum SettingsCategory: String, CaseIterable, Identifiable, Sendable {
     /// 模型 → Skills → MCP: the same order as the Agent detail tabs (spec §5); Hooks after them (7b′, D39);
     /// 通知 → 归档 as in the mockup, 电脑操作 between them (7j, B2, old D40).
-    case account, models, skills, mcp, hooks, notifications, computer, archive, bob
+    /// 用量 after 归档 (2026-09-14: the cost of what ran); 关于 last — version, updates, the diagnostic bundle.
+    case account, models, skills, mcp, hooks, notifications, computer, archive, usage, bob, about
 
     var id: String { rawValue }
 
@@ -17,7 +18,9 @@ enum SettingsCategory: String, CaseIterable, Identifiable, Sendable {
         case .notifications: "通知"
         case .computer: "电脑操作"
         case .archive: "归档"
+        case .usage: "用量"
         case .bob: "Bob"
+        case .about: "关于"
         }
     }
 
@@ -34,7 +37,9 @@ enum SettingsCategory: String, CaseIterable, Identifiable, Sendable {
         case .notifications: Icons.bell
         case .computer: Icons.display
         case .archive: Icons.archive
+        case .usage: Icons.chart
         case .bob: Icons.robot
+        case .about: Icons.info
         }
     }
 }

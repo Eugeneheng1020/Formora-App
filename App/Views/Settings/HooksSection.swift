@@ -30,7 +30,7 @@ struct HooksSection: View {
     var body: some View {
         let hooks = state.hooks
         VStack(alignment: .leading, spacing: 0) {
-            SettingsSectionHead(category: .hooks, note: "到了某个时机，自动运行一条命令，或往一个网址发一条消息。格式和 Claude Code 相同，网上现成的配置可以直接用。") {
+            SettingsSectionHead(category: .hooks, note: "到了设定的时机自动运行命令或通知网址；写法和 Claude Code 相同。") {
                 Button("添加 Hook") { state.hookEditor = .add(.global) }
                     .buttonStyle(FormoraButtonStyle(kind: .primary))
                     .accessibilityIdentifier("hooks.add")
@@ -119,7 +119,7 @@ private struct TrustBox: View {
             Text("这个项目带了 \(count) 个 Hook，还没有启用")
                 .font(FormoraFont.ui(12.5, weight: 600))
                 .foregroundStyle(Palette.ink.color)
-            Text("项目里的 Hook 可能来自别人。先看一眼下面每一条会做什么；启用后，它们会在这个项目里自动运行。内容再有改动，会再问你一次。")
+            Text("项目里的 Hook 可能来自别人，看清每一条做什么再启用；文件改过会再问一次。")
                 .font(FormoraFont.ui(12))
                 .foregroundStyle(Palette.inkMuted.color)
                 .lineSpacing(3)

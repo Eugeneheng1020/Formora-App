@@ -29,7 +29,9 @@ struct SettingsPane: View {
                 case .notifications: NotificationsSection(state: state)
                 case .computer: ComputerSection(state: state)
                 case .archive: ArchiveSection(state: state, session: session)
+                case .usage: UsageSection(state: state)
                 case .bob: BobSection(state: state)
+                case .about: AboutSection(state: state)
                 }
             }
             .frame(maxWidth: 800, alignment: .leading)

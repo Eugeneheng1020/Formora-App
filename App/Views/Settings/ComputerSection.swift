@@ -9,12 +9,12 @@ struct ComputerSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             SettingsSectionHead(category: .computer,
-                                note: "打开了「允许操作电脑」的 Agent 和 Bob 靠这三个系统权限看屏幕、点按和打字、用脚本控制其他应用。") { EmptyView() }
+                                note: "Agent 和 Bob 操作电脑需要的三个系统权限。") { EmptyView() }
             if ComputerBuild.isAvailable {
                 ForEach(ComputerPermission.allCases) { permission in
                     PermissionRow(permission: permission, access: state.computer)
                 }
-                Text("授权屏幕录制后，macOS 会让 Formora 退出再重新打开。哪个 Agent 能操作电脑，在它的「模型与权限」里单独打开；Bob 的在「设置 → Bob」里打开。")
+                Text("授权屏幕录制后 macOS 会重启 Formora；哪个 Agent 能操作电脑在它的「模型与权限」里开，Bob 的在「Bob」页开。")
                     .font(FormoraFont.ui(11.5))
                     .foregroundStyle(Palette.inkFaint.color)
                     .lineSpacing(3)
@@ -23,7 +23,7 @@ struct ComputerSection: View {
             } else {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("这个版本没有电脑操作").font(FormoraFont.ui(13, weight: 600)).foregroundStyle(Palette.ink.color)
-                    Text("App Store 不允许应用申请辅助功能和屏幕录制这类权限。从官网下载的 Formora 才有电脑操作。")
+                    Text("App Store 版没有电脑操作，官网下载的版本才有。")
                         .font(FormoraFont.ui(12))
                         .foregroundStyle(Palette.inkMuted.color)
                         .fixedSize(horizontal: false, vertical: true)

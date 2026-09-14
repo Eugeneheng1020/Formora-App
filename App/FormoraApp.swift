@@ -60,7 +60,8 @@ struct FormoraApp: App {
                              conversations: conversations, notifications: notificationSettings, hooks: hooks,
                              memory: MemoryStore(folder: places.memory),
                              bobModel: BobModel(defaults: profile.makeUserDefaults()),
-                             approvalRules: ApprovalRuleStore(fileURL: support?.appendingPathComponent(ApprovalRuleStore.fileName)))
+                             approvalRules: ApprovalRuleStore(fileURL: support?.appendingPathComponent(ApprovalRuleStore.fileName)),
+                             prices: ModelPriceStore(fileURL: support?.appendingPathComponent(ModelPriceStore.fileName)))
         // Replies still streaming are kept as stopped, and background writes land, before the process goes.
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { _ in
             MainActor.assumeIsolated {
@@ -104,6 +105,27 @@ struct FormoraApp: App {
             state.bob.screenshotFolder = support?.appendingPathComponent("Screenshots/Bob", isDirectory: true)
             state.bob.onOperating = { operating in brake.set(BobSession.operatingID, operating: operating) }
         }
+        // 2026-09-14: the app's own log (seven days), the diagnostic bundle's sources, and Sparkle for the user's copy.
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"
+        let logFolder = AppLog.folder(profileName: profile.name)
+        AppLog.shared.start(folder: logFolder, redact: { SecretShield.shared.redact($0) }, version: "\(version) (\(build))")
+        state.diagnosticSources = DiagnosticSources(
+            logs: logFolder, conversations: support?.appendingPathComponent(ConversationStore.folderName, isDirectory: true),
+            exportFolder: profile.isDefault ? FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first
+                : support?.appendingPathComponent("Diagnostics", isDirectory: true),
+            profileName: profile.name)
+        let feedOverride = UserDefaults.standard.string(forKey: AppUpdater.feedKey)
+        // Not under XCTest: the unit tests host the app and must never reach the feed or show an update.
+        let underTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil || NSClassFromString("XCTestCase") != nil
+        if !underTests, profile.isDefault || feedOverride != nil { state.updater = AppUpdater(feedOverride: feedOverride) }
+        // `-FormoraCheckUpdate YES` (QA): press 检查更新 two seconds in, so Sparkle's window can be screenshotted.
+        if !underTests, UserDefaults.standard.bool(forKey: "FormoraCheckUpdate") {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(2))
+                state.updater?.check()
+            }
+        }
         if let section = VerificationHooks.initialSection(for: profile) { state.select(section) }
         VerificationHooks.applyOverlay(to: state, profile: profile)
         VerificationHooks.applySettings(to: state, profile: profile)
@@ -131,6 +153,7 @@ struct FormoraApp: App {
                 if request { await notifier.requestPermission() } else { await notifier.refreshPermission() }
             }
         }
+        state.budgetAlert = { id, body in notifier.post(title: "用量超过了预算", body: body, conversationID: id) }
         state.replyAlert = { [weak state] conversation, message in
             guard let state else { return }
             if state.notifications.sound { NSSound(named: "Glass")?.play() }
@@ -150,5 +173,11 @@ struct FormoraApp: App {
         .windowStyle(.hiddenTitleBar)
         .defaultSize(initialMode == .launch ? LaunchMetrics.windowSize : ShellMetrics.defaultWindowSize)
         .windowResizability(.contentMinSize)
+        .commands {
+            // 2026-09-14: the app menu's 检查更新…, as every Sparkle app has it.
+            CommandGroup(after: .appInfo) {
+                Button("检查更新…") { state.updater?.check() }.disabled(state.updater == nil)
+            }
+        }
     }
 }

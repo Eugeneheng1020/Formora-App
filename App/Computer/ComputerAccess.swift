@@ -31,7 +31,7 @@ enum ComputerPermission: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .screen: "截屏，看屏幕和窗口上有什么。"
         case .accessibility: "读窗口里的按钮和文字，点按、打字、按快捷键。"
-        case .automation: "用脚本控制其他应用。每个应用第一次被控制时 macOS 会单独问一次，这里查的是访达。"
+        case .automation: "用脚本控制其他应用；每个应用第一次会单独问，这里查的是访达。"
         }
     }
 

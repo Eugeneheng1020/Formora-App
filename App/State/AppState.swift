@@ -200,12 +200,24 @@ final class AppState {
     let toasts = ToastCenter()
     /// The open project's folder tree; `nil` while no reachable folder is open.
     var files: FileBrowser?
+    /// 自动更新 (2026-09-14): Sparkle, set by the app; `nil` in tests and in QA copies without a feed.
+    var updater: AppUpdater?
+    /// 一键提交 (2026-09-14): the commit sheet is open for this project folder.
+    var commitSheet: URL?
+    /// 用量 (2026-09-14): the prices behind the ledger and the monthly budget.
+    let prices: ModelPriceStore
+    /// The budget was crossed this month: a notice, set by the app (tests stay silent).
+    var budgetAlert: (UUID, String) -> Void = { _, _ in }
+    /// Where 设置 → 关于's diagnostic bundle looks (2026-09-14); set by the app.
+    var diagnosticSources = DiagnosticSources()
 
     init(account: AccountStore, providers: ProviderStore, agents: AgentStore, skills: SkillLibrary, mcp: MCPStore,
          conversations: ConversationStore, notifications: NotificationSettings, hooks: HookStore = HookStore(folder: nil),
          chatClient: ChatClient = ChatClient(), memory: MemoryStore = MemoryStore(folder: nil),
-         bobModel: BobModel = BobModel(defaults: nil), approvalRules: ApprovalRuleStore = ApprovalRuleStore(fileURL: nil)) {
+         bobModel: BobModel = BobModel(defaults: nil), approvalRules: ApprovalRuleStore = ApprovalRuleStore(fileURL: nil),
+         prices: ModelPriceStore = ModelPriceStore(fileURL: nil)) {
         self.account = account
+        self.prices = prices
         self.approvalRules = approvalRules
         self.hooks = hooks
         self.providers = providers
@@ -225,6 +237,8 @@ final class AppState {
         }
         // 10b: what each project no longer asks about.
         chat.approvalRules = approvalRules
+        // 2026-09-14: the month's spend against the budget, once per month.
+        chat.onFinished = { [weak self] id in self?.checkBudget(after: id) }
         // 7f: the Agents' Skills, MCP tools and memory.
         chat.skillLibrary = skills
         chat.mcp = mcp
@@ -381,6 +395,19 @@ final class AppState {
 
     var accountName: String { account.displayName }
     var accountInitial: String? { account.initial }
+
+    /// 用量 (2026-09-14): the calendar month's spend at the current prices; over the budget, one notice a month.
+    func checkBudget(after id: UUID, now: Date = Date()) {
+        guard let budget = prices.budget else { return }
+        let month = UsageLedger.month(of: now)
+        guard prices.budgetNotifiedMonth != month else { return }
+        let entries = UsageLedger.entries(conversations.conversations) { [agents] in agents.agent($0)?.displayName ?? "" }
+        let spend = UsageLedger.monthSpend(entries, currency: budget.currency, now: now) { [prices] in prices.price(for: $0)?.price }
+        guard spend >= budget.amount else { return }
+        prices.markBudgetNotified(month: month)
+        AppLog.warn("usage", "本月花费 \(UsageLedger.money(spend, budget.currency)) 超过预算 \(UsageLedger.money(budget.amount, budget.currency))")
+        budgetAlert(id, "这个月已花 \(UsageLedger.money(spend, budget.currency))，超过了预算 \(UsageLedger.money(budget.amount, budget.currency))")
+    }
 
     func select(_ section: AppSection) {
         selectedSection = section

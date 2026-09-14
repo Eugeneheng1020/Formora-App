@@ -264,6 +264,18 @@ final class ConversationStore {
     }
 
     /// The `plan` tool's list (7d, D4).
+    /// QA only (`-FormoraSeedUsage YES`, 2026-09-14): seeded replies get the Agent's model and a usage when they have none.
+    func qaStampUsage(model: (UUID?) -> ModelReference?) {
+        for conversation in conversations {
+            change(conversation.id) { conversation in
+                for index in conversation.messages.indices where conversation.messages[index].role == .agent {
+                    if conversation.messages[index].model == nil { conversation.messages[index].model = model(conversation.messages[index].agentID) }
+                    if conversation.messages[index].usage == nil { conversation.messages[index].usage = TokenUsage(input: 3_200, output: 640) }
+                }
+            }
+        }
+    }
+
     func setPlan(_ plan: [PlanItem], in id: UUID) {
         guard conversation(id)?.plan != plan else { return }
         change(id) { $0.plan = plan }

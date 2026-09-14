@@ -9,7 +9,7 @@ struct NotificationsSection: View {
     var body: some View {
         let settings = state.notifications
         VStack(alignment: .leading, spacing: 0) {
-            SettingsSectionHead(category: .notifications, note: "仅在 App 运行时生效，系统级权限由 macOS 通知设置控制。") { EmptyView() }
+            SettingsSectionHead(category: .notifications, note: "Agent 回复时怎么提醒你；系统权限在 macOS 通知设置里。") { EmptyView() }
             SettingRow(label: "桌面通知", description: "Formora 不在前台时，Agent 回复会弹出系统通知。",
                        showsRule: !(settings.desktop && settings.permission == .denied)) {
                 FormoraSwitch(isOn: Binding(get: { settings.desktop }, set: { on in
@@ -34,7 +34,7 @@ struct NotificationsSection: View {
                 .overlay(alignment: .bottom) { Rectangle().fill(Palette.line.color).frame(height: 1) }
                 .accessibilityIdentifier("notify.denied")
             }
-            SettingRow(label: "消息提示音", description: "收到你没在看的对话的新回复时，播放一次提示音。") {
+            SettingRow(label: "消息提示音", description: "没在看的对话有新回复时响一声。") {
                 FormoraSwitch(isOn: Binding(get: { settings.sound }, set: { settings.setSound($0) }),
                               label: "消息提示音", identifier: "notify.sound")
             }

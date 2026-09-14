@@ -576,7 +576,9 @@ struct ChatClient: Sendable {
                             body += line + "\n"
                             if body.utf8.count > 16_000 { break }
                         }
-                        throw ChatFailure.http(status: response.statusCode, message: ProviderClient.providerMessage(from: Data(body.utf8)))
+                        let message = ProviderClient.providerMessage(from: Data(body.utf8))
+                        AppLog.warn("model", "HTTP \(response.statusCode) \(request.url?.host() ?? "") \(message?.prefix(200) ?? "")")
+                        throw ChatFailure.http(status: response.statusCode, message: message)
                     }
                     var decoder = ChatStreamDecoder(apiProtocol: apiProtocol)
                     for try await line in lines {
@@ -585,7 +587,9 @@ struct ChatClient: Sendable {
                     for event in decoder.finish() { continuation.yield(event) }
                     continuation.finish()
                 } catch {
-                    continuation.finish(throwing: ChatFailure.from(error))
+                    let failure = ChatFailure.from(error)
+                    if failure != .cancelled { AppLog.warn("model", "请求中断 \(request.url?.host() ?? "") \(String(describing: failure).prefix(200))") }
+                    continuation.finish(throwing: failure)
                 }
             }
             continuation.onTermination = { _ in task.cancel() }

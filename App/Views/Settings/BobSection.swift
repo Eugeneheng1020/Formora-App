@@ -12,7 +12,7 @@ struct BobSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             SettingsSectionHead(category: .bob, note: model == nil ? BobSession.noModel
-                                    : "点设置页右下角的圆形按钮和 Bob 说话。这里选他用的模型、他动手前问不问你，看看能问他什么") { EmptyView() }
+                                    : "Bob 用哪个模型、动手前问不问你；右下角的按钮就能和他说话。") { EmptyView() }
             BobModelRow(state: state)
             BobApprovalRow(state: state)
             BobComputerRow(state: state)
@@ -39,8 +39,8 @@ private struct BobModelRow: View {
         let current = state.bobModel.current(state.providers)
         // The page's note already says where to get one.
         let description = options.isEmpty && current == nil ? "还没有配好的模型"
-            : state.bobModel.chosen == nil ? "默认用第一个配好的模型，它不能用了会自动换下一个"
-            : "Bob 回答问题、替你改设置都用这个模型"
+            : state.bobModel.chosen == nil ? "默认用第一个配好的模型，不能用了自动换下一个"
+            : "Bob 回答和改设置都用它"
         SettingRow(label: "模型", description: description) {
             if options.isEmpty, current == nil {
                 Button("去「模型」配一个") { state.settingsCategory = .models }
@@ -113,11 +113,11 @@ private struct BobComputerRow: View {
     var body: some View {
         let isOn = ComputerBuild.isAvailable && state.bobModel.allowsComputer
         let missing = isOn ? state.computer.missing : []
-        let asking = state.bobModel.approvalMode == .yolo ? "「全部放行」下动手也不问" : "每次回答第一次动手前先问你"
+        let asking = state.bobModel.approvalMode == .yolo ? "「全部放行」下不问" : "每次回答第一次动手前先问"
         SettingRow(label: "允许操作电脑",
                    description: ComputerBuild.isAvailable
-                       ? "看屏幕、点按和打字、用脚本控制其他应用。\(asking)，屏幕顶部随时能停"
-                       : "只有官网下载的版本能用：App Store 不允许应用申请这类权限") {
+                       ? "看屏幕、点按打字、控制其他应用；\(asking)。"
+                       : "App Store 版没有这个功能，官网版才有。") {
             HStack(spacing: 10) {
                 if !missing.isEmpty {
                     Text("还缺：\(missing.map(\.title).joined(separator: "、"))")

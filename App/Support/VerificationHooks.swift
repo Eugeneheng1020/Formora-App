@@ -43,6 +43,9 @@ enum VerificationHooks {
         return ProfileFolderPicker(root: support.appendingPathComponent("Picked", isDirectory: true), name: name)
     }
 
+    /// `-FormoraSeedGit YES` (2026-09-14): the seeded project is a git repository with one commit and two changes on top.
+    static let seedGitKey = "FormoraSeedGit"
+
     static func seedProjects(into store: ProjectStore, profile: AppProfile, settings: UserDefaults = .standard) {
         guard !profile.isDefault,
               let raw = settings.string(forKey: seedProjectsKey),
@@ -59,10 +62,33 @@ enum VerificationHooks {
                 try? FileManager.default.copyItem(at: fixture, to: url)
             }
             try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+            if settings.bool(forKey: seedGitKey) { seedGit(at: url) }
             let record = store.upsert(folder: url, bookmark: ProjectFolders.makeBookmark(for: url), summary: nil)
             if first == nil { first = record }
         }
         if store.current == nil, let first { store.currentID = first.id }
+    }
+
+    /// A repository on `main` with a README committed, then the README changed and a note added: 「2 个改动」.
+    private static func seedGit(at url: URL) {
+        guard !FileManager.default.fileExists(atPath: url.appendingPathComponent(".git").path) else { return }
+        func git(_ arguments: [String]) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+            process.currentDirectoryURL = url
+            process.arguments = ["-c", "user.name=Formora QA", "-c", "user.email=qa@formora.local", "-c", "commit.gpgsign=false"] + arguments
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            try? process.run()
+            process.waitUntilExit()
+        }
+        let readme = url.appendingPathComponent("README.md")
+        try? "# 演示项目\n".write(to: readme, atomically: true, encoding: .utf8)
+        git(["init", "-q", "-b", "main"])
+        git(["add", "-A"])
+        git(["commit", "-q", "-m", "初始"])
+        try? "# 演示项目\n\n会员等级：银卡、金卡、黑卡。\n".write(to: readme, atomically: true, encoding: .utf8)
+        try? "- 写验收标准\n".write(to: url.appendingPathComponent("待办.md"), atomically: true, encoding: .utf8)
     }
 
     static func initialSection(for profile: AppProfile, settings: UserDefaults = .standard) -> AppSection? {
@@ -225,6 +251,8 @@ enum VerificationHooks {
     /// `-FormoraSeedPlan YES` (with `-FormoraConversation N`): the selected conversation carries a seven-step plan whose
     /// steps wrap to two lines — the plan list crashed on them (user 2026-09-14).
     static let seedPlanKey = "FormoraSeedPlan"
+    /// `-FormoraSeedUsage YES`: every seeded reply gets its Agent's model and a usage, for 设置 → 用量.
+    static let seedUsageKey = "FormoraSeedUsage"
     /// `-FormoraReasoningMenu YES`: the reasoning menu opens on the selected conversation.
     static let reasoningMenuKey = "FormoraReasoningMenu"
 
@@ -244,6 +272,12 @@ enum VerificationHooks {
             state.selectedConversationID = list.first?.id
         }
         if let query = settings.string(forKey: messageSearchKey) { state.messageSearch = query }
+        if settings.bool(forKey: seedUsageKey) {
+            store.qaStampUsage { agentID in
+                guard let agent = state.agents.agent(agentID), let provider = agent.providerID else { return nil }
+                return ModelReference(providerID: provider, modelID: agent.modelID)
+            }
+        }
         // `-FormoraSeedLaneCopies YES` (10l): two members of the selected group came back from their copies — one's changes
         // merged, the other's version of the same file kept beside it — each reply saying so.
         if settings.bool(forKey: seedLaneCopiesKey), let id = state.selectedConversationID, let conversation = store.conversation(id),

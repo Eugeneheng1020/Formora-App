@@ -19,7 +19,10 @@ struct FileListColumn: View {
                     SearchField(placeholder: "搜索文件", text: Binding(get: { browser.searchText }, set: { browser.searchText = $0 }),
                                 identifier: "files.search")
                         // `.search` margin 12 + the empty `.filter-tabs` row's 10pt bottom padding the mockup keeps here.
-                        .padding(.bottom, 22)
+                        .padding(.bottom, session.accessibleRoot == nil ? 22 : 10)
+                }
+                if let root = session.accessibleRoot {
+                    GitChangesButton(state: state, root: root).padding(.bottom, 12)
                 }
             }
             .padding(.top, 16)
@@ -181,5 +184,40 @@ struct FileTreeRow: View {
     private var background: Color {
         if isSelected { return Palette.surfaceRaised2.color }
         return isHovering || isFocused ? Palette.surfaceRaised.color : .clear
+    }
+}
+
+/// 一键提交 (2026-09-14): how many files changed on which branch; opens the commit sheet. Nothing when the folder isn't a
+/// git repository.
+private struct GitChangesButton: View {
+    let state: AppState
+    let root: URL
+
+    @State private var count: Int?
+    @State private var branch = ""
+
+    var body: some View {
+        // A VStack, not a Group: an empty Group is no view at all and its `.task` would never run.
+        VStack(spacing: 0) {
+            if let count {
+                Button { state.commitSheet = root } label: {
+                    HStack(spacing: 6) {
+                        IconView(Icons.arrowUpRight, size: 12)
+                        Text(count == 0 ? "没有改动 · \(branch)" : "\(count) 个改动 · \(branch)").lineLimit(1)
+                    }
+                }
+                .buttonStyle(FormoraButtonStyle(kind: count == 0 ? .ghost : .standard, fillsWidth: true))
+                .disabled(count == 0)
+                .accessibilityIdentifier("files.changes")
+            }
+        }
+        .task(id: root.path + (state.commitSheet == nil ? "-closed" : "-open")) { await load() }
+    }
+
+    private func load() async {
+        let flow = CommitFlow(root: root)
+        await flow.refresh()
+        count = flow.notRepo ? nil : flow.changes.count
+        branch = flow.status?.branch ?? ""
     }
 }

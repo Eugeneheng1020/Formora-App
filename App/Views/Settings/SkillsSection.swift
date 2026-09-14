@@ -23,7 +23,7 @@ struct SkillsSection: View {
                     .accessibilityIdentifier("skills.import")
             }
             if library.skills.isEmpty {
-                Text("还没有安装 Skill。导入一个包含 SKILL.md 的文件夹即可。")
+                Text("还没有 Skill；导入一个带 SKILL.md 的文件夹。")
                     .font(FormoraFont.ui(12))
                     .foregroundStyle(Palette.inkFaint.color)
                     .frame(maxWidth: .infinity)
@@ -43,7 +43,7 @@ struct SkillsSection: View {
     }
 
     private var note: String {
-        "\(library.skills.count) 个已安装 · 安装一次，各 Agent 独立启用。"
+        "\(library.skills.count) 个已安装 · 各 Agent 独立启用"
     }
 }
 

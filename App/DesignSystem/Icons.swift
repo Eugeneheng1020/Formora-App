@@ -100,6 +100,12 @@ enum Icons {
     /// 设置 → 通知 (mockup `settingsCategories`; its `S` segment written out as `C`).
     static let bell = SVGIcon(validated: #"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8.6a6 6 0 1 0-12 0c0 5.4-2.1 6.9-2.1 6.9h16.2C20.1 15.5 18 14 18 8.6Z"/><path d="M13.7 19a2 2 0 0 1-3.4 0"/></svg>"#, name: "bell")
 
+    /// 设置 → 用量 (2026-09-14): three bars.
+    static let chart = SVGIcon(validated: #"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16"/><path d="M7 16v-5"/><path d="M12 16V7"/><path d="M17 16v-8"/></svg>"#, name: "chart")
+
+    /// 设置 → 关于 (2026-09-14): an i in a circle.
+    static let info = SVGIcon(validated: #"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg>"#, name: "info")
+
     /// 设置 → 电脑操作 (7j, B2): a display.
     static let display = SVGIcon(validated: #"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3.5" width="19" height="13" rx="2"/><path d="M8 20.5h8M12 16.5v4"/></svg>"#, name: "display")
 

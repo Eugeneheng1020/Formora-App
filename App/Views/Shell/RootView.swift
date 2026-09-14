@@ -71,6 +71,10 @@ struct RootView: View {
                 HookEditorDialog(state: state, session: session, target: target).id(target.id)
             }
 
+            if let root = state.commitSheet {
+                CommitSheet(state: state, root: root).id(root)
+            }
+
             if let id = state.conversationToClear, let conversation = state.conversations.conversation(id) {
                 let count = conversation.messages.filter { !$0.isHidden }.count
                 ConfirmDialog(kicker: "clear conversation", title: "清空这条对话？",

@@ -109,7 +109,7 @@ final class BobSession {
         }
         return "问我 Formora 怎么用、现在什么情况，或者直接让我去改设置、动手做事。" + asking
     }
-    static let noModel = "Bob 还没有可用的模型：先去「模型」给一个服务商填上 API Key。"
+    static let noModel = "Bob 还没有模型：先去「模型」填一个 API Key。"
     /// The project his memory is filed under: none in particular (D95).
     static let everywhere = UUID(uuidString: "B0B00000-0000-4000-8000-0000000000EE")!
     /// Who the stop bar stops when it is his (D97): the bar keys each run by an id, and his is this one.

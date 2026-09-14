@@ -58,13 +58,13 @@ final class BobModel {
     /// What each mode means for him: his changes are settings as well as files.
     static func note(_ mode: ApprovalMode) -> String {
         switch mode {
-        case .alwaysAsk: "查看、搜索直接做；写文件、改设置、读网页、运行命令之前都先问你。"
-        case .write: "查看、写项目文件、建 Skill、建文件夹、改通知设置、不删数据的 MCP 工具直接做；读网页、运行命令、打开网址之前先问你。"
-        case .yolo: "所有操作直接做，不再询问。只在你信得过的时候用。"
+        case .alwaysAsk: "看和查直接做，会改东西的都先问你。"
+        case .write: "写文件、建 Skill、改设置直接做；跑命令、读网页、打开网址先问你。"
+        case .yolo: "全都直接做，不问；只在信得过时用。"
         }
     }
 
-    static let alwaysAsked = "危险命令（删除、sudo 这类）、接入 MCP 服务、清空记忆、会删数据的 MCP 工具，不管哪一档都先问你。"
+    static let alwaysAsked = "危险命令、接入 MCP、清空记忆、会删数据的工具永远先问。"
 
     static func options(_ providers: ProviderStore) -> [Option] {
         providers.entries.filter { providers.hasKey($0.id) }.compactMap { entry in

@@ -10,9 +10,9 @@ struct AccountSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SettingsSectionHead(category: .account, note: "只影响本机显示，不参与任何 Agent 配置。") { EmptyView() }
+            SettingsSectionHead(category: .account, note: "名字和头像，只在本机显示。") { EmptyView() }
             SettingRow(label: "头像",
-                       description: "显示在图标栏左上角。支持 PNG、JPEG、HEIC，单文件不超过 10 MB；未设置时显示昵称首字。") {
+                       description: "PNG、JPEG 或 HEIC，不超过 10 MB；不设就显示昵称首字。") {
                 HStack(spacing: 10) {
                     AccountAvatar(image: account.avatar, initial: account.initial, size: 56, style: .preview)
                         .accessibilityIdentifier("account.avatar")
@@ -24,7 +24,7 @@ struct AccountSection: View {
                     }
                 }
             }
-            SettingRow(label: "昵称", description: "显示在图标栏头像与消息气泡里。", showsRule: false) {
+            SettingRow(label: "昵称", description: "显示在头像和消息气泡里。", showsRule: false) {
                 NicknameField(account: account)
             }
         }

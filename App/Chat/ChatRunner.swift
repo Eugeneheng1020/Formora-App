@@ -142,6 +142,8 @@ final class ChatRunner {
     @ObservationIgnored var namesTasks = true
     /// What the system prompt says about where and for whom the Agent works.
     @ObservationIgnored var projectName: (UUID) -> String? = { _ in nil }
+    /// A run ended, whatever its outcome (2026-09-14: the ledger checks the month's budget).
+    @ObservationIgnored var onFinished: (UUID) -> Void = { _ in }
     @ObservationIgnored var userName: () -> String = { "" }
     /// The project folder the tools work in, when it can be opened.
     @ObservationIgnored var projectRoot: (UUID) -> URL? = { _ in nil }
@@ -786,6 +788,7 @@ final class ChatRunner {
         // A question left unanswered: the user moved on (D6).
         conversations.closeOpenCalls(in: id, ToolResult(status: .stopped, output: "用户没有回答这个问题，看用户接下来说的。"))
         activeRuns[id] = Run(id: runID, agentID: agent.id)
+        AppLog.info("run", "开始 对话=\(id.uuidString.prefix(8)) Agent=\(agent.displayName) 模型=\(agent.providerID ?? "?")/\(agent.modelID)")
         let task = Task { [weak self] in
             guard let self else { return }
             await self.run(runID: runID, conversationID: id, agent: agent)
@@ -1272,6 +1275,7 @@ final class ChatRunner {
             state.lastCall = signature
             let started = Date()
             var result = await perform(call, messageID: reply.id, conversationID: id, runID: runID, agent: agent, state: &state)
+            AppLog.shared.write(result.status == .failed ? .warn : .info, "tool", "\(call.name) → \(result.status.rawValue) 对话=\(id.uuidString.prefix(8))" + (result.status == .failed ? " \(result.output.prefix(200))" : ""))
             result.seconds = Date().timeIntervalSince(started)
             guard isCurrent(runID, id) else { return }
             if result.status == .done {
@@ -1530,6 +1534,13 @@ final class ChatRunner {
     func finish(_ id: UUID, runID: UUID, _ message: Message?, handoff: Handoff? = nil) {
         guard isCurrent(runID, id) else { return }
         end(id)
+        onFinished(id)
+        if let failure = message?.failure {
+            AppLog.error("run", "失败 对话=\(id.uuidString.prefix(8)) \(failure.prefix(300))")
+        } else {
+            let usage = message?.usage.map { "输入 \($0.input ?? 0) 输出 \($0.output ?? 0)" } ?? "无用量"
+            AppLog.info("run", "结束 对话=\(id.uuidString.prefix(8)) 工具 \(message?.toolCalls.count ?? 0) 次 \(usage)")
+        }
         let last = message ?? conversations.conversation(id)?.messages.last { $0.runID == runID && !$0.isHidden }
         if let message {
             announce(message, in: id)
