@@ -29,7 +29,7 @@ Formora 是原生的 macOS 应用（SwiftUI），不需要自己的服务器：�
 2. 打开 dmg，把 Formora 拖进「应用程序」。
 3. 第一次打开时，macOS 会提示无法验证开发者：这个版本还没有经过苹果公证。到「系统设置 → 隐私与安全性」，在页面下方找到 Formora，点「仍要打开」；或者在「应用程序」里按住 Control 键点 Formora，选「打开」。之后就能正常打开了。
 
-需要 macOS 14 或更新。用之前准备一个模型服务商的 API Key：OpenAI、Anthropic、Google Gemini、DeepSeek、通义千问等，或者任何兼容 OpenAI 接口的服务。Key 存在 macOS 钥匙串里。
+装过 1.0.3 或更新版本后，有新版本时 Formora 会自己提示更新（菜单「Formora → 检查更新…」也能查）。需要 macOS 14 或更新。用之前准备一个模型服务商的 API Key：OpenAI、Anthropic、Google Gemini、DeepSeek、通义千问等，或者任何兼容 OpenAI 接口的服务。Key 存在 macOS 钥匙串里。
 
 ## 它能做什么
 

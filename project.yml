@@ -19,6 +19,11 @@ settings:
     CODE_SIGN_IDENTITY: "-"
     MARKETING_VERSION: "1.0.2"
     CURRENT_PROJECT_VERSION: "15"
+# 自动更新：Sparkle 从 GitHub Releases 取安装包，appcast 放在 Formora-App 仓库、经 jsDelivr 镜像分发。
+packages:
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: "2.10.0"
 targets:
   Formora:
     type: application
@@ -40,6 +45,20 @@ targets:
       - path: Resources/Skills
         type: folder
         buildPhase: resources
+    # Keys Xcode's generated Info.plist can't carry: merged into it at build time.
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDevelopmentRegion: zh-Hans
+        CFBundleLocalizations: [zh-Hans]
+        SUFeedURL: https://cdn.jsdelivr.net/gh/Eugeneheng1020/Formora-App@main/appcast.xml
+        SUPublicEDKey: 8bcVINjLvfTac8EkaSQmtBWAHWiHN+xgklMuMHHtiaw=
+        SUEnableAutomaticChecks: true
+        SUScheduledCheckInterval: 86400
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    dependencies:
+      - package: Sparkle
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.eugenecheng.formora
