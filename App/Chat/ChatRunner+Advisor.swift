@@ -3,7 +3,7 @@ import Foundation
 /// 10h: 旁审 in the run (V1–V7).
 extension ChatRunner {
     /// Bob's model (设置 → Bob); without one, the Agent's own — in a call of its own, with its own instructions.
-    func advisorModel(for agent: AgentRecord) -> ModelReference? { conductorModel() ?? agent.primaryModel }
+    func advisorModel(for agent: AgentRecord) -> ModelReference? { agent.model(for: .advisor) ?? conductorModel() ?? agent.primaryModel }
 
     /// The watcher reads what is new in `runID`: after a step that changed something, or its last answer (`final`).
     /// `/review` (`manual`) reads the whole run whatever the switch says. It runs beside the Agent, never holding it up.

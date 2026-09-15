@@ -14,19 +14,26 @@ struct AgentModelDraft: Equatable, Sendable {
     var source: Source
     var modelID: String
     var fallbacks: [ModelReference]
+    /// Per-phase model overrides (user 2026-09-16), each set or absent.
+    var phase: [ModelPhase: ModelReference]
 
-    init(providerID: String? = nil, source: Source = .list, modelID: String = "", fallbacks: [ModelReference] = []) {
+    init(providerID: String? = nil, source: Source = .list, modelID: String = "", fallbacks: [ModelReference] = [],
+         phase: [ModelPhase: ModelReference] = [:]) {
         self.providerID = providerID
         self.source = source
         self.modelID = modelID
         self.fallbacks = fallbacks
+        self.phase = phase
     }
 
     @MainActor
     init(agent: AgentRecord, knownModels: [String]) {
         let inList = agent.modelID.isEmpty || knownModels.contains(agent.modelID)
+        var phase: [ModelPhase: ModelReference] = [:]
+        for entry in agent.phaseModels { if let p = ModelPhase(rawValue: entry.phase) { phase[p] = entry.model } }
+        // Only the first fallback is kept (user 2026-09-16: one 兜底); older Agents' extras run until re-saved.
         self.init(providerID: agent.providerID, source: inList ? .list : .custom, modelID: agent.modelID,
-                  fallbacks: agent.fallbacks)
+                  fallbacks: Array(agent.fallbacks.prefix(1)), phase: phase)
     }
 
     var trimmedModelID: String { modelID.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -34,7 +41,13 @@ struct AgentModelDraft: Equatable, Sendable {
     /// Same settings as the saved Agent (the source toggle alone is not a change).
     @MainActor
     func matches(_ agent: AgentRecord) -> Bool {
-        providerID == agent.providerID && trimmedModelID == agent.modelID && fallbacks == agent.fallbacks
+        providerID == agent.providerID && trimmedModelID == agent.modelID && fallbacks == Array(agent.fallbacks.prefix(1))
+            && phaseEntries == agent.phaseModels
+    }
+
+    /// The phase overrides as they'd be stored, in a stable order.
+    var phaseEntries: [PhaseModel] {
+        ModelPhase.allCases.compactMap { p in phase[p].map { PhaseModel(phase: p.rawValue, model: $0) } }
     }
 
     /// Why this can't be saved, or `nil`. Fallbacks follow the same rule as the primary: their provider must
@@ -43,14 +56,18 @@ struct AgentModelDraft: Equatable, Sendable {
         guard let providerID else { return "请选择服务商" }
         if !isConfigured(providerID) { return "服务商未配置，先在「设置 → 模型」填写 API Key" }
         if trimmedModelID.isEmpty { return "Model ID 不能为空" }
-        if fallbacks.count > 3 { return "备用模型不能超过 3 个" }
-        for (index, fallback) in fallbacks.enumerated() {
-            if fallback.modelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "第 \(index + 1) 个备用模型还没有选择模型" }
-            if !isConfigured(fallback.providerID) { return "第 \(index + 1) 个备用模型的服务商未配置" }
+        if fallbacks.count > 1 { return "只保留一个备用模型" }
+        for fallback in fallbacks {
+            if fallback.modelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "备用模型还没有选择模型" }
+            if !isConfigured(fallback.providerID) { return "备用模型的服务商未配置" }
         }
         let primary = ModelReference(providerID: providerID, modelID: trimmedModelID)
         if fallbacks.contains(primary) { return "备用模型不能与主模型重复" }
-        if Set(fallbacks).count != fallbacks.count { return "备用模型不能重复" }
+        for p in ModelPhase.allCases {
+            guard let model = phase[p] else { continue }
+            if model.modelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "\(p.title)还没有选择模型" }
+            if !isConfigured(model.providerID) { return "\(p.title)的服务商未配置" }
+        }
         return nil
     }
 }

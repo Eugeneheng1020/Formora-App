@@ -156,6 +156,7 @@ final class AgentStore {
         agent.providerID = draft.providerID
         agent.modelID = draft.trimmedModelID
         agent.fallbacks = draft.fallbacks
+        agent.phaseModels = draft.phaseEntries
         try context.save()
     }
 
@@ -195,7 +196,8 @@ final class AgentStore {
 
     /// Agents whose primary or fallback model uses this provider (spec §7.4, §8.7 rule 2).
     func usage(ofProvider id: String) -> Int {
-        agents.filter { $0.providerID == id || $0.fallbacks.contains { $0.providerID == id } }.count
+        agents.filter { $0.providerID == id || $0.fallbacks.contains { $0.providerID == id }
+            || $0.phaseModels.contains { $0.model.providerID == id } }.count
     }
 
     // MARK: Avatars

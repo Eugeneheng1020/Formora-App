@@ -19,6 +19,7 @@ struct AgentModelTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             modelBlock
+            phaseBlock
             fallbackBlock
             approvalBlock
             projectBlock
@@ -191,13 +192,71 @@ struct AgentModelTab: View {
         .accessibilityIdentifier("agent.apiKeyRow")
     }
 
+    // MARK: 分阶段模型 (user 2026-09-16)
+
+    private var phaseBlock: some View {
+        DetailBlock(title: "分阶段模型", note: "不同阶段用不同模型：留空就用主模型。") {
+            EmptyView()
+        } content: {
+            VStack(spacing: 10) {
+                ForEach(ModelPhase.allCases, id: \.self) { phase in phaseRow(phase) }
+            }
+        }
+    }
+
+    @ViewBuilder private func phaseRow(_ phase: ModelPhase) -> some View {
+        let model = draft.phase[phase]
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 8) {
+                Text(phase.title).font(FormoraFont.ui(12.5, weight: 600)).foregroundStyle(Palette.ink.color).frame(width: 80, alignment: .leading)
+                if let model {
+                    ProviderMenu(providers: providers, selection: model.providerID, identifier: "agent.phase.\(phase.rawValue).provider") { id in
+                        update { $0.phase[phase] = ModelReference(providerID: id, modelID: "") }
+                    }
+                    .frame(maxWidth: 220)
+                    ModelIDField(providers: providers, providerID: model.providerID, source: phaseSource(model),
+                                 modelID: Binding(get: { draft.phase[phase]?.modelID ?? "" },
+                                                  set: { value in update { $0.phase[phase]?.modelID = value } }),
+                                 identifier: "agent.phase.\(phase.rawValue).model")
+                    if !providers.hasKey(model.providerID) {
+                        Text("不可用").font(FormoraFont.mono(10)).foregroundStyle(Palette.alert.color)
+                    }
+                    IconActionButton(icon: Icons.close, label: "清除\(phase.title)", identifier: "agent.phase.\(phase.rawValue).remove") {
+                        update { $0.phase[phase] = nil }
+                    }
+                } else {
+                    Button("设置") { addPhase(phase) }
+                        .buttonStyle(FormoraButtonStyle(kind: .ghost))
+                        .accessibilityIdentifier("agent.phase.\(phase.rawValue).set")
+                    Spacer(minLength: 0)
+                }
+            }
+            Text(phase.note).font(FormoraFont.ui(11)).foregroundStyle(Palette.inkFaint.color).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func phaseSource(_ model: ModelReference) -> AgentModelDraft.Source {
+        if case .unsupported = providers.modelLists[model.providerID] { return .custom }
+        return .list
+    }
+
+    private func addPhase(_ phase: ModelPhase) {
+        let provider = draft.providerID.flatMap { providers.hasKey($0) ? $0 : nil }
+            ?? providers.entries.first { providers.hasKey($0.id) }?.id
+        guard let provider else {
+            state.toasts.show("没有可用的服务商", note: "先在「设置 → 模型」配置一个服务商", isError: true)
+            return
+        }
+        update { $0.phase[phase] = ModelReference(providerID: provider, modelID: "") }
+    }
+
     // MARK: 备用模型
 
     private var fallbackBlock: some View {
-        DetailBlock(title: "备用模型", note: "主模型限流、配额不足或服务不可用时，按顺序切换；最多 3 个。") {
+        DetailBlock(title: "备用模型", note: "上面任何一个模型限流、配额不足或不可用时，都退到它兜底；只留一个。") {
             Button("添加备用模型") { addFallback() }
                 .buttonStyle(FormoraButtonStyle())
-                .disabled(draft.fallbacks.count >= 3)
+                .disabled(draft.fallbacks.count >= 1)
                 .accessibilityIdentifier("agent.addFallback")
         } content: {
             if draft.fallbacks.isEmpty {

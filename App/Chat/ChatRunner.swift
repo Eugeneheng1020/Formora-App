@@ -524,7 +524,9 @@ final class ChatRunner {
         let prompt = Compaction.request(Array(current.messages[..<cut]), previous: current.summary?.summary, focus: focus) { [agents] message in
             message.role == .user ? "用户" : message.speakerName ?? agents.agent(message.agentID)?.displayName ?? "Agent"
         }
-        guard let written = await oneShot(system: Compaction.system, prompt: prompt, candidates: [primary] + agent.fallbacks) else {
+        // 省事: a cheaper model compacts, when one is set (user 2026-09-16).
+        let compactChain = [agent.model(for: .chore), primary].compactMap { $0 } + agent.fallbacks
+        guard let written = await oneShot(system: Compaction.system, prompt: prompt, candidates: compactChain) else {
             return .failed("压缩没有成功：模型没有写出摘要，稍后再试")
         }
         var record = CompactionRecord(summary: written.summary, firstKeptID: current.messages[cut].id, tokensBefore: before, tokensAfter: 0,
@@ -723,7 +725,7 @@ final class ChatRunner {
         }
         let project = conversation.projectID
         let prompt = MemoryTools.extractionRequest(memory: memory.text(agent: agent.id, project: project), conversation: text)
-        let candidates = [primary] + agent.fallbacks
+        let candidates = [agent.model(for: .chore), primary].compactMap { $0 } + agent.fallbacks
         let agentID = agent.id
         Task { [weak self] in
             guard let self, let reply = await self.oneShot(system: MemoryTools.extractionSystem, prompt: prompt, candidates: candidates) else { return }
@@ -874,13 +876,37 @@ final class ChatRunner {
         case failed(String)
     }
 
-    /// omp's two loops in one: a turn with tool calls runs them and goes round; a turn without is the stop, unless
+    /// The models a run tries, in order (user 2026-09-16): the plan model when planning, the vision model when the
+    /// conversation carries images, then the primary, then the shared fallback — each phase model falls through to
+    /// the primary. Deduped by the caller.
+    nonisolated static func modelChain(for conversation: Conversation, agent: AgentRecord) -> [ModelReference] {
+        var chain: [ModelReference] = []
+        func add(_ model: ModelReference?) { if let model, !chain.contains(model) { chain.append(model) } }
+        if conversation.planMode { add(agent.model(for: .plan)) }
+        if hasImages(conversation) { add(agent.model(for: .vision)) }
+        add(agent.primaryModel)
+        agent.fallbacks.forEach { add($0) }
+        return chain
+    }
+
+    /// Whether a conversation carries pictures a model would need to see: image attachments, or a tool result's
+    /// screenshots (7j).
+    nonisolated static func hasImages(_ conversation: Conversation) -> Bool {
+        conversation.messages.contains { message in
+            message.attachments.contains { $0.kind == .image }
+                || message.toolCalls.contains { ($0.result?.images?.isEmpty == false) }
+        }
+    }
+
+        /// omp's two loops in one: a turn with tool calls runs them and goes round; a turn without is the stop, unless
     /// the user sent something meanwhile (L1, L4). Six ways out (L2), four guards on the way (L3).
     private func run(runID: UUID, conversationID id: UUID, agent: AgentRecord) async {
-        guard let primary = agent.primaryModel else { return }
-        // A subagent with a model of its own (user 2026-09-15) tries it first, the caller's chain after.
-        let pinned = conversations.conversation(id)?.parent?.subagent.flatMap { subagents?.definition(named: $0)?.model }
-        let candidates = (pinned.map { [$0] } ?? []) + [primary] + agent.fallbacks
+        guard let conversation = conversations.conversation(id), let primary = agent.primaryModel else { return }
+        // A subagent with a model of its own (user 2026-09-15) tries it first, the caller's chain after; the phase
+        // models (user 2026-09-16) order the rest — plan mode leads with the plan model, an image turn with the vision.
+        let pinned = conversation.parent?.subagent.flatMap { subagents?.definition(named: $0)?.model }
+        var candidates = (pinned.map { [$0] } ?? []) + Self.modelChain(for: conversation, agent: agent)
+        candidates = candidates.reduce(into: []) { if !$0.contains($1) { $0.append($1) } }
         var state = RunState(sendsReasoning: (conversations.conversation(id)?.reasoning ?? .auto) != .auto)
         // A `/review` run is the review: it doesn't review itself again.
         state.reviewed = conversations.conversation(id)?.messages.last?.marker != nil
@@ -1648,8 +1674,8 @@ final class ChatRunner {
               let input = TaskTitle.input(from: last.text) else { return }
         let client = client
         let history = [ChatTurn(role: .user, text: input)]
-        // H (9e): Bob names it when he has a model.
-        let model = conductorModel() ?? reference
+        // 省事: a cheaper model names the task (user 2026-09-16); else Bob's (9e), else the one that answered.
+        let model = contextAgent(conversation)?.model(for: .chore) ?? conductorModel() ?? reference
         Task { [weak self] in
             guard let target = await self?.target(for: model) else { return }
             func ask(sendsReasoning: Bool) async throws -> String {
