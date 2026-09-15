@@ -101,8 +101,9 @@ enum ProviderCatalog {
         BuiltInProvider(id: "deepseek", name: "DeepSeek", logo: "deepseek", mark: "DS", apiProtocol: .openAICompletions,
                         hosts: [ProviderHost(label: "", baseURL: "https://api.deepseek.com")],
                         commonModels: [
+                            ModelInfo(id: "deepseek-flash", name: "DeepSeek V4.1 Flash", contextWindow: 1_000_000, maxOutput: 384_000, acceptsImages: true),
                             ModelInfo(id: "deepseek-v4-pro", name: "DeepSeek V4 Pro", contextWindow: 1_000_000, maxOutput: 384_000, acceptsImages: false),
-                            ModelInfo(id: "deepseek-v4-flash", name: "DeepSeek V4 Flash", contextWindow: 1_000_000, maxOutput: 384_000, acceptsImages: false),
+                            ModelInfo(id: "deepseek-v4-flash", name: "DeepSeek V4 Flash", contextWindow: 1_000_000, maxOutput: 384_000, acceptsImages: true),
                             ModelInfo(id: "deepseek-v4-flash-vision-exp", name: "DeepSeek V4 Flash Vision Exp", contextWindow: 1_000_000, maxOutput: 384_000, acceptsImages: true),
                         ]),
         BuiltInProvider(id: "qwen", name: "Qwen", logo: "qwen", mark: "QW", apiProtocol: .openAICompletions,
