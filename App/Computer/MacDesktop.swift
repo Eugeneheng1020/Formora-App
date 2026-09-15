@@ -2,6 +2,7 @@ import AppKit
 import ApplicationServices
 import CoreGraphics
 import ImageIO
+import Carbon
 import ScreenCaptureKit
 import UniformTypeIdentifiers
 
@@ -220,29 +221,43 @@ final class MacDesktop: Desktop {
         return try await Self.capture(windowID: window?.id, frame: window?.frame, displayID: display, ownPID: ownPID, to: url)
     }
 
-    /// Off the main actor: ScreenCaptureKit's objects stay inside, only the saved shot comes out. A full-screen
-    /// shot leaves out Formora's own windows — the stop bar, the thread.
-    nonisolated private static func capture(windowID: UInt32?, frame: CGRect?, displayID: UInt32?, ownPID: pid_t,
-                                            to url: URL) async throws -> Shot {
+    func frame(_ window: DesktopWindow?, display: UInt32?) async throws -> FrameSignature {
+        guard CGPreflightScreenCaptureAccess() else { throw DesktopProblem("没有屏幕录制权限：去「设置 → 电脑操作」打开") }
+        return try await Self.signature(windowID: window?.id, frame: window?.frame, displayID: display, ownPID: ownPID)
+    }
+
+    func value(of handle: ElementHandle) throws -> String {
+        var value: CFTypeRef?
+        let status = AXUIElementCopyAttributeValue(try axElement(handle), kAXValueAttribute as CFString, &value)
+        guard status == .success else { throw DesktopProblem(Self.message(status, fallback: "读不到这个元素的值")) }
+        if let text = value as? String { return text }
+        if let number = value as? NSNumber { return number.stringValue }
+        return value.map { String(describing: $0) } ?? ""
+    }
+
+    /// What to shoot, and where it sits: a window, or a display without Formora's own windows — the stop bar, the thread.
+    nonisolated private static func filter(windowID: UInt32?, frame: CGRect?, displayID: UInt32?, ownPID: pid_t) async throws -> (SCContentFilter, CGRect) {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-        let filter: SCContentFilter
-        let area: CGRect
         if let windowID, let frame {
             guard let window = content.windows.first(where: { $0.windowID == windowID }) else {
                 throw DesktopProblem("截不到这个窗口：它可能被最小化或关掉了")
             }
-            filter = SCContentFilter(desktopIndependentWindow: window)
-            area = frame
-        } else {
-            let wanted = displayID ?? CGMainDisplayID()
-            guard let display = content.displays.first(where: { $0.displayID == wanted }) ?? (displayID == nil ? content.displays.first : nil) else {
-                throw DesktopProblem(displayID == nil ? "找不到显示器" : "没有 \(wanted) 这块显示器：先用 displays 看有哪些")
-            }
-            let own = content.windows.filter { $0.owningApplication?.processID == ownPID }
-            filter = SCContentFilter(display: display, excludingWindows: own)
-            area = CGDisplayBounds(display.displayID)
+            return (SCContentFilter(desktopIndependentWindow: window), frame)
         }
-        let fit = min(1, min(1280 / area.width, 896 / area.height))
+        let wanted = displayID ?? CGMainDisplayID()
+        guard let display = content.displays.first(where: { $0.displayID == wanted }) ?? (displayID == nil ? content.displays.first : nil) else {
+            throw DesktopProblem(displayID == nil ? "找不到显示器" : "没有 \(wanted) 这块显示器：先用 displays 看有哪些")
+        }
+        let own = content.windows.filter { $0.owningApplication?.processID == ownPID }
+        return (SCContentFilter(display: display, excludingWindows: own), CGDisplayBounds(display.displayID))
+    }
+
+    /// Off the main actor: ScreenCaptureKit's objects stay inside, only the saved shot comes out. One pixel a point,
+    /// the long edge at most what the models take (user 2026-09-15: the old 1280×896 fit left text too small).
+    nonisolated private static func capture(windowID: UInt32?, frame: CGRect?, displayID: UInt32?, ownPID: pid_t,
+                                            to url: URL) async throws -> Shot {
+        let (filter, area) = try await filter(windowID: windowID, frame: frame, displayID: displayID, ownPID: ownPID)
+        let fit = min(1, Double(ChatImages.longEdge) / max(area.width, area.height))
         let configuration = SCStreamConfiguration()
         configuration.width = max(1, Int((area.width * fit).rounded()))
         configuration.height = max(1, Int((area.height * fit).rounded()))
@@ -255,6 +270,27 @@ final class MacDesktop: Desktop {
         guard CGImageDestinationFinalize(destination) else { throw DesktopProblem("截图存不下来") }
         return Shot(path: url.path, width: image.width, height: image.height, origin: area.origin,
                     scale: Double(area.width) / Double(image.width))
+    }
+
+    /// A 128-wide grey frame of the target: cheap to take, cheap to compare, never kept.
+    nonisolated private static func signature(windowID: UInt32?, frame: CGRect?, displayID: UInt32?, ownPID: pid_t) async throws -> FrameSignature {
+        let (filter, area) = try await filter(windowID: windowID, frame: frame, displayID: displayID, ownPID: ownPID)
+        let width = 128
+        let height = max(1, Int((Double(width) * area.height / max(area.width, 1)).rounded()))
+        let configuration = SCStreamConfiguration()
+        configuration.width = width
+        configuration.height = height
+        configuration.showsCursor = false
+        let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
+        var luma = [UInt8](repeating: 0, count: width * height)
+        let drawn = luma.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width,
+                                          space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return false }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard drawn else { throw DesktopProblem("截不到帧") }
+        return FrameSignature(width: width, height: height, luma: luma)
     }
 
     // MARK: Input
@@ -321,6 +357,15 @@ final class MacDesktop: Desktop {
     /// Text as Unicode, a few characters an event — any language, whatever the keyboard layout.
     func type(_ text: String, pid: pid_t?, foreground: Bool) async throws {
         if foreground, let pid { await activate(pid) }
+        // A Chinese input method takes the key events for its own composing (demo 2026-09-15: Pinyin ate every character
+        // and the field stayed empty): typed through the ASCII keyboard, the user's input method put back after.
+        let previous = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue()
+        let switched = previous.map { !Self.isASCIICapable($0) } ?? false
+        if switched, let ascii = TISCopyCurrentASCIICapableKeyboardInputSource()?.takeRetainedValue() {
+            TISSelectInputSource(ascii)
+            try? await Task.sleep(for: .milliseconds(80))
+        }
+        defer { if switched, let previous { TISSelectInputSource(previous) } }
         let units = Array(text.utf16)
         var index = 0
         while index < units.count {
@@ -336,6 +381,12 @@ final class MacDesktop: Desktop {
     }
 
     // MARK: Clipboard
+
+    /// Whether an input source types Latin letters straight — a keyboard layout, not a composing input method.
+    private static func isASCIICapable(_ source: TISInputSource) -> Bool {
+        guard let raw = TISGetInputSourceProperty(source, kTISPropertyInputSourceIsASCIICapable) else { return true }
+        return Unmanaged<CFBoolean>.fromOpaque(raw).takeUnretainedValue() == kCFBooleanTrue
+    }
 
     func readClipboard() -> String? { NSPasteboard.general.string(forType: .string) }
 

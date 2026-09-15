@@ -44,12 +44,22 @@ enum Advisor {
       【提醒】是小问题，它接着做就行；【担心】是可能做错了，由它判断；【必须停】是再做下去会白做或者交出坏结果。
     """
 
-    /// What the watcher reads: the user's ask, who works, and what is new.
-    static func request(ask: String, agent: String, role: String, steps: [Message], final: Bool, focus: String? = nil) -> String {
+    /// What the watcher reads: the user's ask, who works, and what is new. `screenshot`: the run operated the computer
+    /// and its last screenshot comes with the words — the watcher checks the goal against it (user 2026-09-15).
+    static func request(ask: String, agent: String, role: String, steps: [Message], final: Bool, focus: String? = nil,
+                        screenshot: Bool = false) -> String {
+        request(ask: ask, agent: agent, role: role, transcript: transcript(steps), final: final, focus: focus, screenshot: screenshot)
+    }
+
+    static func request(ask: String, agent: String, role: String, transcript: String, final: Bool, focus: String? = nil,
+                        screenshot: Bool = false) -> String {
         var lines = ["用户的要求：\n" + String(ask.prefix(2_000))]
         lines.append("\n干活的是「\(agent)」（\(role)）。" + (final ? "下面是它这一轮做的事，最后它说做完了：" : "下面是它刚做完的一步："))
         if let focus, !focus.isEmpty { lines.append("用户要你重点看：\(focus)") }
-        lines.append(transcript(steps))
+        lines.append(transcript)
+        if screenshot {
+            lines.append("它操作了电脑，最后一张截图附在这条消息里：对照用户的要求，看屏幕上的结果做没做到。做到了就回「没有」；没做到就写【担心】或【必须停】，说清差在哪。")
+        }
         return lines.joined(separator: "\n")
     }
 

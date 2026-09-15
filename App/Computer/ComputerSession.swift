@@ -22,6 +22,13 @@ final class ComputerSession {
     private var counter = 0
     /// The latest screenshot of the screen (`"screen"`) and of each window (`"w<id>"`).
     private var shots: [String: Shot] = [:]
+    /// The display the latest screen shot was of: what an act by screen coordinates is watched and shot on.
+    private var screenDisplay: UInt32?
+    /// The observation's pacing (user 2026-09-15); tests go faster.
+    var settle = Settle.Timing()
+    /// How many times in a row each step's `expect` wasn't met — the same step four times stops the run for the user.
+    private var expectFailures: [String: Int] = [:]
+    static let retryLimit = 3
 
     // MARK: Refs
 
@@ -62,19 +69,63 @@ final class ComputerSession {
 
     // MARK: Running
 
-    /// The actions in order; the first failure ends the batch and says which step and why.
+    /// The actions in order; the first failure ends the batch and says which step and why. After every act (user
+    /// 2026-09-15): the screen watched until it settles, the window's changes told, the step's `expect` checked — and one
+    /// screenshot for the batch, of its last act, that the coordinates then refer to.
     func run(_ actions: [ComputerAction], on desktop: Desktop, folder: URL, isCancelled: () -> Bool) async -> ToolResult {
         var lines: [String] = []
         var images: [String] = []
+        let lastAct = actions.lastIndex { Self.observes($0) }
         for (index, action) in actions.enumerated() {
             if isCancelled() {
                 lines.append("\(index + 1). 停下了：用户停止了，后面的步骤没有做。")
                 return ToolResult(status: .stopped, output: lines.joined(separator: "\n"), images: images.isEmpty ? nil : images)
             }
             do {
+                let expectation = try Expectation.parse(action.args["expect"])
+                let observes = Self.observes(action)
+                let target = observes ? observationTarget(action, on: desktop) : nil
+                let before = target.flatMap { try? desktop.tree(of: $0) }.map(Self.treeLines)
+                let windowsBefore = observes ? Set(desktop.windows().map(\.id)) : []
+                // The frame before the act: a change that shows at once (set_value) is a change all the same.
+                let frameBefore = observes ? try? await desktop.frame(target, display: target == nil ? screenDisplay : nil) : nil
                 let (text, shot) = try await perform(action, on: desktop, folder: folder, isCancelled: isCancelled)
-                lines.append("\(index + 1). \(action.kind.rawValue)：\(text)")
+                var line = "\(index + 1). \(action.kind.rawValue)：\(text)"
                 if let shot { images.append(shot.path) }
+                if observes {
+                    var observation = await observe(target, before: before, frameBefore: frameBefore, on: desktop, isCancelled: isCancelled)
+                    observation.newWindows = desktop.windows().filter { !windowsBefore.contains($0.id) }
+                    line += " · " + observation.text
+                    if let expectation {
+                        let (met, evidence) = await check(expectation, observation: observation, target: target, on: desktop, isCancelled: isCancelled)
+                        let key = Self.stepKey(action, expectation)
+                        if met {
+                            expectFailures[key] = nil
+                            line += " · 符合预期：\(expectation.description)"
+                        } else {
+                            let count = (expectFailures[key] ?? 0) + 1
+                            expectFailures[key] = count
+                            line += " · 不符合预期：\(expectation.description)。\(evidence)"
+                            lines.append(line)
+                            if let after = try? await desktop.screenshot(target, display: target == nil ? screenDisplay : nil, into: folder) {
+                                shots[target.map { "w\($0.id)" } ?? "screen"] = after
+                                images.append(after.path)
+                                lines.append("附现场截图，\(after.width)×\(after.height) 像素，坐标按它写。")
+                            }
+                            if index + 1 < actions.count { lines.append("后面 \(actions.count - index - 1) 步没有做。") }
+                            if count > Self.retryLimit {
+                                lines.append("这一步已经试了 \(count) 次都不符合预期。停下来，用 ask 问用户怎么办，不要再试了。")
+                            }
+                            return ToolResult(status: .failed, output: lines.joined(separator: "\n"), images: images.isEmpty ? nil : images)
+                        }
+                    }
+                    if index == lastAct, let after = try? await desktop.screenshot(target, display: target == nil ? screenDisplay : nil, into: folder) {
+                        shots[target.map { "w\($0.id)" } ?? "screen"] = after
+                        images.append(after.path)
+                        line += "（附最新截图，\(after.width)×\(after.height) 像素，坐标按它写）"
+                    }
+                }
+                lines.append(line)
             } catch let problem as DesktopProblem {
                 lines.append("\(index + 1). \(action.kind.rawValue) 没有成功：\(problem.message)")
                 if index + 1 < actions.count { lines.append("后面 \(actions.count - index - 1) 步没有做。") }
@@ -103,6 +154,7 @@ final class ComputerSession {
             let shot = try await desktop.screenshot(window, display: display, into: folder)
             // A display's shot is the screen's latest, whichever display: its origin carries where that display sits.
             shots[window.map { "w\($0.id)" } ?? "screen"] = shot
+            if window == nil { screenDisplay = display }
             let target = window?.label ?? display.map { "显示器 \($0)" } ?? "整个屏幕"
             return ("\(target)，\(shot.width)×\(shot.height) 像素（1 像素 = \(Self.format(shot.scale)) 点）。坐标就按这张图的像素写", shot)
 
@@ -286,6 +338,126 @@ final class ComputerSession {
             desktop.writeClipboard(text)
             return ("剪贴板里现在是「\(text.count > 40 ? String(text.prefix(40)) + "…" : text)」", nil)
         }
+    }
+
+    // MARK: Observation (user 2026-09-15)
+
+    struct Observation: Equatable, Sendable {
+        var settled = false
+        var seconds = 0.0
+        var changed = false
+        var diff: TreeDiff?
+        /// Windows that weren't there before the act.
+        var newWindows: [DesktopWindow] = []
+        var text = ""
+    }
+
+    /// Acts that move something on screen; writing the clipboard shows nothing.
+    static func observes(_ action: ComputerAction) -> Bool { action.kind.acts && action.kind != .writeClipboard }
+
+    /// The window the act is about — the one named, or the one its ref came from; `nil` is the screen.
+    private func observationTarget(_ action: ComputerAction, on desktop: Desktop) -> DesktopWindow? {
+        if let selector = action.args["window"], let window = try? resolve(selector, on: desktop) { return window }
+        if let ref = action.string("ref"), let entry = entries[ref], entry.window != Self.pointBucket {
+            return desktop.windows().first { $0.id == entry.window }
+        }
+        return nil
+    }
+
+    static func treeLines(_ root: AXNode) -> [TreeLine] { AXTreeText.lines(root).lines.map { TreeLine($0.node) } }
+
+    /// Frames a quarter second apart until two in a row are the same picture, or the time is up; then the tree again.
+    private func observe(_ target: DesktopWindow?, before: [TreeLine]?, frameBefore: FrameSignature?, on desktop: Desktop,
+                         isCancelled: () -> Bool) async -> Observation {
+        var observation = Observation()
+        let start = Date.now
+        let display = target == nil ? screenDisplay : nil
+        var first = frameBefore
+        if first == nil { first = try? await desktop.frame(target, display: display) }
+        var previous = first
+        if first != nil {
+            repeat {
+                try? await Task.sleep(for: .milliseconds(Int(settle.interval * 1000)))
+                observation.seconds = Date.now.timeIntervalSince(start)
+                guard let next = try? await desktop.frame(target, display: display) else { break }
+                if let previous, Settle.isStill(previous, next) { observation.settled = true }
+                if let first, !Settle.isStill(first, next) { observation.changed = true }
+                previous = next
+            } while !observation.settled && observation.seconds < settle.limit && !isCancelled()
+        }
+        var parts: [String] = []
+        if first == nil {
+            parts.append("截不到帧")
+        } else if !observation.changed, observation.settled {
+            parts.append("屏幕没有变化")
+        } else if observation.settled {
+            parts.append("画面 \(Self.format(observation.seconds)) 秒后稳定")
+        } else {
+            parts.append("画面 \(Self.format(settle.limit)) 秒内还在变化")
+        }
+        if let before, let target, let root = try? desktop.tree(of: target) {
+            let diff = TreeDiff.compare(before: before, after: Self.treeLines(root))
+            observation.diff = diff
+            parts.append(diff.isEmpty ? "窗口元素没有变化" : diff.text)
+        }
+        observation.text = parts.joined(separator: "，")
+        return observation
+    }
+
+    /// The expectation against the Mac now — polled for a while, since an app may still be catching up.
+    private func check(_ expectation: Expectation, observation: Observation, target: DesktopWindow?, on desktop: Desktop,
+                       isCancelled: () -> Bool) async -> (met: Bool, evidence: String) {
+        let deadline = Date.now.addingTimeInterval(settle.expectLimit)
+        var evidence = ""
+        repeat {
+            switch expectation.kind {
+            case .changed:
+                return (observation.changed, observation.changed ? "" : "屏幕没有变化")
+            case let .window(app, title):
+                let windows = desktop.windows()
+                if windows.contains(where: { $0.matches(app: app, title: title) }) { return (true, "") }
+                evidence = "现在的窗口：" + windows.prefix(5).map(\.label).joined(separator: "、")
+            case let .appears(role, title, value):
+                // A window: one that wasn't there before the act, or one whose title says so (demo 2026-09-15: cmd+n).
+                if role?.lowercased() == "window" || role?.lowercased() == "axwindow" {
+                    let fresh = observation.newWindows.filter { $0.matches(app: nil, title: title) }
+                    if !fresh.isEmpty || (title != nil && desktop.windows().contains { $0.matches(app: nil, title: title) }) { return (true, "") }
+                    evidence = "没有新窗口出现；现在的窗口：" + desktop.windows().prefix(5).map(\.label).joined(separator: "、")
+                    break
+                }
+                // Without a window (a key pressed to the system, Spotlight): the element that took the focus, or the
+                // frontmost window's tree (demo 2026-09-15).
+                if let root = try? desktop.tree(of: target ?? desktop.windows().first ?? DesktopWindow(id: 0, pid: 0, app: "", title: "", frame: .zero)) {
+                    if Expectation.matches(root, role: role, title: title, value: value) { return (true, "") }
+                    evidence = "窗口里现在有：" + Self.treeLines(root).prefix(8).map(\.text).joined(separator: "、")
+                }
+                if target == nil, let focused = desktop.focusedElement(), focused.handle.pid != desktop.ownPID,
+                   Expectation.matches(focused, role: role, title: title, value: value) { return (true, "") }
+                if evidence.isEmpty { evidence = "没有窗口可查；动作带上 window 或 ref 才能判断元素" }
+            case let .gone(role, title, value):
+                if let root = try? desktop.tree(of: target ?? desktop.windows().first ?? DesktopWindow(id: 0, pid: 0, app: "", title: "", frame: .zero)) {
+                    if !Expectation.matches(root, role: role, title: title, value: value) { return (true, "") }
+                    evidence = "它还在"
+                } else if evidence.isEmpty {
+                    evidence = "没有窗口可查；动作带上 window 或 ref 才能判断元素"
+                }
+            case let .value(ref, equals, contains):
+                guard let entry = try? entry(ref), let current = try? desktop.value(of: entry.handle) else { return (false, "读不到 \(ref) 的值") }
+                if let equals, current == equals { return (true, "") }
+                if let contains, current.contains(contains) { return (true, "") }
+                evidence = "现在的值是「\(current.count > 60 ? String(current.prefix(60)) + "…" : current)」"
+            }
+            if Date.now >= deadline || isCancelled() { break }
+            try? await Task.sleep(for: .milliseconds(Int(settle.interval * 1000)))
+        } while true
+        return (false, evidence)
+    }
+
+    /// The step, for counting its failures: what it does, to what, expecting what.
+    private static func stepKey(_ action: ComputerAction, _ expectation: Expectation) -> String {
+        let target = action.string("ref") ?? action.string("keys") ?? action.string("text") ?? action.string("value")
+            ?? "\(Int(action.number("x") ?? 0)),\(Int(action.number("y") ?? 0))"
+        return "\(action.kind.rawValue)|\(target)|\(expectation.description)"
     }
 
     // MARK: Targets

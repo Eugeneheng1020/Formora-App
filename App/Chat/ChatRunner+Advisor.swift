@@ -24,11 +24,15 @@ extension ChatRunner {
         guard let last = fresh.last else { return }
         advisorMarks[id] = last.id
         let ask = conversation.messages.last { $0.role == .user && !$0.isHidden && $0.event == nil }?.text ?? ""
-        let prompt = Advisor.request(ask: ask, agent: agent.displayName, role: agent.role.name, steps: fresh, final: final, focus: focus)
+        // A run that operated the computer (user 2026-09-15): its last screenshot goes with the final look.
+        let screenshot = final ? Self.lastScreenshot(of: run) : nil
+        let prompt = Advisor.request(ask: ask, agent: agent.displayName, role: agent.role.name, steps: fresh, final: final, focus: focus,
+                                     screenshot: screenshot != nil)
         // `/review` asks for a full, graded review (10k); watching asks for one note at most.
         let system = manual ? Advisor.reviewSystem : Advisor.system
         let task = Task { [weak self] in
-            guard let self, let reply = await self.oneShot(system: system, prompt: prompt, candidates: [model]) else { return }
+            guard let self, let reply = await self.oneShot(system: system, prompt: prompt, candidates: [model], images: screenshot.map { [$0] } ?? [])
+            else { return }
             // Its call counts in /cost, like Bob's.
             self.conversations.append(Message(role: .user, text: "", model: reply.model, usage: reply.usage, isHidden: true, isUpkeep: true),
                                       to: id)
@@ -72,6 +76,14 @@ extension ChatRunner {
         let next = UUID()
         advisorSentBack.insert(next)
         start(id, agent: agent, runID: next)
+    }
+
+    /// The last screenshot a `computer` call that acted brought back in the run — what the watcher checks the goal against.
+    nonisolated static func lastScreenshot(of run: [Message]) -> String? {
+        run.flatMap(\.toolCalls)
+            .filter { $0.name == ComputerTool.name && ComputerTool.acts($0.arguments) }
+            .compactMap { $0.result?.images?.last }
+            .last
     }
 
     /// 停止, or the conversation going: a look in flight says nothing.

@@ -150,8 +150,13 @@ protocol Desktop: AnyObject {
     func displays() -> [DesktopDisplay]
     /// The element that has the keyboard focus, in whichever app.
     func focusedElement() -> AXNode?
-    /// A window, or a display (`nil`: the main one), fitted to 1280×896, saved as PNG in `folder`.
+    /// A window, or a display (`nil`: the main one), at one pixel a point up to 1568 on the long edge, saved as PNG in
+    /// `folder` (user 2026-09-15: readable).
     func screenshot(_ window: DesktopWindow?, display: UInt32?, into folder: URL) async throws -> Shot
+    /// A tiny grey frame of the same target, for telling whether the screen is still changing (抽帧判稳).
+    func frame(_ window: DesktopWindow?, display: UInt32?) async throws -> FrameSignature
+    /// The element's value now, for an `expect` on it.
+    func value(of handle: ElementHandle) throws -> String
     func pointer(_ input: PointerInput, pid: pid_t?, foreground: Bool) async throws
     func keys(_ chord: KeyChord, pid: pid_t?, foreground: Bool) async throws
     func type(_ text: String, pid: pid_t?, foreground: Bool) async throws

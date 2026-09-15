@@ -368,11 +368,14 @@ enum ChatWire {
                 if !turn.text.isEmpty { blocks.append(["type": "text", "text": turn.text]) }
                 blocks += turn.images.map(image)
             case .tool:
-                // A result may carry its pictures itself (V3).
-                let content: Any = turn.images.isEmpty ? turn.text : [["type": "text", "text": turn.text]] + turn.images.map(image)
+                // A result may carry its pictures itself (V3) — except an error's: Anthropic takes only text in an error
+                // result, so its pictures follow it as the user's own blocks (demo 2026-09-15: a failed step's screenshot).
+                let inline = turn.images.isEmpty || turn.isError
+                let content: Any = inline ? turn.text : [["type": "text", "text": turn.text]] + turn.images.map(image)
                 var block: [String: Any] = ["type": "tool_result", "tool_use_id": turn.callID ?? "", "content": content]
                 if turn.isError { block["is_error"] = true }
                 blocks.append(block)
+                if turn.isError { blocks += turn.images.map(image) }
             case .assistant:
                 if let thinking = turn.thinking, let signature = turn.thinkingSignature {
                     blocks.append(["type": "thinking", "thinking": thinking, "signature": signature])

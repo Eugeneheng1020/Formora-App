@@ -536,10 +536,14 @@ final class ChatRunner {
 
     /// One request of the app's own — a summary (E3), a memory extraction (F4): no tools, no reasoning; the next model
     /// if one fails.
-    func oneShot(system: String, prompt: String, candidates: [ModelReference]) async -> (summary: String, model: ModelReference, usage: TokenUsage?)? {
+    /// One question to a model, no tools; `images` are file paths the model sees with the words (the last screenshot of a
+    /// computer task, user 2026-09-15).
+    func oneShot(system: String, prompt: String, candidates: [ModelReference], images: [String] = []) async
+        -> (summary: String, model: ModelReference, usage: TokenUsage?)? {
+        let pictures = images.compactMap { ChatImages.load(URL(fileURLWithPath: $0)) }
         for reference in candidates {
             guard let target = await target(for: reference),
-                  let request = ChatWire.request(target, system: system, history: [ChatTurn(role: .user, text: prompt)],
+                  let request = ChatWire.request(target, system: system, history: [ChatTurn(role: .user, text: prompt, images: pictures)],
                                                  reasoning: .off, sendsReasoning: false) else { continue }
             var text = ""
             var usage = TokenUsage()

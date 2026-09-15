@@ -240,6 +240,8 @@ enum VerificationHooks {
     static let seedConversationsKey = "FormoraSeedConversations"
     /// `-FormoraConversation 1`: selects that row of the current view.
     static let conversationKey = "FormoraConversation"
+    /// `-FormoraFreshChat <role>`: a new direct chat with that seeded Agent, selected.
+    static let freshChatKey = "FormoraFreshChat"
     /// `-FormoraMessageSearch 短信`: types into the list's search.
     static let messageSearchKey = "FormoraMessageSearch"
     /// `-FormoraGroupDialog create|settings`: the group dialog opens (settings: the first group).
@@ -270,6 +272,13 @@ enum VerificationHooks {
             state.selectedConversationID = list[index].id
         } else {
             state.selectedConversationID = list.first?.id
+        }
+        // `-FormoraFreshChat dev`: a new direct chat with the seeded Agent of that role, selected — no history to distract a
+        // live model (demo 2026-09-15).
+        if let role = settings.string(forKey: freshChatKey), let project = currentProject,
+           let agent = state.agents.agents.first(where: { $0.roleID == role }),
+           let fresh = try? store.startDirect(agentID: agent.id, projectID: project.id, blockReason: nil) {
+            state.selectedConversationID = fresh.id
         }
         if let query = settings.string(forKey: messageSearchKey) { state.messageSearch = query }
         if settings.bool(forKey: seedUsageKey) {
