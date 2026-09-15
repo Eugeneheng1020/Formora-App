@@ -4,5 +4,14 @@
     <title>Formora</title>
     <description>Formora 的更新</description>
     <language>zh-Hans</language>
+    <item>
+      <title>1.0.3</title>
+      <pubDate>Tue, 15 Sep 2026 19:49:35 +0800</pubDate>
+      <sparkle:version>19</sparkle:version>
+      <sparkle:shortVersionString>1.0.3</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[<p>自动更新、设置「关于」和「用量」、「文件」一键提交推送发 PR；修好安装包装好打不开的问题（之前的 1.0.3–1.0.5 已撤下）</p>]]></description>
+      <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.3/Formora-1.0.3.dmg" type="application/octet-stream" sparkle:edSignature="TckHOQAVeWwI23KmxAU817O+nsCkgGP960eWFWfSC86czdLF+WtjGbFu6q/iwvRJujZLMS8RACdIft35l8aWBg==" length="12504138"/>
+    </item>
   </channel>
 </rss>
