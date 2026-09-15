@@ -176,6 +176,8 @@ private struct ThreadView: View {
     @State private var showsFolded = false
     /// Earlier versions opened under their lines (10e).
     @State private var openVersions: Set<UUID> = []
+    /// Just opened: every change of the content's height while the lazy rows settle sends it back to the end.
+    @State private var isLanding = false
 
     static let draftAnchor = "draft"
     static let cardAnchor = "commandCard"
@@ -253,24 +255,23 @@ private struct ThreadView: View {
                             }
                             .id(Self.cardAnchor)
                         }
-                        Color.clear.frame(height: 1).id(Self.endAnchor)
+                        // 12 of air under the last message (user 2026-09-15): it never sits on the composer's line.
+                        Color.clear.frame(height: 12).id(Self.endAnchor)
                     }
-                    .padding(.vertical, 22)
+                    .padding(.top, 22)
                     .padding(.horizontal, 26)
+                    .background(GeometryReader { proxy in Color.clear.preference(key: ThreadHeight.self, value: proxy.size.height) })
                 }
             }
-            // Short threads start at the top like the mockup; opening scrolls to the latest message.
+            // Opens at its end (user 2026-09-14: 「重新打开必须是最新的内容」; 2026-09-15: switching to 消息 still showed the first
+            // message of a long thread). The lazy rows get their real heights only once laid out, so one jump lands short:
+            // it jumps again whenever the content's height changes in the first moments, and on a schedule besides.
+            .onPreferenceChange(ThreadHeight.self) { _ in if isLanding { proxy.scrollTo(Self.endAnchor, anchor: .bottom) } }
             .onAppear {
                 if state.messageJump?.conversationID == id {
                     jump(proxy)
                 } else if !visible.isEmpty {
-                    // Twice (user 2026-09-14: 「重新打开必须是最新的内容」): the lazy rows above get their real heights only once
-                    // laid out, and the first jump can land short of the end.
-                    Task { proxy.scrollTo(Self.endAnchor, anchor: .bottom) }
-                    Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(250))
-                        proxy.scrollTo(Self.endAnchor, anchor: .bottom)
-                    }
+                    land(proxy)
                 }
             }
             .onChange(of: state.messageJump) { jump(proxy) }
@@ -374,6 +375,20 @@ private struct ThreadView: View {
         { id in withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(id, anchor: nil) } }
     }
 
+    /// To the end now, and again as the rows settle — for a second and a half, unless something else moved the thread.
+    private func land(_ proxy: ScrollViewProxy) {
+        isLanding = true
+        proxy.scrollTo(Self.endAnchor, anchor: .bottom)
+        Task { @MainActor in
+            for delay in [60, 250, 700, 1500] {
+                try? await Task.sleep(for: .milliseconds(delay))
+                guard isLanding else { return }
+                proxy.scrollTo(Self.endAnchor, anchor: .bottom)
+            }
+            isLanding = false
+        }
+    }
+
     private func toBottom(_ proxy: ScrollViewProxy) {
         let target: AnyHashable = state.chat.steering[id]?.last?.id ?? (state.chat.drafts[id] != nil ? Self.draftAnchor : Self.endAnchor)
         withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(target, anchor: .bottom) }
@@ -381,6 +396,7 @@ private struct ThreadView: View {
 
     private func jump(_ proxy: ScrollViewProxy) {
         guard let jump = state.messageJump, jump.conversationID == id else { return }
+        isLanding = false
         state.messageJump = nil
         flashing = jump.messageID
         Task {
@@ -389,6 +405,12 @@ private struct ThreadView: View {
             if flashing == jump.messageID { flashing = nil }
         }
     }
+}
+
+/// The thread content's height: while it settles after opening, the thread lands at its end again.
+private struct ThreadHeight: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
 /// `.msg-row` for the user: right-aligned bubble, avatar 32 (old D11), time in mono under it; at most 640 wide.
@@ -567,7 +589,8 @@ private struct AgentRunRow: View {
                 }
                 // 工具执行折叠 (user 2026-09-15): the run's steps under its words, the one in hand in view while it runs.
                 ToolFoldView(steps: ToolFold.steps(in: messages), isRunning: isRunning, executing: state.chat.executing[conversation.id],
-                             approval: state.chat.approvals[conversation.id]?.callID, phase: { phase($0.call, in: $0.messageID) }, reveal: reveal)
+                             approval: state.chat.approvals[conversation.id]?.callID, phase: { phase($0.call, in: $0.messageID) }, reveal: reveal,
+                             onCopy: { CopyButton.copy($0, state: state) })
                 if draft == nil, let last = messages.last {
                     HStack(spacing: 10) {
                         HStack(spacing: 6) {
@@ -649,11 +672,25 @@ private struct AgentRunRow: View {
         }
     }
 
+    private var projectRoot: URL? { session.current?.id == conversation.projectID ? session.accessibleRoot : nil }
+
+    /// A path in the reply names a file of the project (user 2026-09-15): then it is a link.
+    private func fileExists(_ path: String) -> Bool {
+        guard let projectRoot, !path.hasPrefix("/") else { return false }
+        return FileManager.default.fileExists(atPath: projectRoot.appendingPathComponent(path).path)
+    }
+
+    private func openFile(_ path: String) {
+        state.select(.files)
+        Task { await state.files?.reveal(relativePath: path) }
+    }
+
     private func bubble(_ message: Message) -> some View {
         let isFlashing = flashing == message.id
         let shape = UnevenRoundedRectangle(topLeadingRadius: 4, bottomLeadingRadius: 12, bottomTrailingRadius: 12, topTrailingRadius: 12,
                                            style: .continuous)
-        return MarkdownText(source: message.text)
+        return MarkdownText(source: message.text, links: true, fileExists: fileExists, openFile: openFile,
+                            onCopy: { CopyButton.copy($0, state: state) })
             .padding(.vertical, 11)
             .padding(.horizontal, 14)
             .background(shape.fill(isFlashing ? Palette.accentSoft.color : Palette.surface.color))

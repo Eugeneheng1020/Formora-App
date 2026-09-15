@@ -469,7 +469,7 @@ enum VerificationHooks {
             let runID = UUID()
             let path = "PRD/会员等级体系_v1.md"
             store.append(Message(role: .user, text: "把保级规则写进 PRD，然后跑一下测试"), to: id)
-            store.append(Message(role: .agent, agentID: agentID, speakerName: name, text: "先看现有的文档。", toolCalls: [
+            store.append(Message(role: .agent, agentID: agentID, speakerName: name, text: "先看现有的约定 AGENTS.md 和 https://example.com/prd 的写法。", toolCalls: [
                 ToolCall(id: "qa-step-1", name: "read", arguments: #"{"path":"\#(path)"}"#, result: .done("（读到了 88 行）")),
                 ToolCall(id: "qa-step-2", name: "grep", arguments: #"{"pattern":"保级"}"#, result: .done("\(path):41：保级")),
             ], runID: runID), to: id)
@@ -497,6 +497,20 @@ enum VerificationHooks {
             store.append(Message(role: .user, text: "购物车挽回的提醒怎么定？"), to: id)
             store.append(Message(role: .agent, agentID: agentID, speakerName: state.agents.agent(agentID)?.displayName, text: "两件事要你定。",
                                  toolCalls: [call], runID: UUID()), to: id)
+        }
+        // `-FormoraSeedUnread YES` (user 2026-09-15): the badge on a row.
+        if settings.bool(forKey: seedUnreadKey), let selected = state.selectedConversationID,
+           let other = store.list(project: currentProject?.id, hiddenView: false).first(where: { $0.id != selected }) {
+            for _ in 0..<3 { store.incrementUnread(other.id) }
+        }
+        // `-FormoraSeedInterrupted YES` (user 2026-09-15): 没有回复 on a row, 重试 above its composer once opened.
+        if settings.bool(forKey: seedInterruptedKey), let selected = state.selectedConversationID,
+           let other = store.list(project: currentProject?.id, hiddenView: false).first(where: { $0.id != selected }),
+           let agentID = other.agentID ?? other.members.first?.agentID {
+            store.append(Message(role: .user, text: "把验收标准再补两条"), to: other.id)
+            store.append(Message(role: .agent, agentID: agentID, speakerName: state.agents.agent(agentID)?.displayName, text: "",
+                                 failure: "网络断了，重试 10 次都没连上。", runID: UUID()), to: other.id)
+            store.incrementUnread(other.id)
         }
         if settings.bool(forKey: seedBoardKey), let project = currentProject, let seeded = seedBoard(into: state, project: project.id) {
             // `-FormoraBoardConversation <name>`: another seeded chain, on the canvas and in 消息.
@@ -610,6 +624,10 @@ enum VerificationHooks {
     static let seedAskKey = "FormoraSeedAsk"
     /// `-FormoraBoardApproval YES` (with `-FormoraSeedBoard`): the chain's first card waits on a command.
     static let boardApprovalKey = "FormoraBoardApproval"
+    /// `-FormoraSeedUnread YES` (user 2026-09-15): a conversation other than the open one has 3 unread.
+    static let seedUnreadKey = "FormoraSeedUnread"
+    /// `-FormoraSeedInterrupted YES`: a conversation other than the open one ends on a reply that never came, unread.
+    static let seedInterruptedKey = "FormoraSeedInterrupted"
     static let seedInstructionsKey = "FormoraSeedInstructions"
     static let seedChangeKey = "FormoraSeedChange"
     static let seedRewindKey = "FormoraSeedRewind"

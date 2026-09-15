@@ -1339,8 +1339,8 @@ final class ChatRunner {
         let aboveMode = isComputer
             ? ComputerTool.acts(call.arguments) && agent.approvalMode != .yolo && !state.computerAllowed
             : tier.map { agent.approvalMode.needsApproval($0) } ?? false
-        // The seven kinds of dangerous command ask whatever the mode, and whatever a hook allowed (7c, C3).
-        let forced = AgentTools.forcedApproval(call)
+        // The seven kinds of dangerous command ask whatever a hook allowed (7c, C3) — except under 全部放行 (user 2026-09-15).
+        let forced = AgentTools.forcedApproval(call, mode: agent.approvalMode)
         // 10b: what the user said to remember — for this conversation, or the project — needs no asking. A forced step
         // (a dangerous command, a new MCP server) and a hook's own ask always ask, and offer nothing to remember.
         let rememberable = forced == nil && pre.permission != .ask

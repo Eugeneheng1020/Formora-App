@@ -158,10 +158,15 @@ struct FormoraApp: App {
         state.replyAlert = { [weak state] conversation, message in
             guard let state else { return }
             if state.notifications.sound { NSSound(named: "Glass")?.play() }
+            let headline = ConversationReadiness.headline(of: conversation, agents: state.agents)
+            // A reply that never came (user 2026-09-15: 任务中断要提醒): in front, a toast; away, a notification.
+            if let interruption = message.interruption, NSApplication.shared.isActive {
+                state.toasts.show("\(headline)：没有回复", note: interruption, isError: true)
+                return
+            }
             guard state.notifications.desktop, !NSApplication.shared.isActive else { return }
-            let body = message.failure.map { "没有回复：\($0)" } ?? String(message.text.prefix(120))
-            notifier.post(title: ConversationReadiness.headline(of: conversation, agents: state.agents), body: body,
-                          conversationID: conversation.id)
+            let body = message.interruption.map { "没有回复：\($0)" } ?? String(message.text.prefix(120))
+            notifier.post(title: headline, body: body, conversationID: conversation.id)
         }
     }
 

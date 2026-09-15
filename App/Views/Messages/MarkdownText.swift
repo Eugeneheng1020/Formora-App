@@ -12,6 +12,13 @@ struct MarkdownText: View {
     var size: CGFloat = MarkdownBlocks.bodySize
     /// Mono throughout — 「运行过程」, a small terminal (9c, R1).
     var mono = false
+    /// A reply's words (user 2026-09-15): web addresses and the project's files become links — not while streaming.
+    var links = false
+    var fileExists: (String) -> Bool = { _ in false }
+    /// A file link opens in 文件.
+    var openFile: ((String) -> Void)? = nil
+    /// Set, a code block gets a copy icon in front (user 2026-09-15).
+    var onCopy: ((String) -> Void)? = nil
 
     var body: some View {
         // A reply still streaming changes with every token: parsed fresh, not kept.
@@ -26,8 +33,18 @@ struct MarkdownText: View {
         .textSelection(.enabled)
         .fixedSize(horizontal: false, vertical: true)
         // A link opens only as a web page or a mail (review 2026-09-12): an Agent's words can come from a page it read,
-        // and a file:// address or an app's own scheme would open things on this Mac.
-        .environment(\.openURL, OpenURLAction { url in Self.opens(url) ? .systemAction : .discarded })
+        // and a file:// address or an app's own scheme would open things on this Mac. A project file opens in 文件.
+        .environment(\.openURL, OpenURLAction { url in
+            if let path = FileMentions.path(fromLink: url) {
+                openFile?(path)
+                return .handled
+            }
+            return Self.opens(url) ? .systemAction : .discarded
+        })
+    }
+
+    private func linked(_ string: AttributedString) -> AttributedString {
+        links && !showsCursor ? MessageLinks.linkify(string, exists: fileExists) : string
     }
 
     static func opens(_ url: URL) -> Bool {
@@ -46,29 +63,32 @@ struct MarkdownText: View {
     private func view(_ block: MarkdownBlock, cursor: Bool) -> some View {
         switch block {
         case .paragraph(let string):
-            text(string, cursor: cursor).foregroundStyle(Palette.ink.color).lineSpacing(5)
+            text(linked(string), cursor: cursor).foregroundStyle(Palette.ink.color).lineSpacing(5)
         case let .heading(level, string):
             // Third level and below: bold in the muted ink, a step under the two above.
-            text(string, cursor: cursor).foregroundStyle(level >= 3 ? Palette.inkMuted.color : Palette.ink.color).lineSpacing(5)
+            text(linked(string), cursor: cursor).foregroundStyle(level >= 3 ? Palette.inkMuted.color : Palette.ink.color).lineSpacing(5)
         case let .listItem(marker, depth, string):
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(marker).font(mono ? FormoraFont.mono(size) : FormoraFont.ui(size)).foregroundStyle(Palette.inkFaint.color)
                     .frame(minWidth: 10, alignment: .leading)
-                text(string, cursor: cursor).foregroundStyle(Palette.ink.color).lineSpacing(5)
+                text(linked(string), cursor: cursor).foregroundStyle(Palette.ink.color).lineSpacing(5)
             }
             .padding(.leading, CGFloat(max(0, depth - 1)) * 16)
         case .quote(let string):
-            text(string, cursor: cursor)
+            text(linked(string), cursor: cursor)
                 .foregroundStyle(Palette.inkMuted.color)
                 .lineSpacing(5)
                 .padding(.leading, 12)
                 .overlay(alignment: .leading) { Rectangle().fill(Palette.lineStrong.color).frame(width: 2) }
         case .code(let code):
-            // Indented mono, no box: a terminal's code block.
-            ScrollView(.horizontal, showsIndicators: false) {
-                Text(code).font(FormoraFont.mono(size - 1)).foregroundStyle(Palette.ink.color).lineSpacing(3).fixedSize()
+            // Indented mono, no box: a terminal's code block — a copy icon in front where the reply allows (user 2026-09-15).
+            HStack(alignment: .top, spacing: 6) {
+                if let onCopy { CopyIcon(text: code, copy: onCopy, label: "复制代码").padding(.top, -1) }
+                ScrollView(.horizontal, showsIndicators: false) {
+                    Text(code).font(FormoraFont.mono(size - 1)).foregroundStyle(Palette.ink.color).lineSpacing(3).fixedSize()
+                }
             }
-            .padding(.leading, 12)
+            .padding(.leading, onCopy == nil ? 12 : 0)
         case let .table(header, rows):
             MarkdownTable(header: header, rows: rows)
         case .rule:

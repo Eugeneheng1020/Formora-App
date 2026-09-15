@@ -12,7 +12,8 @@ struct MessageListColumn: View {
     var body: some View {
         let scoped = store.list(project: project, hiddenView: state.showsHiddenConversations)
         let hasAny = !store.list(project: project, hiddenView: false).isEmpty || store.hiddenCount(project: project) > 0
-        let filtered = scoped.filter { state.messageFilter == nil || $0.status == state.messageFilter }
+        // Like a chat app (user 2026-09-15): whatever moved last on top, no status filter.
+        let filtered = ConversationStore.recent(scoped)
         let rows = rows(filtered)
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
@@ -36,12 +37,7 @@ struct MessageListColumn: View {
             .padding(.top, 16)
             .padding(.horizontal, 18)
 
-            if hasAny {
-                // `.filter-tabs` pads 10 inside the list head's 18.
-                FilterTabs(state: state, scoped: scoped).padding(.leading, 28).padding(.trailing, 18).padding(.bottom, 10)
-            } else {
-                Color.clear.frame(height: 10) // the empty `.filter-tabs` row
-            }
+            Color.clear.frame(height: 6)
 
             TimelineView(.everyMinute) { context in
                 ScrollView {
@@ -96,7 +92,7 @@ struct MessageListColumn: View {
     private var emptyText: String {
         if !state.messageSearch.trimmingCharacters(in: .whitespaces).isEmpty { return "没有匹配的对话" }
         if state.showsHiddenConversations { return "没有已隐藏的会话" }
-        return state.messageFilter == .done ? "还没有已完成的对话" : "没有进行中的对话"
+        return "还没有对话"
     }
 
     private func select(_ id: UUID, message: UUID?) {
@@ -122,58 +118,8 @@ struct MessageListColumn: View {
     }
 }
 
-/// `.filter-tabs`: 全部 / 进行中 / 已完成 with counts of the current view (hidden view counts the hidden ones).
-private struct FilterTabs: View {
-    let state: AppState
-    let scoped: [Conversation]
-
-    var body: some View {
-        HStack(spacing: 4) {
-            tab("全部", count: scoped.count, value: nil)
-            ForEach(ConversationStatus.allCases, id: \.self) { status in
-                tab(status.label, count: scoped.filter { $0.status == status }.count, value: status)
-            }
-            Spacer(minLength: 0)
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("messages.filters")
-    }
-
-    private func tab(_ title: String, count: Int, value: ConversationStatus?) -> some View {
-        FilterTab(title: title, count: count, isOn: state.messageFilter == value,
-                  identifier: "messages.filter.\(value?.rawValue ?? "all")") { state.messageFilter = value }
-    }
-}
-
-private struct FilterTab: View {
-    let title: String
-    let count: Int
-    let isOn: Bool
-    let identifier: String
-    let action: () -> Void
-
-    @State private var isHovering = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 3) {
-                Text(title).font(FormoraFont.ui(12, weight: 500)).foregroundStyle(isOn ? Palette.ink.color : Palette.inkMuted.color)
-                Text("\(count)").font(FormoraFont.mono(12)).foregroundStyle(isOn ? Palette.inkMuted.color : Palette.inkFaint.color)
-            }
-            .padding(.horizontal, 13)
-            .padding(.vertical, 6)
-            .background(Capsule().fill(isOn ? Palette.surfaceRaised2.color : isHovering ? Palette.surfaceRaised.color : .clear))
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
-        .accessibilityAddTraits(isOn ? .isSelected : [])
-        .accessibilityIdentifier(identifier)
-    }
-}
-
 /// `.conv-item`: avatar 40; line 1 name + time, line 2 last message (or the search hit's sentence), line 3 the
-/// status badge and the task-name badge (spec §9.1).
+/// the task-name badge, and 等你确认 / 没有回复 when something waits on the user (spec §6.2).
 private struct ConversationRow: View {
     let state: AppState
     let conversation: Conversation
@@ -184,6 +130,15 @@ private struct ConversationRow: View {
     @State private var isHovering = false
 
     private var isSelected: Bool { state.selectedConversationID == conversation.id }
+    /// An approval or a question (7d, D6): stuck on the user.
+    private var isWaiting: Bool {
+        state.chat.approvals[conversation.id] != nil || state.chat.pendingQuestion(conversation.id) != nil
+            || state.chat.subtaskWaiting(conversation.id) != nil
+    }
+    /// The last reply never came and hasn't been seen (user 2026-09-15).
+    private var isInterrupted: Bool {
+        conversation.unread > 0 && conversation.messages.last(where: { !$0.isHidden })?.interruption != nil
+    }
 
     var body: some View {
         let headline = ConversationReadiness.headline(of: conversation, agents: state.agents)
@@ -191,7 +146,7 @@ private struct ConversationRow: View {
             HStack(alignment: .top, spacing: 10) {
                 ConversationAvatar(state: state, conversation: conversation, size: 40)
                     .overlay(alignment: .topTrailing) {
-                        if conversation.unread > 0 { UnreadDot(count: conversation.unread).offset(x: 3, y: -3) }
+                        if conversation.unread > 0 { UnreadDot(count: conversation.unread).offset(x: 6, y: -6) }
                     }
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -206,21 +161,18 @@ private struct ConversationRow: View {
                     }
                     .frame(height: 20) // the web's line box at 13.5 × 1.5
                     let isReplying = state.chat.isRunning(conversation.id)
-                    // An approval or a question (7d, D6): stuck on the user. Spec §9.8b: it takes the status badge's place
-                    // in alert — 进行中 is the Agent busy, 等你确认 is waiting on you — and the line keeps saying what for.
-                    let isWaiting = state.chat.approvals[conversation.id] != nil || state.chat.pendingQuestion(conversation.id) != nil
-                        || state.chat.subtaskWaiting(conversation.id) != nil
                     Text(isReplying ? "正在回复…" : snippet ?? conversation.preview)
                         .font(FormoraFont.ui(12.5))
                         .foregroundStyle(isReplying ? Palette.accent.color : snippet == nil ? Palette.inkMuted.color : Palette.ink.color)
                         .lineLimit(1)
                         .frame(height: 19)
                         .padding(.top, 2)
+                    // No 进行中 / 已完成 (user 2026-09-15: a chat app doesn't say); only what needs the user, in alert.
                     HStack(spacing: 5) {
                         if isWaiting {
                             Badge(text: "等你确认", tone: .waiting)
-                        } else {
-                            Badge(text: conversation.status.label, tone: conversation.status == .done ? .done : .pending)
+                        } else if isInterrupted {
+                            Badge(text: "没有回复", tone: .waiting)
                         }
                         Badge(text: conversation.title, tone: .task)
                     }
@@ -237,7 +189,8 @@ private struct ConversationRow: View {
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
         .contextMenu { ConversationMenu(state: state, conversation: conversation) }
-        .accessibilityLabel("\(headline)，\(conversation.title)，\(conversation.status.label)")
+        .accessibilityLabel("\(headline)，\(conversation.title)" + (isWaiting ? "，等你确认" : isInterrupted ? "，没有回复" : "")
+            + (conversation.unread > 0 ? "，\(conversation.unread) 条未读" : ""))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityIdentifier("messages.row.\(conversation.title)")
     }
@@ -356,20 +309,19 @@ struct Badge: View {
     }
 }
 
-/// `.unread-dot`: alert pill with a mono count, ringed with the list's surface.
+/// `.unread-dot`, as WeChat has it (user 2026-09-15): a red round badge, the count in white, on the corner of the avatar
+/// or the rail's icon.
 struct UnreadDot: View {
     let count: Int
-    /// The ground it sits on, so it reads as cut out of the avatar or icon.
-    var ring = Palette.surface.color
 
     var body: some View {
         Text(count > 99 ? "99+" : "\(count)")
-            .font(FormoraFont.mono(9.5, weight: 700))
-            .foregroundStyle(Palette.alertInk.color)
-            .padding(.horizontal, 4)
-            .frame(minWidth: 16, minHeight: 16)
-            .background(Capsule().fill(Palette.alert.color))
-            .overlay(Capsule().strokeBorder(ring, lineWidth: 2))
+            .font(FormoraFont.ui(11, weight: 700))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 5)
+            .frame(minWidth: 18, minHeight: 18)
+            .background(Capsule().fill(Palette.unread.color))
             .accessibilityLabel("\(count) 条未读")
+            .accessibilityIdentifier("unread.badge")
     }
 }

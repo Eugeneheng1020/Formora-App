@@ -17,8 +17,8 @@ settings:
     # DEVELOPMENT_TEAM and CODE_SIGN_STYLE: Automatic, and remove CODE_SIGN_IDENTITY.
     CODE_SIGN_STYLE: Manual
     CODE_SIGN_IDENTITY: "-"
-    MARKETING_VERSION: "1.0.4"
-    CURRENT_PROJECT_VERSION: "20"
+    MARKETING_VERSION: "1.0.5"
+    CURRENT_PROJECT_VERSION: "21"
 # 自动更新：Sparkle 从 GitHub Releases 取安装包，appcast 放在 Formora-App 仓库、经 jsDelivr 镜像分发。
 packages:
   Sparkle:

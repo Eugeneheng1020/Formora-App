@@ -470,17 +470,17 @@ final class BobSession {
 
     /// Whether a change waits for 允许: always for what `alwaysAsks` names, otherwise as his 权限模式 says.
     private func asks(_ call: ToolCall) -> Bool {
-        if Self.alwaysAsks(call, mcp: mcp) { return true }
+        if Self.alwaysAsks(call, mode: model.approvalMode, mcp: mcp) { return true }
         let tier = BobTools.tier(call.name)
             ?? MCPTools.allBindings(in: mcp).first { $0.spec.name == call.name }?.spec.tier
             ?? .exec
         return model.approvalMode.needsApproval(tier)
     }
 
-    /// Asked whatever the mode (user 2026-09-13): the dangerous commands and a new MCP service, as for an Agent, and
-    /// what deletes — his memory, and an MCP tool its server marks destructive.
-    static func alwaysAsks(_ call: ToolCall, mcp: MCPStore) -> Bool {
-        if AgentTools.forcedApproval(call) != nil || call.name == BobTools.memoryClear.name { return true }
+    /// Asked whatever the mode (user 2026-09-13): a new MCP service, and what deletes — his memory, and an MCP tool its
+    /// server marks destructive. The dangerous commands too, except under 全部放行 (user 2026-09-15).
+    static func alwaysAsks(_ call: ToolCall, mode: ApprovalMode, mcp: MCPStore) -> Bool {
+        if AgentTools.forcedApproval(call, mode: mode) != nil || call.name == BobTools.memoryClear.name { return true }
         guard call.name.hasPrefix(MCPTools.prefix),
               let binding = MCPTools.allBindings(in: mcp).first(where: { $0.spec.name == call.name }) else { return false }
         return mcp.server(binding.serverID)?.tools.first { $0.name == binding.toolName }?.destructive == true
@@ -488,15 +488,17 @@ final class BobSession {
 
     /// How asking goes for him, as his prompt says it.
     static func askingRule(_ mode: ApprovalMode) -> String {
-        let byMode = switch mode {
+        switch mode {
         case .alwaysAsk:
-            "看文件、搜索、读 Skill、记东西、只读的 MCP 工具之外的每一步——读网页、接入、新建、写文件、改文件、运行命令、会改东西的 MCP 工具、打开网址——都会先弹给用户确认，这是用户选的「每次询问」。"
+            return "看文件、搜索、读 Skill、记东西、只读的 MCP 工具之外的每一步——读网页、接入、新建、写文件、改文件、运行命令、会改东西的 MCP 工具、打开网址——都会先弹给用户确认，这是用户选的「每次询问」。"
+                + "危险命令、接入 MCP 服务、清空记忆、会删数据的 MCP 工具不管怎样都会先弹给用户确认。"
         case .write:
-            "用户选了「允许写入」：写文件、改文件、新建 Skill、建文件夹、改通知设置、不删数据的 MCP 工具直接执行；读网页、运行命令、打开网址、可能删数据的 MCP 工具会先弹给用户确认。"
+            return "用户选了「允许写入」：写文件、改文件、新建 Skill、建文件夹、改通知设置、不删数据的 MCP 工具直接执行；读网页、运行命令、打开网址、可能删数据的 MCP 工具会先弹给用户确认。"
+                + "危险命令、接入 MCP 服务、清空记忆、会删数据的 MCP 工具不管怎样都会先弹给用户确认。"
         case .yolo:
-            "用户选了「全部放行」：大多数操作直接执行，不再确认。"
+            // 全部放行 (user 2026-09-15): the dangerous commands run too; connecting, forgetting and deleting still ask.
+            return "用户选了「全部放行」：包括危险命令在内，操作直接执行，不再确认；只有接入 MCP 服务、清空记忆、会删数据的 MCP 工具会先弹给用户确认。"
         }
-        return byMode + "危险命令、接入 MCP 服务、清空记忆、会删数据的 MCP 工具不管怎样都会先弹给用户确认。"
     }
 
     /// The card, until 允许 or 不用了.

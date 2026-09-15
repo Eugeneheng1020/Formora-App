@@ -148,15 +148,20 @@ enum AgentTools {
     }
 
     /// Why this call asks the user whatever the 权限模式 and whatever a hook allowed (C3): a dangerous command.
-    static func forcedApproval(_ call: ToolCall) -> String? {
+    /// Why a step asks whatever a hook or a grant said: a new MCP service in every mode; the seven kinds of dangerous
+    /// command unless the mode is 全部放行 (user 2026-09-15: there they run, on trust).
+    static func forcedApproval(_ call: ToolCall, mode: ApprovalMode) -> String? {
         // Connecting a new MCP service always asks (7h, B9).
         if call.name == "mcp_add" {
             // One that starts on this Mac runs as the user: the card shows its command (9d, S6).
             return MCPConnect.commandLine(call.arguments) == nil ? "要接入一个新的 MCP 服务" : "要在这台 Mac 上启动一个 MCP 服务，它会以你的身份运行下面这条命令"
         }
-        guard call.name == "bash", let command = ToolArguments.parse(call.arguments)?["command"] as? String else { return nil }
+        guard mode != .yolo, call.name == "bash", let command = ToolArguments.parse(call.arguments)?["command"] as? String else { return nil }
         return CommandRisk.reason(command)
     }
+
+    /// As 每次询问 has it: what the QA seeds and the old call sites mean.
+    static func forcedApproval(_ call: ToolCall) -> String? { forcedApproval(call, mode: .alwaysAsk) }
 }
 
 /// A call's arguments: the JSON object the model wrote.

@@ -121,3 +121,26 @@ struct StatusLine: View {
         }
     }
 }
+
+/// A copy icon before a command or a code block (user 2026-09-15): the text goes to the clipboard, 「已复制」 is the toast.
+struct CopyIcon: View {
+    let text: String
+    let copy: (String) -> Void
+    var label = "复制命令"
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button { copy(text) } label: {
+            IconView(Icons.copy, size: 11)
+                .foregroundStyle(isHovering ? Palette.ink.color : Palette.inkFaint.color)
+                .frame(width: 18, height: 18)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .help(label)
+        .accessibilityLabel(label)
+        .accessibilityIdentifier("copy.command")
+    }
+}

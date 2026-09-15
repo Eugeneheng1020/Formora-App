@@ -118,7 +118,6 @@ final class AppState {
     var displayedConversationID: UUID?
     var selectedConversationID: UUID?
     /// `nil` = 全部.
-    var messageFilter: ConversationStatus?
     /// Inside 「已隐藏的会话」 (spec §9.1b: a level deeper, not a fourth filter).
     var showsHiddenConversations = false
     var messageSearch = ""

@@ -361,6 +361,16 @@ struct Message: Codable, Identifiable, Equatable, Sendable {
 }
 
 /// A tool the model called (7b), and what came of it once it ran.
+extension Message {
+    /// A reply that never came (user 2026-09-15: 任务中断要提醒): the failure, 回复中断, or a thinking-only turn — the words to
+    /// show and to notify with. `nil` for an answer.
+    var interruption: String? {
+        if let failure { return failure }
+        guard role == .agent, let note else { return nil }
+        return note.hasPrefix("回复中断") || note.hasPrefix("模型只返回了思考过程") ? note : nil
+    }
+}
+
 struct ToolCall: Codable, Equatable, Identifiable, Sendable {
     /// The provider's id, echoed with the result (made up where a protocol has none).
     var id: String

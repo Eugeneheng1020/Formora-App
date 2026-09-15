@@ -93,17 +93,20 @@ struct ApprovalPanel: View {
             }
             // The whole command, as it will run: that is what is being allowed.
             if let command = ApprovalText.command(call) {
-                Text(command)
-                    .font(FormoraFont.mono(11.5))
-                    .foregroundStyle(Palette.ink.color)
-                    .lineSpacing(2)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 9)
-                    .padding(.horizontal, 11)
-                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Palette.surfaceRaised.color))
-                    .accessibilityIdentifier("approval.command")
+                HStack(alignment: .top, spacing: 6) {
+                    CopyIcon(text: command) { CopyButton.copy($0, state: state) }.padding(.top, -1)
+                    Text(command)
+                        .font(FormoraFont.mono(11.5))
+                        .foregroundStyle(Palette.ink.color)
+                        .lineSpacing(2)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier("approval.command")
+                }
+                .padding(.vertical, 9)
+                .padding(.horizontal, 9)
+                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Palette.surfaceRaised.color))
             }
             // 10d: the change itself, as it would land.
             if let preview = pending.approval.preview {

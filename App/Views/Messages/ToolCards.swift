@@ -13,6 +13,8 @@ struct ToolCallCard: View {
 
     let call: ToolCall
     let phase: Phase
+    /// Set, a command gets a copy icon in front (user 2026-09-15).
+    var onCopy: ((String) -> Void)? = nil
 
     @State private var isOpen = VerificationHooks.opensToolCards
 
@@ -48,28 +50,30 @@ struct ToolCallCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Button { if output != nil { isOpen.toggle() } } label: {
-                HStack(spacing: 8) {
-                    IconView(Self.icon(for: call.name), size: 13).foregroundStyle(Palette.inkMuted.color)
-                    Text(call.summary)
-                        .font(FormoraFont.mono(11.5))
-                        .foregroundStyle(Palette.ink.color)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Spacer(minLength: 8)
-                    status
-                    if output != nil {
-                        IconView(Icons.chevronRight, size: 10)
-                            .rotationEffect(.degrees(isOpen ? 90 : 0))
-                            .foregroundStyle(Palette.inkFaint.color)
-                    }
+            HStack(spacing: 8) {
+                IconView(Self.icon(for: call.name), size: 13).foregroundStyle(Palette.inkMuted.color)
+                if let onCopy, let command = ApprovalText.command(call) {
+                    CopyIcon(text: command, copy: onCopy)
                 }
-                .padding(.vertical, 8)
-                .padding(.horizontal, 12)
-                .contentShape(Rectangle())
+                Text(call.summary)
+                    .font(FormoraFont.mono(11.5))
+                    .foregroundStyle(Palette.ink.color)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 8)
+                status
+                if output != nil {
+                    IconView(Icons.chevronRight, size: 10)
+                        .rotationEffect(.degrees(isOpen ? 90 : 0))
+                        .foregroundStyle(Palette.inkFaint.color)
+                }
             }
-            .buttonStyle(.plain)
-            .disabled(output == nil)
+            .padding(.vertical, 8)
+            .padding(.horizontal, 12)
+            .contentShape(Rectangle())
+            .onTapGesture { if output != nil { isOpen.toggle() } }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("tool.header")
             if isWaiting {
                 Text("在输入框上方确认")
                     .font(FormoraFont.ui(11))

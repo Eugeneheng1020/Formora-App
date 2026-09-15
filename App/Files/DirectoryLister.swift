@@ -1,17 +1,19 @@
 import Foundation
 
-/// Lists one folder the way Finder shows it: hidden files skipped, folders first, then files,
-/// each in Finder's name order. Never writes.
+/// Lists one folder: folders first, then files, each in Finder's name order. Hidden entries show too (user
+/// 2026-09-15: `.formora`, `.github` are the project's) — only `.git` and `.DS_Store` never. Never writes.
 enum DirectoryLister {
     private static let keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey, .isPackageKey]
+    /// Never worth a row.
+    static let alwaysHidden: Set<String> = [".git", ".DS_Store"]
 
     static func list(_ folder: URL) throws -> [FileNode] {
         // Listing a symlink itself fails with ENOTDIR, so list its target — but keep the children's
         // paths under the link, or they would collide with the real folder's children (same ids).
         let target = folder.resolvingSymlinksInPath()
-        let names = try FileManager.default.contentsOfDirectory(at: target, includingPropertiesForKeys: keys,
-                                                                options: [.skipsHiddenFiles])
+        let names = try FileManager.default.contentsOfDirectory(at: target, includingPropertiesForKeys: keys)
             .map(\.lastPathComponent)
+            .filter { !alwaysHidden.contains($0) }
         return names.map { name in
             let url = folder.appendingPathComponent(name)
             let isFolder = isFolder(url)
@@ -35,9 +37,11 @@ enum DirectoryLister {
     }
 
     static func hasVisibleEntries(_ folder: URL) -> Bool {
-        let entries = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: nil,
-                                                     options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants])
-        return entries?.nextObject() != nil
+        let entries = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: nil, options: [.skipsSubdirectoryDescendants])
+        while let entry = entries?.nextObject() as? URL {
+            if !alwaysHidden.contains(entry.lastPathComponent) { return true }
+        }
+        return false
     }
 
     static func finderOrder(_ a: FileNode, _ b: FileNode) -> Bool {

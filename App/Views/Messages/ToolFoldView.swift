@@ -11,6 +11,8 @@ struct ToolFoldView: View {
     let phase: (ToolFold.Step) -> ToolCallCard.Phase
     /// Opened at the thread's end, the cards would land under the composer: the thread brings the group into view.
     var reveal: (AnyHashable) -> Void = { _ in }
+    /// The cards' copy icon before a command (user 2026-09-15).
+    var onCopy: ((String) -> Void)? = nil
 
     @State private var isOpen = VerificationHooks.opensToolCards
 
@@ -48,9 +50,9 @@ struct ToolFoldView: View {
                 .accessibilityLabel(summary)
                 .accessibilityIdentifier("tools.fold.toggle")
                 if isOpen {
-                    ForEach(steps) { step in ToolCallCard(call: step.call, phase: phase(step)) }
+                    ForEach(steps) { step in ToolCallCard(call: step.call, phase: phase(step), onCopy: onCopy) }
                 } else if let live = ToolFold.live(steps, executing: executing, approval: approval) {
-                    ToolCallCard(call: live.call, phase: phase(live))
+                    ToolCallCard(call: live.call, phase: phase(live), onCopy: onCopy)
                 }
             }
             .id(anchor)

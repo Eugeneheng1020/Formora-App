@@ -72,7 +72,7 @@ struct RailItemButton: View {
                     .shadow(color: isSelected ? Palette.accent.color : .clear, radius: 3)
                     .overlay(alignment: .topTrailing) {
                         if badge > 0 {
-                            UnreadDot(count: badge, ring: Palette.railGround.color)
+                            UnreadDot(count: badge)
                                 .offset(x: 11, y: -8)
                                 .accessibilityIdentifier("rail.\(section.rawValue).badge")
                         }

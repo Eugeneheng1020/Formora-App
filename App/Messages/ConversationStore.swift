@@ -65,6 +65,9 @@ final class ConversationStore {
         }
     }
 
+    /// The list's order (user 2026-09-15): like a chat app, whatever moved last on top.
+    nonisolated static func recent(_ list: [Conversation]) -> [Conversation] { list.sorted { $0.updatedAt > $1.updatedAt } }
+
     func hiddenCount(project: UUID?) -> Int { list(project: project, hiddenView: true).count }
 
     func archived() -> [Conversation] { conversations.filter { $0.parent == nil && $0.visibility == .archived } }
