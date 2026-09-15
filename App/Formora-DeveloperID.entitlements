@@ -9,5 +9,12 @@
 	<!-- Under the hardened runtime, Apple events are refused without asking unless this is present (old phase 0). -->
 	<key>com.apple.security.automation.apple-events</key>
 	<true/>
+	<!-- 2026-09-15: the shipped dmg is ad-hoc signed (no Team ID). Under the hardened runtime, library validation
+	     then refuses every embedded framework ("mapping process and mapped file have different Team IDs"), so 1.0.3
+	     and 1.0.4 quit on launch before running any of our code — the first builds to embed Sparkle.framework.
+	     Xcode builds never showed it: they carry the developer's Team ID on both sides. Notarization allows this
+	     exception, so it stays when the app is Developer ID signed. -->
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
 </dict>
 </plist>
