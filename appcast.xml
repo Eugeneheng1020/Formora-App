@@ -5,6 +5,15 @@
     <description>Formora 的更新</description>
     <language>zh-Hans</language>
     <item>
+      <title>1.0.8</title>
+      <pubDate>Wed, 16 Sep 2026 01:22:07 +0800</pubDate>
+      <sparkle:version>24</sparkle:version>
+      <sparkle:shortVersionString>1.0.8</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[<p>Agent 可以分阶段用不同模型：计划、旁审、读图、省事各配一个，留空就用主模型；备用模型简化成一个共用兜底</p>]]></description>
+      <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.8/Formora-1.0.8.dmg" type="application/octet-stream" sparkle:edSignature="wbM0D7zSqdNMgpDd2ABKLCHsUxpYkamVJm8Zcf/C/nV4rlOQIcUGRR0RYCmis6t7iroNKchzQZOa2ckBquztAw==" length="12942164"/>
+    </item>
+    <item>
       <title>1.0.7</title>
       <pubDate>Wed, 16 Sep 2026 00:51:16 +0800</pubDate>
       <sparkle:version>23</sparkle:version>
