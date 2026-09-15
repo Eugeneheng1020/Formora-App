@@ -5,6 +5,15 @@
     <description>Formora 的更新</description>
     <language>zh-Hans</language>
     <item>
+      <title>1.0.4</title>
+      <pubDate>Tue, 15 Sep 2026 20:34:30 +0800</pubDate>
+      <sparkle:version>20</sparkle:version>
+      <sparkle:shortVersionString>1.0.4</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[<p>要你做决定的一律停在输入框上方（等你确认、方案、要继续吗、重试，消息和看板一样）；消息里的工具执行折叠成一组，只展开正在处理的一步；选项确认能回上一步改答案；Agent 在回复里列的编号方案也做成选项卡片</p>]]></description>
+      <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.4/Formora-1.0.4.dmg" type="application/octet-stream" sparkle:edSignature="v5TheKBcRY8A7BDwsK2xcLp3zbRT0XAQc+CgdWHYht58xc//yyithcYUxMIJkhAhU1IfDzZYPTwriLdMf398CA==" length="12637137"/>
+    </item>
+    <item>
       <title>1.0.3</title>
       <pubDate>Tue, 15 Sep 2026 19:49:35 +0800</pubDate>
       <sparkle:version>19</sparkle:version>
