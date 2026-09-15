@@ -4,32 +4,5 @@
     <title>Formora</title>
     <description>Formora 的更新</description>
     <language>zh-Hans</language>
-    <item>
-      <title>1.0.5</title>
-      <pubDate>Tue, 15 Sep 2026 19:38:53 +0800</pubDate>
-      <sparkle:version>18</sparkle:version>
-      <sparkle:shortVersionString>1.0.5</sparkle:shortVersionString>
-      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <description><![CDATA[<p>修复安装包装好后打不开：1.0.3、1.0.4 一启动就退出，这版能正常打开；装了那两版的请重新下载</p>]]></description>
-      <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.5/Formora-1.0.5.dmg" type="application/octet-stream" sparkle:edSignature="k/dUUelz6A2okdSMuWsBONhlF2fTFDf+HW1YxOKNaJ6HgVKEztgHfPKah8cYPTYIEBB8GLUQEyp0hLj7b1UcAA==" length="12504137"/>
-    </item>
-    <item>
-      <title>1.0.4</title>
-      <pubDate>Tue, 15 Sep 2026 01:02:24 +0800</pubDate>
-      <sparkle:version>17</sparkle:version>
-      <sparkle:shortVersionString>1.0.4</sparkle:shortVersionString>
-      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <description><![CDATA[<p>单元测试不再往用户的运行日志里写测试数据</p>]]></description>
-      <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.4/Formora-1.0.4.dmg" type="application/octet-stream" sparkle:edSignature="ahtQEacrRo0TA0fLv8GlFW4KmX892gLQE//thqgzsIlw5+fYyNaZaROKEzgm3OHIbTQZQ8zlfUHb+0hRJ6ysCA==" length="12504071"/>
-    </item>
-    <item>
-      <title>1.0.3</title>
-      <pubDate>Tue, 15 Sep 2026 00:51:39 +0800</pubDate>
-      <sparkle:version>16</sparkle:version>
-      <sparkle:shortVersionString>1.0.3</sparkle:shortVersionString>
-      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <description><![CDATA[<p>设置加「关于」（版本、自动更新、诊断包）和「用量」（token 与花费、参考单价可改、每月预算）；「文件」加一键提交、推送、发 PR；设置页说明精简成一句话</p>]]></description>
-      <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.3/Formora-1.0.3.dmg" type="application/octet-stream" sparkle:edSignature="MXsq+AnHgfAbiQo3oUAFqGmqFhL6Fsp+KjrNXPpSjYFah6/e78d6QPbi9gb8aWqOVaqJdml/Ipo7e37NI19UBw==" length="12504092"/>
-    </item>
   </channel>
 </rss>
