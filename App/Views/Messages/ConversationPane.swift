@@ -701,6 +701,8 @@ private struct AgentRunRow: View {
 
     private func phase(_ call: ToolCall, in messageID: UUID) -> ToolCallCard.Phase {
         if let result = call.result { return .finished(result) }
+        // A subagent sent by /名字 (user 2026-09-15): its subtask runs while this conversation doesn't.
+        if let subtask = call.subtaskID, state.chat.isRunning(subtask) { return .running }
         let approval = state.chat.approvals[conversation.id]
         if let approval, approval.callID == call.id, approval.messageID == messageID { return .waiting }
         if state.chat.executing[conversation.id] == call.id { return .running }

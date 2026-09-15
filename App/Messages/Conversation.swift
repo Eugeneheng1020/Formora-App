@@ -144,6 +144,8 @@ struct SubtaskLink: Codable, Equatable, Sendable {
     var lane: Bool? = nil
     /// 岔开问一句 (10i): the user's quick question beside the conversation — read-only, thrown away on return.
     var side: Bool? = nil
+    /// A subagent's run (user 2026-09-15): its name — the prompt, tools and model come from its definition.
+    var subagent: String? = nil
 }
 
 /// One step of the Agent's plan (7d, D4; omp `todo`, flattened to one list).

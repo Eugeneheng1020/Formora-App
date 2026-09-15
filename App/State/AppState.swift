@@ -122,6 +122,8 @@ final class AppState {
     var showsHiddenConversations = false
     var messageSearch = ""
     var groupDialog: GroupDialog?
+    /// `/agent 目的` (user 2026-09-15): the subagent being drafted, while its dialog is up.
+    var subagentDraft: SubagentDraft?
     /// The archived conversation the delete confirmation is open for.
     var conversationToDelete: UUID?
     var composerDrafts: [UUID: ComposerDraft] = [:]
@@ -136,6 +138,8 @@ final class AppState {
     let providers: ProviderStore
     let agents: AgentStore
     let skills: SkillLibrary
+    /// The subagents (user 2026-09-15): the project's, the user's, the built-in three.
+    let subagents: SubagentLibrary
     let mcp: MCPStore
     /// Unsaved MCP tab edits, per Agent (explicit save, spec §8.6).
     var mcpDrafts: [UUID: [MCPAccess]] = [:]
@@ -216,8 +220,9 @@ final class AppState {
          conversations: ConversationStore, notifications: NotificationSettings, hooks: HookStore = HookStore(folder: nil),
          chatClient: ChatClient = ChatClient(), memory: MemoryStore = MemoryStore(folder: nil),
          bobModel: BobModel = BobModel(defaults: nil), approvalRules: ApprovalRuleStore = ApprovalRuleStore(fileURL: nil),
-         prices: ModelPriceStore = ModelPriceStore(fileURL: nil)) {
+         prices: ModelPriceStore = ModelPriceStore(fileURL: nil), subagents: SubagentLibrary = SubagentLibrary(globalFolder: nil)) {
         self.account = account
+        self.subagents = subagents
         self.prices = prices
         self.approvalRules = approvalRules
         self.hooks = hooks
@@ -242,6 +247,7 @@ final class AppState {
         chat.onFinished = { [weak self] id in self?.checkBudget(after: id) }
         // 7f: the Agents' Skills, MCP tools and memory.
         chat.skillLibrary = skills
+        chat.subagents = subagents
         chat.mcp = mcp
         chat.memory = memory
         providers.usage = { [weak agents] id in agents?.usage(ofProvider: id) ?? 0 }
@@ -423,5 +429,25 @@ final class AppState {
     func openManageProjects() {
         projectMenu = nil
         isManagingProjects = true
+    }
+}
+
+/// What `/agent 目的` is drafting (user 2026-09-15): the model's proposal, then the user's changes, until saved.
+struct SubagentDraft: Equatable, Identifiable {
+    let id = UUID()
+    let conversationID: UUID
+    var purpose: String
+    var name = ""
+    var description = ""
+    var tier: ToolTier = .read
+    var scope: SubagentLibrary.Scope = .project
+    var prompt = ""
+    var isGenerating = false
+    var problem: String?
+
+    var definition: SubagentDefinition {
+        SubagentDefinition(name: name.trimmingCharacters(in: .whitespacesAndNewlines), description: description.trimmingCharacters(in: .whitespacesAndNewlines),
+                           tier: tier, model: nil, prompt: prompt.trimmingCharacters(in: .whitespacesAndNewlines),
+                           source: scope == .project ? .project : .global)
     }
 }

@@ -85,7 +85,7 @@ struct ProviderEditor: View {
                                 identifier: "providerEditor.name")
                 }
                 row("Base URL", problemShown: problem == .badURL) {
-                    EditorField(placeholder: "https://api.example.com/v1", text: $draft.baseURL, mono: true, isInvalid: problem == .badURL,
+                    EditorField(placeholder: "https://api.example.com/v1（接口后缀不用写，粘了也会自动去掉）", text: $draft.baseURL, mono: true, isInvalid: problem == .badURL,
                                 identifier: "providerEditor.baseURL")
                 }
                 row("API 协议", problemShown: false) { protocolMenu }

@@ -57,6 +57,10 @@ extension AppState {
             commandCards[id] = CommandCard(kicker: "git", title: "仓库状态", body: .mono(Self.gitText(result)))
         case .go(let destination):
             go(destination, agent: commandAgent(conversation))
+        case .subagent:
+            let purpose = argument.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !purpose.isEmpty else { return "写上它的目的：/agent 它要替你做什么" }
+            startSubagentDraft(purpose: purpose, in: id)
         case .cost:
             commandCards[id] = CommandCard(kicker: "cost", title: "本次对话的用量", body: .usage)
         case .compact:
@@ -118,13 +122,12 @@ extension AppState {
     /// The jumps: an explicit destination, so the composer's draft isn't guarded (spec §9.8, §8.6).
     private func go(_ destination: ComposerCommand.Destination, agent: AgentRecord?) {
         switch destination {
-        case .model, .skills, .mcp, .agents:
+        case .model, .skills, .mcp:
             if let agent { selectedAgentID = agent.id }
             agentTab = switch destination {
             case .model: .model
             case .skills: .skills
-            case .mcp: .mcp
-            default: .overview
+            default: .mcp
             }
             select(.agents)
         case .files:
@@ -136,5 +139,91 @@ extension AppState {
             settingsCategory = .hooks
             select(.settings)
         }
+    }
+}
+
+// MARK: 子代理 (user 2026-09-15)
+
+extension AppState {
+    /// The model that drafts a subagent: Bob's, else the conversation's Agent's.
+    private func drafterModels(for conversation: Conversation) -> [ModelReference] {
+        [chat.conductorModel(), commandAgent(conversation)?.primaryModel].compactMap { $0 }
+    }
+
+    /// `/agent 目的`: the dialog opens at once, the draft fills in as the model answers.
+    func startSubagentDraft(purpose: String, in id: UUID) {
+        guard let conversation = conversations.conversation(id) else { return }
+        subagentDraft = SubagentDraft(conversationID: id, purpose: purpose, scope: subagents.globalFolder == nil ? .project : .project)
+        let models = drafterModels(for: conversation)
+        guard !models.isEmpty else {
+            subagentDraft?.problem = "没有可用的模型来起草，先自己填，或者去「设置 → Bob」选一个模型"
+            return
+        }
+        generateSubagentDraft(with: models)
+    }
+
+    func regenerateSubagentDraft() {
+        guard let draft = subagentDraft, let conversation = conversations.conversation(draft.conversationID) else { return }
+        let models = drafterModels(for: conversation)
+        guard !models.isEmpty else { return }
+        generateSubagentDraft(with: models)
+    }
+
+    private func generateSubagentDraft(with models: [ModelReference]) {
+        guard let draft = subagentDraft else { return }
+        subagentDraft?.isGenerating = true
+        subagentDraft?.problem = nil
+        let reserved = Commands.all.map { String($0.name.dropFirst()) } + subagents.names + Array(SubagentNames.reserved)
+        let prompt = SubagentGenerator.request(purpose: draft.purpose, reserved: reserved)
+        Task { [weak self] in
+            guard let self else { return }
+            let reply = await chat.oneShot(system: SubagentGenerator.system, prompt: prompt, candidates: models)
+            guard var current = subagentDraft, current.id == draft.id else { return }
+            current.isGenerating = false
+            if let reply, let proposed = SubagentGenerator.parse(reply.summary) {
+                current.name = proposed.name
+                current.description = proposed.description
+                current.tier = proposed.tier
+                current.prompt = proposed.prompt
+                current.problem = SubagentNames.problem(with: proposed.name, commands: Commands.all.map(\.name) + subagents.names.map { "/" + $0 })
+            } else {
+                current.problem = "起草没有成功，可以自己填，或者点「重新起草」"
+            }
+            subagentDraft = current
+        }
+    }
+
+    /// 保存: the file, the toast, the popover's new command.
+    func saveSubagentDraft() {
+        guard var draft = subagentDraft else { return }
+        let definition = draft.definition
+        if let problem = SubagentNames.problem(with: definition.name, commands: Commands.all.map(\.name)) {
+            draft.problem = problem
+            subagentDraft = draft
+            return
+        }
+        guard !definition.prompt.isEmpty else {
+            draft.problem = "提示词不能是空的"
+            subagentDraft = draft
+            return
+        }
+        do {
+            try subagents.save(definition, scope: draft.scope)
+            subagentDraft = nil
+            toasts.show("子代理「\(definition.name)」已创建", note: "/\(definition.name) 任务 派活；Agent 也会按需要派它", seconds: 4)
+        } catch {
+            draft.problem = (error as? SubagentProblem)?.message ?? error.localizedDescription
+            subagentDraft = draft
+        }
+    }
+
+    /// `/名字 任务`: the conversation's Agent lends its model; the report lands in the thread.
+    func runSubagentCommand(_ name: String, task: String, in id: UUID) async -> String? {
+        guard let conversation = conversations.conversation(id), let definition = subagents.definition(named: name) else { return "没有叫「\(name)」的子代理" }
+        guard !task.isEmpty else { return "写上要它做的事：/\(definition.name) 任务" }
+        guard let requester = commandAgent(conversation), requester.primaryModel != nil else { return "这条对话的 Agent 还没有配好模型" }
+        guard !conversation.isSubtask else { return "子任务里不能再派子代理" }
+        await chat.runSubagent(definition, task: task, in: id, requester: requester)
+        return nil
     }
 }

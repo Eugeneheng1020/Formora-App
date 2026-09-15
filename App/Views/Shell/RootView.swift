@@ -126,6 +126,10 @@ struct RootView: View {
                               })
             }
 
+            if state.subagentDraft != nil {
+                SubagentDialog(state: state)
+            }
+
             if let dialog = state.groupDialog {
                 switch dialog {
                 case .create: GroupCreateDialog(state: state, session: session)
@@ -208,6 +212,8 @@ struct RootView: View {
 
     /// One browser per reachable project folder; rebuilt when the project or its folder changes.
     private func openFiles() async {
+        // The project's subagents come and go with its folder (user 2026-09-15).
+        state.subagents.reload(projectRoot: session.accessibleRoot)
         guard let root = session.accessibleRoot else {
             state.files = nil
             return

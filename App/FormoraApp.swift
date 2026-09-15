@@ -50,6 +50,9 @@ struct FormoraApp: App {
                                   builtInFolder: Bundle.main.url(forResource: "Skills", withExtension: nil),
                                   defaults: profile.makeUserDefaults())
         skills.installBuiltIns()
+        // The subagents (user 2026-09-15): the three shipped ones written to ~/.formora/agents/ once.
+        let subagents = SubagentLibrary(globalFolder: places.agents)
+        subagents.installBuiltIns()
         let mcp = MCPStore(secrets: mcpSecrets, fileURL: places.mcp)
         // A stdio server starts in the open project's folder (9d, S2).
         mcp.projectRoot = { [weak session] in session?.accessibleRoot }
@@ -61,7 +64,8 @@ struct FormoraApp: App {
                              memory: MemoryStore(folder: places.memory),
                              bobModel: BobModel(defaults: profile.makeUserDefaults()),
                              approvalRules: ApprovalRuleStore(fileURL: support?.appendingPathComponent(ApprovalRuleStore.fileName)),
-                             prices: ModelPriceStore(fileURL: support?.appendingPathComponent(ModelPriceStore.fileName)))
+                             prices: ModelPriceStore(fileURL: support?.appendingPathComponent(ModelPriceStore.fileName)),
+                             subagents: subagents)
         // Replies still streaming are kept as stopped, and background writes land, before the process goes.
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { _ in
             MainActor.assumeIsolated {

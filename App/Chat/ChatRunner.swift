@@ -165,6 +165,8 @@ final class ChatRunner {
     @ObservationIgnored var contextWindow: (ModelReference) -> Int? = { _ in nil }
     /// Skills, MCP and memory (7f): the app hands them in; a test sets what it exercises.
     @ObservationIgnored var skillLibrary: SkillLibrary?
+    /// The subagents (user 2026-09-15): whom `delegate` may name, and what their runs get.
+    @ObservationIgnored var subagents: SubagentLibrary?
     @ObservationIgnored var mcp: MCPStore?
     @ObservationIgnored var mcpClient = MCPClient()
     @ObservationIgnored var memory: MemoryStore?
@@ -613,6 +615,10 @@ final class ChatRunner {
             // A read-only helper may still read a page — it asks, like anywhere (D70).
             all = all.filter { !withheld.contains($0.name) && (!link.readOnly || $0.tier == .read || $0.name == AgentTools.fetch.name) }
         }
+        // A subagent's definition says what it may touch (user 2026-09-15); reading a page stays, as for any helper.
+        if let name = conversation.parent?.subagent, let definition = subagents?.definition(named: name) {
+            all = all.filter { $0.tier <= definition.tier || $0.name == AgentTools.fetch.name }
+        }
         // Plan mode: only what reads — and no hand-off: the plan is for the user to approve (D5, M5).
         // Plan mode looks before it acts; reading a page is looking, and it asks (D70).
         let offered = conversation.planMode
@@ -782,7 +788,7 @@ final class ChatRunner {
     func start(_ id: UUID, agent: AgentRecord, runID: UUID = UUID()) {
         guard activeRuns[id] == nil, conversations.conversation(id) != nil else { return }
         guard agent.primaryModel != nil else {
-            announce(Message(role: .agent, agentID: agent.id, speakerName: agent.displayName, text: "", failure: "没有配置主模型"), in: id)
+            announce(Message(role: .agent, agentID: agent.id, speakerName: speaker(agent, in: id), text: "", failure: "没有配置主模型"), in: id)
             advance(id)
             return
         }
@@ -872,7 +878,9 @@ final class ChatRunner {
     /// the user sent something meanwhile (L1, L4). Six ways out (L2), four guards on the way (L3).
     private func run(runID: UUID, conversationID id: UUID, agent: AgentRecord) async {
         guard let primary = agent.primaryModel else { return }
-        let candidates = [primary] + agent.fallbacks
+        // A subagent with a model of its own (user 2026-09-15) tries it first, the caller's chain after.
+        let pinned = conversations.conversation(id)?.parent?.subagent.flatMap { subagents?.definition(named: $0)?.model }
+        let candidates = (pinned.map { [$0] } ?? []) + [primary] + agent.fallbacks
         var state = RunState(sendsReasoning: (conversations.conversation(id)?.reasoning ?? .auto) != .auto)
         // A `/review` run is the review: it doesn't review itself again.
         state.reviewed = conversations.conversation(id)?.messages.last?.marker != nil
@@ -923,10 +931,10 @@ final class ChatRunner {
                 continue
             case .failed(let reason):
                 let model = candidates[min(state.model, candidates.count - 1)]
-                return finish(id, runID: runID, Message(role: .agent, agentID: agent.id, speakerName: agent.displayName, text: "",
+                return finish(id, runID: runID, Message(role: .agent, agentID: agent.id, speakerName: speaker(agent, in: id), text: "",
                                                         model: model, failure: reason, runID: runID))
             case let .interrupted(turn, failure):
-                return finish(id, runID: runID, message(turn, agent: agent, runID: runID, calls: [], note: "回复中断：\(failure.message)"))
+                return finish(id, runID: runID, message(turn, agent: agent, in: id, runID: runID, calls: [], note: "回复中断：\(failure.message)"))
             case .turn(let turn):
                 if turn.calls.isEmpty, ChatText.clean(turn.text).isEmpty {
                     if state.empty < Self.emptyLimit {
@@ -935,13 +943,13 @@ final class ChatRunner {
                         continue
                     }
                     if turn.thinking.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        return finish(id, runID: runID, Message(role: .agent, agentID: agent.id, speakerName: agent.displayName,
+                        return finish(id, runID: runID, Message(role: .agent, agentID: agent.id, speakerName: speaker(agent, in: id),
                                                                 text: "", model: turn.model, failure: ChatFailure.empty.message, runID: runID))
                     }
-                    return finish(id, runID: runID, message(turn, agent: agent, runID: runID,
+                    return finish(id, runID: runID, message(turn, agent: agent, in: id, runID: runID,
                                                             note: "模型只返回了思考过程，没有正文。可以换个模型，或者换种问法。"))
                 }
-                let reply = message(turn, agent: agent, runID: runID, note: state.note)
+                let reply = message(turn, agent: agent, in: id, runID: runID, note: state.note)
                 state.note = nil
                 if turn.calls.isEmpty {
                     if turn.stop == .length, state.continued < Self.lengthLimit {
@@ -1523,9 +1531,15 @@ final class ChatRunner {
         return true
     }
 
-    private func message(_ turn: Turn, agent: AgentRecord, runID: UUID, calls: [ToolCall]? = nil, note: String? = nil) -> Message {
+    /// What a reply is signed as: the Agent's name, or the subagent's when the conversation is its run (user 2026-09-15).
+    func speaker(_ agent: AgentRecord, in id: UUID) -> String {
+        if let name = conversations.conversation(id)?.parent?.subagent { return "子代理「\(name)」" }
+        return agent.displayName
+    }
+
+    private func message(_ turn: Turn, agent: AgentRecord, in id: UUID, runID: UUID, calls: [ToolCall]? = nil, note: String? = nil) -> Message {
         let thinking = turn.thinking.trimmingCharacters(in: .whitespacesAndNewlines)
-        return Message(role: .agent, agentID: agent.id, speakerName: agent.displayName, text: ChatText.clean(turn.text),
+        return Message(role: .agent, agentID: agent.id, speakerName: speaker(agent, in: id), text: ChatText.clean(turn.text),
                        thinking: thinking.isEmpty ? nil : thinking, thinkingSeconds: turn.thinkingSeconds, model: turn.model,
                        usage: turn.usage, durationSeconds: Date.now.timeIntervalSince(turn.startedAt), note: note,
                        toolCalls: calls ?? turn.calls, thinkingSignature: turn.signature, runID: runID)
@@ -1618,6 +1632,8 @@ final class ChatRunner {
             // A side conversation (10i) isn't a delegation: its boundary says what it is.
             subtask: conversation.isLane || conversation.isSide ? nil
                 : conversation.parent.map { SystemPrompt.Subtask(requester: $0.requesterName, isCheck: $0.isCheck) },
+            subagent: conversation.parent?.subagent.flatMap { subagents?.definition(named: $0) }
+                .map { SystemPrompt.SubagentPrompt(name: $0.name, prompt: $0.prompt) },
             goal: autoruns[conversation.id]?.objective,
             // 10c: read at every request — an edit to AGENTS.md counts from the next call.
             projectInstructions: workRoot(for: conversation).map(ContextFiles.load) ?? []))

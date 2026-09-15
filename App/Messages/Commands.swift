@@ -6,11 +6,13 @@ import Foundation
 struct ComposerCommand: Identifiable, Equatable, Sendable {
     enum Action: Equatable, Sendable {
         case clear, cost, plan, compact, todo, memory, review, side, export, dump, help, git, loop, goal
+        /// `/agent 目的` (user 2026-09-15): a subagent from its purpose.
+        case subagent
         case go(Destination)
     }
 
     enum Destination: Equatable, Sendable {
-        case model, skills, mcp, agents, files, settings, hooks
+        case model, skills, mcp, files, settings, hooks
     }
 
     /// With its slash — what the popover inserts (spec §9.8: a name without it would be sent as a message).
@@ -44,7 +46,7 @@ enum Commands {
         ComposerCommand(name: "/model", note: "去「模型与权限」", action: .go(.model)),
         ComposerCommand(name: "/skills", note: "去「Skills」", action: .go(.skills)),
         ComposerCommand(name: "/mcp", note: "去「MCP」", action: .go(.mcp)),
-        ComposerCommand(name: "/agents", note: "去 Agent 列表", action: .go(.agents)),
+        ComposerCommand(name: "/agent", note: "创建一个子代理：/agent 写清它的目的，名字、提示词由模型起草", takesArgument: true, action: .subagent),
         ComposerCommand(name: "/files", note: "去文件", action: .go(.files)),
         ComposerCommand(name: "/settings", note: "去设置", action: .go(.settings)),
         ComposerCommand(name: "/hooks", note: "去「设置 → Hooks」", action: .go(.hooks)),
@@ -65,6 +67,8 @@ enum Commands {
         case command(ComposerCommand, argument: String)
         /// `/skill:<id> 文字` (7f, F1): a message asking for that Skill.
         case skill(String, argument: String)
+        /// `/名字 任务` (user 2026-09-15): work for that subagent, by its own name.
+        case subagentRun(String, argument: String)
         /// It is written like a command but isn't one here: why.
         case unknown(String)
         /// An ordinary message — `/Users/…` and the like included.
@@ -73,12 +77,16 @@ enum Commands {
 
     /// A line the user sends: `/name` and an optional argument (`/plan 做一个会员体系`, `/todo 补埋点`,
     /// `/review 重点看验收标准`).
-    static func parse(_ raw: String, roles: Set<String>) -> Line {
+    static func parse(_ raw: String, roles: Set<String>, subagents: [String] = []) -> Line {
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard text.hasPrefix("/") else { return .text }
         let head = String(text.dropFirst().prefix { !$0.isWhitespace })
         if head.hasPrefix("skill:"), head.count > 6 {
             return .skill(String(head.dropFirst(6)), argument: String(text.dropFirst(1 + head.count)).trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        // A subagent's name — Chinese included — is its command.
+        if let subagent = subagents.first(where: { SubagentNames.normalize($0) == SubagentNames.normalize(head) }) {
+            return .subagentRun(subagent, argument: String(text.dropFirst(1 + head.count)).trimmingCharacters(in: .whitespacesAndNewlines))
         }
         guard head.range(of: #"^[A-Za-z][A-Za-z0-9_-]*$"#, options: .regularExpression) != nil else { return .text }
         let name = "/" + head.lowercased()

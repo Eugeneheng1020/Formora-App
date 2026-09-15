@@ -230,10 +230,31 @@ final class ProviderStore {
 
     /// Adds or edits. Changing the URL or protocol drops the provider's test result and model list (S17).
     @discardableResult
+    /// The base as Formora needs it: without a trailing slash, and without the endpoint's own tail when the whole
+    /// address was pasted (user 2026-09-16: Command Code's docs give `…/provider/v1/chat/completions`; with the tail kept
+    /// the request went to `…/chat/completions/chat/completions`, a 404). Anthropic's `/v1/messages` is added whole, so
+    /// its `/v1` goes too.
+    nonisolated static func normalizedBaseURL(_ raw: String, apiProtocol: APIProtocol) -> String {
+        var url = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        func drop(_ suffix: String) {
+            while url.hasSuffix("/") { url.removeLast() }
+            if url.lowercased().hasSuffix(suffix.lowercased()) { url = String(url.dropLast(suffix.count)) }
+        }
+        switch apiProtocol {
+        case .openAICompletions: drop("/chat/completions")
+        case .openAIResponses: drop("/responses")
+        case .anthropicMessages:
+            drop("/messages")
+            drop("/v1")
+        case .googleGenerativeAI: drop("/models")
+        }
+        while url.hasSuffix("/") { url.removeLast() }
+        return url
+    }
+
     func saveCustom(_ draft: CustomProviderDraft, editing id: String?) throws -> String {
         if let problem = problem(with: draft, editing: id) { throw problem }
-        var url = draft.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        while url.hasSuffix("/") { url.removeLast() }
+        let url = Self.normalizedBaseURL(draft.baseURL, apiProtocol: draft.apiProtocol)
         let providerID = id ?? "custom-\(UUID().uuidString.prefix(8).lowercased())"
         let provider = CustomProvider(id: providerID, name: draft.name.trimmingCharacters(in: .whitespacesAndNewlines),
                                       baseURL: url, apiProtocol: draft.apiProtocol)
@@ -390,9 +411,10 @@ final class ProviderStore {
         if let chosen = config.chosenHosts[id], let index = hosts.firstIndex(of: chosen) {
             hosts.insert(hosts.remove(at: index), at: 0)
         }
+        // A base saved with the endpoint's tail before 1.0.7 works without being saved again (user 2026-09-16).
         return hosts.map {
-            ProviderEndpoint(baseURL: $0, apiProtocol: entry.apiProtocol, keyCheckPath: entry.keyCheckPath,
-                             notFoundMeansAuthorized: entry.notFoundMeansAuthorized)
+            ProviderEndpoint(baseURL: Self.normalizedBaseURL($0, apiProtocol: entry.apiProtocol), apiProtocol: entry.apiProtocol,
+                             keyCheckPath: entry.keyCheckPath, notFoundMeansAuthorized: entry.notFoundMeansAuthorized)
         }
     }
 

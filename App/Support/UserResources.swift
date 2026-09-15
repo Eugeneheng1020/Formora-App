@@ -8,6 +8,8 @@ import Foundation
 enum UserResources {
     static let folderName = ".formora"
     static let skillsFolder = "skills"
+    /// The subagents' definitions (user 2026-09-15), the way Claude Code keeps `~/.claude/agents/`.
+    static let agentsFolder = "agents"
     static let memoryFolder = "memory"
     static let hooksFile = "hooks.json"
     static let mcpFile = "mcp.json"
@@ -31,13 +33,16 @@ enum UserResources {
         /// The folder holding `hooks.json`.
         let hooks: URL?
         let mcp: URL?
+        /// `nil` (a sandboxed build, a named profile): the built-in subagents live in memory.
+        var agents: URL? = nil
     }
 
     static func places(support: URL?, directory: URL?) -> Places {
         if let directory {
             return Places(skills: directory.appendingPathComponent(skillsFolder, isDirectory: true),
                           memory: directory.appendingPathComponent(memoryFolder, isDirectory: true),
-                          hooks: directory, mcp: directory.appendingPathComponent(mcpFile))
+                          hooks: directory, mcp: directory.appendingPathComponent(mcpFile),
+                          agents: directory.appendingPathComponent(agentsFolder, isDirectory: true))
         }
         return Places(skills: support?.appendingPathComponent(oldSkillsFolder, isDirectory: true),
                       memory: support?.appendingPathComponent(oldMemoryFolder, isDirectory: true),

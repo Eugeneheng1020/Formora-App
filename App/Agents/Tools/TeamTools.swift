@@ -34,15 +34,20 @@ enum TeamTools {
 
     static let delegateName = "delegate"
 
-    /// The colleagues are named in the description: who may be asked, besides the Agent's own clone.
-    static func delegate(colleagues: [String]) -> ToolSpec {
-        let who = colleagues.isEmpty
+    /// The colleagues are named in the description: who may be asked, besides the Agent's own clone — and the subagents
+    /// (user 2026-09-15), each with the line that says when to pick it.
+    static func delegate(colleagues: [String], subagents: [(name: String, description: String)] = []) -> ToolSpec {
+        var who = colleagues.isEmpty
             ? "No colleague can take work right now: only your clone."
             : "Colleagues you can delegate to: " + colleagues.joined(separator: "; ") + "."
+        if !subagents.isEmpty {
+            who += " Subagents — purpose-built helpers with their own instructions; pick one by its line and put its name in `to`: "
+                + subagents.map { "\($0.name)（\($0.description)）" }.joined(separator: "; ") + "."
+        }
         return ToolSpec(
             name: delegateName,
             description: "Delegate a well-bounded piece of work: to a colleague (another Agent of this project), or — without `to` — to your own clone (your role, model and tools, but a blank context). The helper works from scratch in a separate subtask the user can open; its final report comes back as this call's result, then you carry on. Good for: research that splits into parts to run in parallel, exploration that would flood your context with material, another role's expertise. Not for: a step or two you can do yourself, anything that needs back-and-forth with the user. The helper knows nothing of this conversation: make `task` self-contained — goal, scope and non-goals, acceptance criteria — put what you already know in `context`, and list the project files it should read first in `files`. Several delegate calls in one reply run at the same time. At most \(TeamLimits.delegationsPerRun) per run. " + who,
-            parameters: #"{"type":"object","properties":{"to":{"type":"string","description":"A colleague's name as listed; omit it (or write 分身) for your own clone"},"task":{"type":"string","description":"Self-contained: the goal, scope and non-goals, acceptance criteria"},"context":{"type":"string","description":"What you already know: decisions, constraints, interfaces with other subtasks"},"files":{"type":"array","items":{"type":"string"},"description":"Project files the helper reads first, relative paths"},"read_only":{"type":"boolean","description":"Look, don't change: the helper only gets the reading tools"},"expect":{"type":"string","description":"The report you want back, e.g. a table: option / evidence / risk"}},"required":["task"]}"#,
+            parameters: #"{"type":"object","properties":{"to":{"type":"string","description":"A colleague's name as listed, or a subagent's name; omit it (or write 分身) for your own clone"},"task":{"type":"string","description":"Self-contained: the goal, scope and non-goals, acceptance criteria"},"context":{"type":"string","description":"What you already know: decisions, constraints, interfaces with other subtasks"},"files":{"type":"array","items":{"type":"string"},"description":"Project files the helper reads first, relative paths"},"read_only":{"type":"boolean","description":"Look, don't change: the helper only gets the reading tools"},"expect":{"type":"string","description":"The report you want back, e.g. a table: option / evidence / risk"}},"required":["task"]}"#,
             tier: .write)
     }
 

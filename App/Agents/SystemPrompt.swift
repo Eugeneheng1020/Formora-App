@@ -23,6 +23,8 @@ enum SystemPrompt {
         var memory: String?
         /// A subtask (7g, S2): who asked, and whether it is a goal's check.
         var subtask: Subtask?
+        /// A subagent's run (user 2026-09-15): its own prompt stands in for the role's, and it starts without memory.
+        var subagent: SubagentPrompt?
         /// `/goal` is on (A3): the objective.
         var goal: String?
         /// The project's own instruction files, AGENTS.md and the like (10c).
@@ -34,13 +36,19 @@ enum SystemPrompt {
         var isCheck: Bool
     }
 
+    struct SubagentPrompt: Equatable {
+        var name: String
+        var prompt: String
+    }
+
     struct SkillLine: Equatable {
         var name: String
         var description: String
     }
 
     static func build(role: AgentRole, environment: Environment) -> String {
-        var parts = [preamble(environment), role.jobPrompt]
+        let job = environment.subagent.map { "你是子代理「\($0.name)」。\n\n" + $0.prompt } ?? role.jobPrompt
+        var parts = [preamble(environment), job]
         // 10c: the project's conventions, as its owner wrote them — after the role, before what the Agent remembered.
         if let instructions = ContextFiles.section(environment.projectInstructions) { parts.append(instructions) }
         if !environment.skills.isEmpty {
@@ -48,7 +56,7 @@ enum SystemPrompt {
                          + environment.skills.map { "- \($0.name)：\($0.description)" }.joined(separator: "\n"))
         }
         // The memory after the role section (old app): heuristics, not the truth about the project now.
-        if let memory = environment.memory?.trimmingCharacters(in: .whitespacesAndNewlines), !memory.isEmpty {
+        if environment.subagent == nil, let memory = environment.memory?.trimmingCharacters(in: .whitespacesAndNewlines), !memory.isEmpty {
             parts.append("你以前在这个项目里记下的（可能已经过时；和用户现在说的或项目现状冲突时，以现在为准）：\n<memory>\n\(memory)\n</memory>")
         }
         if let subtask = environment.subtask { parts.append(subtaskSection(subtask)) }

@@ -105,7 +105,8 @@ extension ChatRunner {
         if conversation.isGroup, autoruns[conversation.id] == nil, workers(in: conversation).contains(where: { $0.id != agent.id }) {
             specs.append(TeamTools.handoff)
         }
-        specs.append(TeamTools.delegate(colleagues: colleagues(of: agent, in: conversation.projectID).map(\.displayName)))
+        specs.append(TeamTools.delegate(colleagues: colleagues(of: agent, in: conversation.projectID).map(\.displayName),
+                                        subagents: subagents?.definitions.map { ($0.name, $0.description) } ?? []))
         if autoruns[conversation.id]?.objective != nil { specs.append(TeamTools.goalDone) }
         return specs
     }

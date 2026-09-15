@@ -199,7 +199,7 @@ struct ComposerView: View {
         guard canSend else { return }
         let text = draft.text
         // `/name …` typed in full runs as a command (D1); `/Users/…` and the like are words.
-        switch Commands.parse(text, roles: state.commandRoles(conversation)) {
+        switch Commands.parse(text, roles: state.commandRoles(conversation), subagents: state.subagents.names) {
         case .command(let command, let argument):
             state.composerDrafts[id, default: AppState.ComposerDraft()].text = ""
             token = nil
@@ -211,6 +211,16 @@ struct ComposerView: View {
             } else {
                 state.composerDrafts[id, default: AppState.ComposerDraft()].text = ""
                 token = nil
+            }
+            return
+        case .subagentRun(let name, let argument):
+            // A subagent's name as a command (user 2026-09-15): its work, in its own subtask.
+            state.composerDrafts[id, default: AppState.ComposerDraft()].text = ""
+            token = nil
+            Task {
+                if let reason = await state.runSubagentCommand(name, task: argument, in: id) {
+                    state.toasts.show("/\(name) 没有执行", note: reason, isError: true)
+                }
             }
             return
         case .unknown(let reason):
@@ -285,7 +295,9 @@ struct ComposerView: View {
             let skills = state.commandSkills(conversation).filter {
                 needle.isEmpty || FileSearch.normalize("skill:\($0.id) \($0.name)").contains(needle)
             }
+            let subagents = state.subagents.definitions.filter { needle.isEmpty || FileSearch.normalize($0.name + " " + $0.description).contains(needle) }
             return [PopoverSection(title: "指令", items: commands.map { .command($0) }),
+                    PopoverSection(title: "子代理", items: subagents.map { .subagent($0) }),
                     PopoverSection(title: "Skills", items: skills.map { .skill(id: $0.id, name: $0.name) })]
         case .at:
             let needle = FileSearch.normalize(token.query)
@@ -360,6 +372,8 @@ struct ComposerView: View {
             controller.replaceToken(with: "@\(member.agent.displayName) ")
         case .skill(let skillID, _):
             controller.replaceToken(with: "/skill:\(skillID) ")
+        case .subagent(let definition):
+            controller.replaceToken(with: definition.command + " ")
         case .file(let path):
             controller.replaceToken(with: FileMentions.token(for: path) + " ")
         }
@@ -448,6 +462,8 @@ struct MentionItem: Identifiable {
 enum PopoverItem: Identifiable {
     case command(ComposerCommand)
     case skill(id: String, name: String)
+    /// A subagent's name as a command (user 2026-09-15).
+    case subagent(SubagentDefinition)
     case member(MentionItem)
     case file(String)
 
@@ -455,6 +471,7 @@ enum PopoverItem: Identifiable {
         switch self {
         case .command(let command): "command:" + command.name
         case .skill(let skillID, _): "skill:" + skillID
+        case .subagent(let definition): "subagent:" + definition.name
         case .member(let member): "member:" + member.id.uuidString
         case .file(let path): "file:" + path
         }
@@ -526,6 +543,8 @@ private struct ComposerPopover: View {
         case .command(let command): CommandRow(command: command, isOn: isOn) { pick(item) }
         case .skill(let skillID, let name):
             CommandRow(command: ComposerCommand(name: "/skill:\(skillID)", note: name, takesArgument: true, action: .help), isOn: isOn) { pick(item) }
+        case .subagent(let definition):
+            CommandRow(command: ComposerCommand(name: definition.command, note: definition.description, takesArgument: true, action: .help), isOn: isOn) { pick(item) }
         case .member(let member): MentionRow(state: state, item: member, isOn: isOn) { pick(item) }
         case .file(let path): FileRow(path: path, isOn: isOn) { pick(item) }
         }

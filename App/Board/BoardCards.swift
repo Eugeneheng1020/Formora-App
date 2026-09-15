@@ -333,6 +333,7 @@ enum BoardCards {
                 let delegation = open("\(message.id)#\(call.id)", agent: helper.agentID ?? agent, kind: .delegation, parent: cards[card].id,
                                       title: BoardCards.title(of: task), input: task, message: message.id)
                 cards[delegation].subtaskID = child
+                if let name = helper.parent?.subagent { cards[delegation].agentName = "子代理「\(name)」" }
                 fillSubtask(delegation, child)
             }
         }

@@ -12,7 +12,8 @@ extension ChatRunner {
     }
 
     private enum Prepared {
-        case go(Delegation, AgentRecord)
+        /// The helper, and the subagent's definition when the name was one (user 2026-09-15).
+        case go(Delegation, AgentRecord, SubagentDefinition?)
         case refused(String)
         /// Named someone who can't take it (9e, I): Bob may find a stand-in; else the refusal.
         case unplaced(Delegation, name: String, refusal: String)
@@ -32,7 +33,7 @@ extension ChatRunner {
     /// helpers work at once, four at a time; each result lands as soon as it is in.
     func delegate(_ calls: [ToolCall], message messageID: UUID, conversationID id: UUID, runID: UUID, agent: AgentRecord,
                   state: inout RunState) async {
-        var cleared: [(callID: String, delegation: Delegation, helperID: UUID, note: String?)] = []
+        var cleared: [(callID: String, delegation: Delegation, helperID: UUID, note: String?, subagent: SubagentDefinition?)] = []
         for call in calls {
             guard isCurrent(runID, id) else { return }
             switch await gate(call, messageID: messageID, conversationID: id, runID: runID, agent: agent, state: &state) {
@@ -42,9 +43,9 @@ extension ChatRunner {
                 switch prepare(call, conversationID: id, agent: agent, state: state) {
                 case .refused(let reason):
                     conversations.setToolResult(.failed(reason), call: call.id, message: messageID, in: id)
-                case let .go(delegation, helper):
+                case let .go(delegation, helper, subagent):
                     state.delegations += 1
-                    cleared.append((call.id, delegation, helper.id, nil))
+                    cleared.append((call.id, delegation, helper.id, nil, subagent))
                 case let .unplaced(delegation, name, refusal):
                     // I (9e): the colleague it named can't take it — Bob finds one who can, or it's refused as before.
                     let helper = await substitute(for: name, delegation: delegation, conversationID: id, agent: agent)
@@ -54,7 +55,7 @@ extension ChatRunner {
                         continue
                     }
                     state.delegations += 1
-                    cleared.append((call.id, delegation, helper.id, "「\(name)」现在不能接活，换成了 \(helper.displayName)。"))
+                    cleared.append((call.id, delegation, helper.id, "「\(name)」现在不能接活，换成了 \(helper.displayName)。", nil))
                 }
             }
         }
@@ -67,7 +68,7 @@ extension ChatRunner {
                     // Timed inside: they finish in any order, and each step's time is its own (8c).
                     let began = Date()
                     let done = await self.runSubtask(job.delegation, helperID: job.helperID, callID: job.callID, message: messageID, parent: id,
-                                                     requesterID: requesterID)
+                                                     requesterID: requesterID, subagent: job.subagent)
                     return (done: done, seconds: Date().timeIntervalSince(began), note: job.note)
                 }
             }
@@ -92,7 +93,9 @@ extension ChatRunner {
         if state.delegatedTokens >= TeamLimits.delegatedTokensPerRun {
             return .refused("这一轮的子任务已经用了约 \(ContextBudget.format(TeamLimits.delegatedTokensPerRun)) token（上限），剩下的自己做。")
         }
-        guard let name = delegation.to else { return .go(delegation, agent) }
+        guard let name = delegation.to else { return .go(delegation, agent, nil) }
+        // A subagent (user 2026-09-15): the Agent lends its model and tools, the definition its prompt and limits.
+        if let definition = subagents?.definition(named: name) { return .go(delegation, agent, definition) }
         let able = colleagues(of: agent, in: conversation.projectID)
         // The Agent's own name, or its role's with no idle colleague of that role, is its clone.
         guard let helper = TeamTools.resolve(name, among: [agent] + able, isIdle: { self.isIdle($0) }) else {
@@ -100,7 +103,7 @@ extension ChatRunner {
             return .unplaced(delegation, name: name, refusal: "没有叫「\(name)」的同事能接活。"
                              + (names.isEmpty ? "现在没有同事能接活" : "能委派的：" + names.joined(separator: "、")) + "；不写 to 就是交给你自己的分身。")
         }
-        return .go(delegation, helper)
+        return .go(delegation, helper, nil)
     }
 
     /// I (9e): a stand-in for a colleague who can't take the work — one of its role first, else Bob's pick.
@@ -116,12 +119,13 @@ extension ChatRunner {
     /// One subtask, start to end (S2, S5): its conversation, the brief with the files' text, the helper's run, then
     /// the report.
     func runSubtask(_ delegation: Delegation, helperID: UUID, callID: String, message messageID: UUID, parent id: UUID,
-                    requesterID: UUID) async -> (callID: String, result: ToolResult, tokens: Int) {
+                    requesterID: UUID, subagent: SubagentDefinition? = nil) async -> (callID: String, result: ToolResult, tokens: Int) {
         guard let parent = conversations.conversation(id), let helper = agents.agent(helperID), let requester = agents.agent(requesterID) else {
             return (callID, .failed("子任务没能开始：对话或 Agent 不在了。"), 0)
         }
-        let link = SubtaskLink(conversationID: id, messageID: messageID, callID: callID, requesterID: requesterID,
+        var link = SubtaskLink(conversationID: id, messageID: messageID, callID: callID, requesterID: requesterID,
                                requesterName: requester.displayName, readOnly: delegation.readOnly, isCheck: false)
+        link.subagent = subagent?.name
         let child = conversations.openSubtask(projectID: parent.projectID, agentID: helperID, title: delegation.title, link: link)
         conversations.setSubtask(child.id, call: callID, message: messageID, in: id)
         let files = delegation.files.map { "@" + $0 }.joined(separator: " ")
@@ -129,8 +133,24 @@ extension ChatRunner {
         conversations.append(Message(role: .user, text: delegation.brief(from: requester.displayName), mentions: mentions), to: child.id)
         let end = await work(child.id, helper: helper)
         let finished = conversations.conversation(child.id) ?? child
-        let name = helperID == requesterID ? "分身" : helper.displayName
+        let name = subagent?.displayName ?? (helperID == requesterID ? "分身" : helper.displayName)
         return (callID, Subtasks.report(finished, end: end, helper: name), Subtasks.tokens(finished))
+    }
+
+    /// `/名字 任务` (user 2026-09-15): the conversation's Agent lends its model and tools; the subtask runs at once and the
+    /// report comes back as the subagent's own message. The delegate call is written into the thread as the card.
+    func runSubagent(_ definition: SubagentDefinition, task: String, in id: UUID, requester: AgentRecord) async {
+        let callID = "sub-" + UUID().uuidString.prefix(8).lowercased()
+        let arguments = String(decoding: (try? JSONSerialization.data(withJSONObject: ["to": definition.name, "task": task])) ?? Data(),
+                               as: UTF8.self)
+        let message = Message(role: .agent, agentID: requester.id, speakerName: requester.displayName, text: "", note: "你用 /\(definition.name) 派的",
+                              toolCalls: [ToolCall(id: callID, name: TeamTools.delegateName, arguments: arguments)], runID: UUID())
+        conversations.append(message, to: id)
+        let done = await runSubtask(Delegation(to: definition.name, task: task), helperID: requester.id, callID: callID, message: message.id,
+                                    parent: id, requesterID: requester.id, subagent: definition)
+        conversations.setToolResult(done.result, call: callID, message: message.id, in: id)
+        announce(Message(role: .agent, agentID: nil, speakerName: definition.displayName,
+                         text: "**\(definition.displayName)交回的报告**\n\n" + done.result.output, runID: UUID()), in: id)
     }
 
     /// The helper's run, awaited however it ends (S5, S7).

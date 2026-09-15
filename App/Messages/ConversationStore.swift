@@ -572,6 +572,7 @@ enum ConversationReadiness {
     /// List line 1: the Agent (group: the group name).
     static func headline(of conversation: Conversation, agents: AgentStore) -> String {
         if conversation.isGroup { return conversation.groupName }
+        if let name = conversation.parent?.subagent { return "子代理「\(name)」" }
         return agents.agent(conversation.agentID)?.displayName ?? deletedAgentName
     }
 
