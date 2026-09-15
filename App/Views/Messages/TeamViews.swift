@@ -119,17 +119,16 @@ struct TeamBanner: View {
     }
 }
 
-/// A delegate call (S8): the ordinary card — its approval, its report folded — and under it the helper at work: who,
-/// the task, status and tokens, 打开子任务, and a call of theirs waiting for 允许 / 拒绝 (S6).
+/// A delegate call (S8): the ordinary card — its report folded — and under it the helper at work: who, the task, status
+/// and tokens, 打开子任务, and word of a call of theirs waiting for 允许 / 拒绝 above the composer (S6).
 struct DelegateCard: View {
     let state: AppState
     let call: ToolCall
     let phase: ToolCallCard.Phase
-    let decide: (Bool) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            ToolCallCard(call: call, phase: phase, decide: decide)
+            ToolCallCard(call: call, phase: phase)
             if let subtask = state.conversations.conversation(call.subtaskID) {
                 SubtaskStrip(state: state, subtask: subtask)
             }
@@ -137,8 +136,8 @@ struct DelegateCard: View {
     }
 }
 
-/// The lanes at work under their arrangement's line (9e): who, how far, 看过程, and a step waiting for 允许 / 拒绝 —
-/// the thread is where the user decides. A lane that is done leaves: its reply is in the thread.
+/// The lanes at work under their arrangement's line (9e): who, how far, 看过程, and word of a step waiting for 允许 / 拒绝
+/// above the composer. A lane that is done leaves: its reply is in the thread.
 private struct LaneStrips: View {
     let state: AppState
     let lanes: [ThreadEvent.Arrangement.Lane]
@@ -163,12 +162,10 @@ private struct SubtaskStrip: View {
     private var isClone: Bool { subtask.parent?.requesterID == subtask.agentID }
     private var isRunning: Bool { state.chat.isRunning(subtask.id) }
 
-    /// The helper's call waiting for the user, if any.
-    private var waiting: (call: ToolCall, reason: String?)? {
-        guard let approval = state.chat.approvals[subtask.id],
-              let call = subtask.messages.first(where: { $0.id == approval.messageID })?.toolCalls.first(where: { $0.id == approval.callID })
-        else { return nil }
-        return (call, approval.reason)
+    /// The helper's call waiting for the user, if any — decided above the composer (user 2026-09-15).
+    private var waiting: ToolCall? {
+        guard let approval = state.chat.approvals[subtask.id] else { return nil }
+        return subtask.messages.first { $0.id == approval.messageID }?.toolCalls.first { $0.id == approval.callID }
     }
 
     var body: some View {
@@ -189,10 +186,12 @@ private struct SubtaskStrip: View {
                 SmallButton(title: subtask.isLane ? "看过程" : "打开子任务", identifier: "subtask.open") { state.selectedConversationID = subtask.id }
             }
             if let waiting {
-                ToolCallCard(call: waiting.call, phase: .waiting(waiting.reason), risk: state.chat.approvals[subtask.id]?.risk,
-                             preview: state.chat.approvals[subtask.id]?.preview, grant: state.chat.approvals[subtask.id]?.grant, remember: { state.chat.decide(subtask.id, $0) }) {
-                    state.chat.decide(subtask.id, allow: $0)
-                }
+                Text("等你确认：\(waiting.summary) · 在输入框上方")
+                    .font(FormoraFont.mono(11))
+                    .foregroundStyle(Palette.accent.color)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .accessibilityIdentifier("subtask.waiting")
             }
         }
         .padding(.vertical, 8)

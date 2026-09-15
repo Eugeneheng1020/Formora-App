@@ -183,6 +183,8 @@ final class AppState {
     var conversationToClear: UUID?
     /// A question's answers so far, one per question, while the rest are still open (7d, D6).
     var askAnswers: [UUID: [AskTool.Answer]] = [:]
+    /// A reply's numbered ways the user put away (user 2026-09-15): by message id, this session only.
+    var dismissedChoices: Set<UUID> = []
     /// QA only (`-FormoraRevealCompaction`): a new compaction's divider scrolls into view with its summary open.
     var revealsCompaction = false
     /// `nil` = the provider editor is closed.

@@ -4,8 +4,8 @@ import SwiftUI
 /// The composer (spec §9.6, C12): a 14-radius card with the attachments, the text, and the tool row — left the
 /// preparation (添加文件, reasoning), right only 发送 (停止 while a reply streams). Blocked with the same judgement
 /// that stops sending, and the reason written under it. `/` at the start opens the commands, `@` the project files —
-/// in a group the members first (7d, D1–D3; spec §9.8, §9.10). Docked above it: the plan and the question waiting
-/// for the user (spec §9.8b).
+/// in a group the members first (7d, D1–D3; spec §9.8, §9.10). Docked above it: the plan, and every decision waiting
+/// for the user (spec §5, §9.8b; `DecisionDock`).
 struct ComposerView: View {
     let state: AppState
     let session: ProjectSession
@@ -78,10 +78,11 @@ struct ComposerView: View {
             if !jobs.isEmpty {
                 BackgroundJobsStrip(jobs: jobs) { state.chat.jobs.stopByUser($0) }.padding(.bottom, 10)
             }
-            if let pending = state.chat.pendingQuestion(id) {
-                AskPanel(state: state, conversationID: id, questions: pending.questions)
-                    .id(pending.call.id)
-                    .padding(.bottom, 10)
+            // Every decision waits here (user 2026-09-15): 等你确认, a question, a reply's numbered ways, 方案出来了, 要继续吗,
+            // 重试 — on the canvas for the focused card's run. A pick is sent as the user's words.
+            DecisionDock(state: state, session: session, conversation: conversation, focus: boardCard.map { $0.subtaskID ?? id }) { text in
+                state.composerDrafts[id, default: AppState.ComposerDraft()].text = text
+                send()
             }
             VStack(alignment: .leading, spacing: 8) {
                 if !draft.attachments.isEmpty {

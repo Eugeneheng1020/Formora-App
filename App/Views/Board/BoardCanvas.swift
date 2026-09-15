@@ -187,6 +187,8 @@ struct BoardCanvas: View {
     @State private var undoLayout: BoardLayout??
     @State private var keyboardCard: String?
     @State private var monitor: Any?
+    /// The composer and whatever is docked above it (user 2026-09-15): the run panel stops short of them.
+    @State private var composerHeight: CGFloat = 0
     @FocusState private var isFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -414,11 +416,12 @@ struct BoardCanvas: View {
         .padding(.top, 104)
     }
 
-    /// K11: over the canvas on the right, never a fourth column; it slides in from the edge.
+    /// K11: over the canvas on the right, never a fourth column; it slides in from the edge. It ends above the composer
+    /// and the decision docked over it, however tall (user 2026-09-15: the status line stayed in sight).
     private func runPanel(_ card: BoardCard) -> some View {
         BoardRunPanel(state: state, card: card, runIn: card.subtaskID ?? conversation.id)
             .padding(.top, BoardRunPanel.top)
-            .padding(.bottom, BoardRunPanel.bottom)
+            .padding(.bottom, max(BoardRunPanel.bottom, composerHeight + 22 + 14))
             .padding(.trailing, BoardRunPanel.edge)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
             .transition(.move(edge: .trailing).combined(with: .opacity))
@@ -430,6 +433,8 @@ struct BoardCanvas: View {
                      blockReason: ConversationReadiness.blockReason(of: conversation, agents: state.agents, currentProject: session.current,
                                                                    providers: state.providers),
                      boardCard: card)
+            .background(GeometryReader { proxy in Color.clear.preference(key: ComposerHeight.self, value: proxy.size.height) })
+            .onPreferenceChange(ComposerHeight.self) { composerHeight = $0 }
             .padding(.horizontal, BoardRunPanel.edge)
             .padding(.bottom, 22)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
@@ -540,6 +545,12 @@ struct BoardCanvas: View {
 }
 
 /// Measured card heights, gathered for the forest (K7: measure before placing).
+/// The canvas composer's height, decisions included.
+private struct ComposerHeight: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
 private struct CardHeights: PreferenceKey {
     static let defaultValue: [String: Double] = [:]
     static func reduce(value: inout [String: Double], nextValue: () -> [String: Double]) {

@@ -461,6 +461,43 @@ enum VerificationHooks {
             state.chat.qaWaitForApproval(id, message: message.id, call: call, risk: "会在项目文件夹里运行测试，只读代码、不改文件。")
             state.approvalRules.add(ApprovalGrant(kind: .command, value: "npm run lint"), project: project.id)
         }
+        // `-FormoraSeedSteps YES` (user 2026-09-15): a finished run of four steps over two turns — read, search, an edit, a
+        // failed command — for the fold under the run's words.
+        if settings.bool(forKey: seedStepsKey), let id = state.selectedConversationID, let conversation = store.conversation(id),
+           let agentID = conversation.agentID ?? conversation.members.first?.agentID {
+            let name = state.agents.agent(agentID)?.displayName
+            let runID = UUID()
+            let path = "PRD/会员等级体系_v1.md"
+            store.append(Message(role: .user, text: "把保级规则写进 PRD，然后跑一下测试"), to: id)
+            store.append(Message(role: .agent, agentID: agentID, speakerName: name, text: "先看现有的文档。", toolCalls: [
+                ToolCall(id: "qa-step-1", name: "read", arguments: #"{"path":"\#(path)"}"#, result: .done("（读到了 88 行）")),
+                ToolCall(id: "qa-step-2", name: "grep", arguments: #"{"pattern":"保级"}"#, result: .done("\(path):41：保级")),
+            ], runID: runID), to: id)
+            store.append(Message(role: .agent, agentID: agentID, speakerName: name, text: "保级规则写进去了；测试有一条没过，是旧用例还按 60 天算。",
+                                 toolCalls: [
+                                     ToolCall(id: "qa-step-3", name: "edit",
+                                              arguments: #"{"path":"\#(path)","old_text":"保级","new_text":"保级：30 天缓冲"}"#,
+                                              result: ToolResult(status: .done, output: "已修改 \(path)：替换了 1 处", savedPath: path, isNewFile: false)),
+                                     ToolCall(id: "qa-step-4", name: "bash", arguments: #"{"command":"npm test"}"#,
+                                              result: .failed("1 failing: 保级周期 expected 90, got 60")),
+                                 ], runID: runID), to: id)
+        }
+        // `-FormoraSeedChoices YES` (user 2026-09-15): the last reply lists three ways and recommends one — a card above the
+        // composer.
+        if settings.bool(forKey: seedChoicesKey), let id = state.selectedConversationID, let conversation = store.conversation(id),
+           let agentID = conversation.agentID ?? conversation.members.first?.agentID {
+            store.append(Message(role: .user, text: "Dock 上的 Ai 和 Ask AI 两个入口怎么处理？"), to: id)
+            store.append(Message(role: .agent, agentID: agentID, speakerName: state.agents.agent(agentID)?.displayName, text: choicesReply,
+                                 runID: UUID()), to: id)
+        }
+        // `-FormoraSeedAsk YES` (user 2026-09-15): two questions waiting — 上一步 goes back to the first.
+        if settings.bool(forKey: seedAskKey), let id = state.selectedConversationID, let conversation = store.conversation(id),
+           let agentID = conversation.agentID ?? conversation.members.first?.agentID {
+            let call = ToolCall(id: "qa-ask", name: AskTool.spec.name, arguments: #"{"questions":[{"question":"加购后多久发提醒？","options":[{"label":"1 小时","description":"最常见的做法"},{"label":"24 小时","description":"少打扰"}],"recommended":0},{"question":"发哪些渠道？","options":["短信","推送"],"multi":true}]}"#)
+            store.append(Message(role: .user, text: "购物车挽回的提醒怎么定？"), to: id)
+            store.append(Message(role: .agent, agentID: agentID, speakerName: state.agents.agent(agentID)?.displayName, text: "两件事要你定。",
+                                 toolCalls: [call], runID: UUID()), to: id)
+        }
         if settings.bool(forKey: seedBoardKey), let project = currentProject, let seeded = seedBoard(into: state, project: project.id) {
             // `-FormoraBoardConversation <name>`: another seeded chain, on the canvas and in 消息.
             let named = settings.string(forKey: boardConversationKey).flatMap { name in
@@ -470,6 +507,16 @@ enum VerificationHooks {
             let id = long ?? named ?? seeded
             state.boardConversationID = id
             if named != nil || long != nil { state.selectedConversationID = id }
+            // `-FormoraBoardApproval YES` (user 2026-09-15): the chain's first card waits on a command — the panel docks over
+            // the canvas, the run panel only says so.
+            if settings.bool(forKey: boardApprovalKey), let conversation = store.conversation(id),
+               let first = conversation.messages.first(where: { $0.role == .agent }), let agentID = first.agentID {
+                let call = ToolCall(id: "qa-board-approval", name: "bash", arguments: #"{"command":"npm test"}"#)
+                let message = Message(role: .agent, agentID: agentID, speakerName: first.speakerName, text: "PRD 改完了，跑一遍测试。",
+                                      toolCalls: [call], runID: first.runID)
+                store.append(message, to: id)
+                state.chat.qaWaitForApproval(id, message: message.id, call: call, risk: "只跑测试，不改文件。")
+            }
             if settings.bool(forKey: boardLiveKey), let conversation = store.conversation(id),
                let waiting = state.boardCards(conversation).first(where: { $0.status == .pending }) {
                 state.boardFocus = waiting.id
@@ -555,6 +602,14 @@ enum VerificationHooks {
 
     static let awayDigestKey = "FormoraAwayDigest"
     static let seedApprovalKey = "FormoraSeedApproval"
+    /// `-FormoraSeedSteps YES` (user 2026-09-15): the selected conversation has a finished run of four steps over two turns.
+    static let seedStepsKey = "FormoraSeedSteps"
+    /// `-FormoraSeedChoices YES`: the selected conversation's last reply lists three ways and recommends one.
+    static let seedChoicesKey = "FormoraSeedChoices"
+    /// `-FormoraSeedAsk YES`: the selected conversation waits on two questions.
+    static let seedAskKey = "FormoraSeedAsk"
+    /// `-FormoraBoardApproval YES` (with `-FormoraSeedBoard`): the chain's first card waits on a command.
+    static let boardApprovalKey = "FormoraBoardApproval"
     static let seedInstructionsKey = "FormoraSeedInstructions"
     static let seedChangeKey = "FormoraSeedChange"
     static let seedRewindKey = "FormoraSeedRewind"
@@ -600,6 +655,16 @@ enum VerificationHooks {
         return chat.id
     }
 
+    /// A reply that lists three ways and recommends one (user 2026-09-15): the card above the composer.
+    static let choicesReply = """
+    看了两版设计稿，三种走法：
+
+    1. Dock 三项不动。Ai 是模块级入口（进 AI 助手对话页），Ask AI 是负一屏的随手问，两者定位不同，都留着。代价是入口有重叠，用户可能分不清哪个。
+    2. Dock 三项也不动，但明确 Ask AI 提问后会跳到 AI 对话页续聊。相当于 Ask AI 是 Dock Ai 的快捷前置，归属清楚。这其实是我 lc-ai 里已经写的流程，只是没在规格表里点明这层关系。
+    3. 等画布扩到 700 再加回来。现在 660 宽放不下四个，只留 4 项里的哪一项都是拍脑袋，不如先不放。
+
+    我推荐 2。顺手补一句话就能让研发和测试都不疑惑，改动最小。你要是选 1 或 3 我就按那个改。
+    """
     static let liveThinking = "用户要一份上线推广计划。先看 PRD 里三个等级的门槛和权益，再定节奏：预热一周、上线当天、之后两周复盘。渠道用站内信、短信和首页横幅。"
     static let liveText = "## 上线推广计划\n\n1. **预热**（上线前一周）：站内信告诉老用户「等级来了」\n2. **上线当天**：首页横幅 + 短信\n3. **复盘**：两周后看升级人数和复购率\n\n先写进 `docs/推广计划.md`。"
 

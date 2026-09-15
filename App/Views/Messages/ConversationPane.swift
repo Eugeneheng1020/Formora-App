@@ -179,19 +179,13 @@ private struct ThreadView: View {
 
     static let draftAnchor = "draft"
     static let cardAnchor = "commandCard"
-    static let planAnchor = "planApproval"
+    /// The thread's very end: the last run's fold and time under its words (user 2026-09-15), the command card, all of it.
+    static let endAnchor = "threadEnd"
     static let dividerAnchor = "compactDivider"
 
     private var id: UUID { conversation.id }
     /// Not the loop's own words — except a self-review's marker line (7d, D7).
     private var visible: [Message] { conversation.messages.filter { !$0.isHidden || $0.marker != nil } }
-
-    /// A plan-mode run ended on its answer (D5): the way from the plan to the work sits under it.
-    private var showsPlanApproval: Bool {
-        guard conversation.planMode, !state.chat.isRunning(id), state.chat.pendingQuestion(id) == nil,
-              let last = conversation.messages.last(where: { !$0.isHidden }) else { return false }
-        return last.role == .agent && last.failure == nil && last.pause == nil
-    }
 
     var body: some View {
         let visible = visible
@@ -222,9 +216,10 @@ private struct ThreadView: View {
                                            showsSummaryInitially: state.revealsCompaction) { showsFolded.toggle() }
                                 .id(Self.dividerAnchor)
                         }
+                        let lastItem = items.last?.id
                         ForEach(items) { item in
-                            itemRow(item, isLast: item.id == items.last?.id, draft: draftInFrame && item.id == items.last?.id ? draft : nil,
-                                    lastID: visible.last?.id, follow: { proxy.scrollTo(Self.draftAnchor, anchor: .bottom) })
+                            itemRow(item, isLast: item.id == lastItem, draft: draftInFrame && item.id == lastItem ? draft : nil,
+                                    lastID: visible.last?.id, follow: followDraft(proxy), reveal: reveal(proxy))
                         }
                         if let draft, !draftInFrame {
                             DraftRow(state: state, conversation: conversation, draft: draft,
@@ -258,6 +253,7 @@ private struct ThreadView: View {
                             }
                             .id(Self.cardAnchor)
                         }
+                        Color.clear.frame(height: 1).id(Self.endAnchor)
                     }
                     .padding(.vertical, 22)
                     .padding(.horizontal, 26)
@@ -267,13 +263,13 @@ private struct ThreadView: View {
             .onAppear {
                 if state.messageJump?.conversationID == id {
                     jump(proxy)
-                } else if let last = visible.last {
+                } else if !visible.isEmpty {
                     // Twice (user 2026-09-14: 「重新打开必须是最新的内容」): the lazy rows above get their real heights only once
-                    // laid out, and the first jump can land short of the latest message.
-                    Task { proxy.scrollTo(last.id, anchor: .bottom) }
+                    // laid out, and the first jump can land short of the end.
+                    Task { proxy.scrollTo(Self.endAnchor, anchor: .bottom) }
                     Task { @MainActor in
                         try? await Task.sleep(for: .milliseconds(250))
-                        proxy.scrollTo(visible.last?.id ?? last.id, anchor: .bottom)
+                        proxy.scrollTo(Self.endAnchor, anchor: .bottom)
                     }
                 }
             }
@@ -285,11 +281,6 @@ private struct ThreadView: View {
             .onChange(of: conversation.messages.last(where: { $0.compaction != nil })?.id) { _, landed in
                 guard landed != nil, state.revealsCompaction else { return }
                 Task { withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(Self.dividerAnchor, anchor: .top) } }
-            }
-            // The way from the plan to the work sits under the plan's last words: keep it in sight (D5).
-            .onChange(of: showsPlanApproval) { _, shown in
-                guard shown else { return }
-                Task { withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(Self.planAnchor, anchor: .bottom) } }
             }
             .onChange(of: state.commandCards[id]?.id) {
                 guard state.commandCards[id] != nil else { return }
@@ -305,7 +296,8 @@ private struct ThreadView: View {
     }
 
     @ViewBuilder private func itemRow(_ item: ThreadItem, isLast: Bool, draft: ChatRunner.Draft?, lastID: UUID?,
-                                      follow: @escaping () -> Void = {}, isEarlier: Bool = false) -> some View {
+                                      follow: @escaping () -> Void = {}, reveal: @escaping (AnyHashable) -> Void = { _ in },
+                                      isEarlier: Bool = false) -> some View {
         if item.isUser {
             let message = item.messages[0]
             if let event = message.event {
@@ -323,7 +315,7 @@ private struct ThreadView: View {
             }
         } else {
             AgentRunRow(state: state, session: session, conversation: conversation, messages: item.messages, flashing: flashing,
-                        draft: draft, lastID: lastID, showsPlanApproval: isLast && showsPlanApproval, follow: follow)
+                        draft: draft, lastID: lastID, follow: follow, reveal: reveal)
         }
     }
 
@@ -372,9 +364,18 @@ private struct ThreadView: View {
         return "开始与 \(ConversationReadiness.headline(of: conversation, agents: state.agents)) 对话"
     }
 
+    /// Keeps the reply being written in view as it grows.
+    private func followDraft(_ proxy: ScrollViewProxy) -> () -> Void {
+        { proxy.scrollTo(Self.draftAnchor, anchor: .bottom) }
+    }
+
+    /// The least scroll that shows a view whole — a fold's cards once it opens (user 2026-09-15).
+    private func reveal(_ proxy: ScrollViewProxy) -> (AnyHashable) -> Void {
+        { id in withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(id, anchor: nil) } }
+    }
+
     private func toBottom(_ proxy: ScrollViewProxy) {
-        let target: AnyHashable? = state.chat.steering[id]?.last?.id ?? (state.chat.drafts[id] != nil ? Self.draftAnchor : visible.last?.id)
-        guard let target else { return }
+        let target: AnyHashable = state.chat.steering[id]?.last?.id ?? (state.chat.drafts[id] != nil ? Self.draftAnchor : Self.endAnchor)
         withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(target, anchor: .bottom) }
     }
 
@@ -533,10 +534,10 @@ private struct AgentRunRow: View {
     let flashing: UUID?
     let draft: ChatRunner.Draft?
     let lastID: UUID?
-    /// The last run of a plan-mode conversation (D5).
-    var showsPlanApproval = false
     /// Keeps the reply being written in view as it grows.
     var follow: () -> Void = {}
+    /// Scrolls the least that shows the identified view whole — the fold's cards once it opens.
+    var reveal: (AnyHashable) -> Void = { _ in }
 
     private var agent: AgentRecord? { state.agents.agent(messages[0].agentID ?? conversation.agentID) }
     private var isRunning: Bool { state.chat.isRunning(conversation.id) }
@@ -563,7 +564,11 @@ private struct AgentRunRow: View {
                 }
                 if let draft {
                     DraftContent(state: state, conversation: conversation, draft: draft, follow: follow).id(ThreadView.draftAnchor)
-                } else if let last = messages.last {
+                }
+                // 工具执行折叠 (user 2026-09-15): the run's steps under its words, the one in hand in view while it runs.
+                ToolFoldView(steps: ToolFold.steps(in: messages), isRunning: isRunning, executing: state.chat.executing[conversation.id],
+                             approval: state.chat.approvals[conversation.id]?.callID, phase: { phase($0.call, in: $0.messageID) }, reveal: reveal)
+                if draft == nil, let last = messages.last {
                     HStack(spacing: 10) {
                         HStack(spacing: 6) {
                             Text(ConversationText.clock(last.createdAt))
@@ -574,14 +579,6 @@ private struct AgentRunRow: View {
                         if isHovering, !spoken.isEmpty { CopyButton(text: spoken, state: state) }
                     }
                     .padding(.horizontal, 3)
-                }
-                if showsPlanApproval {
-                    PlanApprovalCard {
-                        let root = session.current?.id == conversation.projectID ? session.accessibleRoot : nil
-                        state.executePlan(conversation.id, projectRoot: root,
-                                          projectName: session.projects.first { $0.id == conversation.projectID }?.name)
-                    }
-                    .id(ThreadView.planAnchor)
                 }
             }
         }
@@ -616,21 +613,17 @@ private struct AgentRunRow: View {
                 ThinkingFold(text: thinking, seconds: message.thinkingSeconds, isThinking: false)
             }
             if let failure = message.failure {
-                FailedReply(reason: failure, canRetry: message.id == lastID && !isRunning) {
-                    state.chat.retry(conversation.id)
-                }
+                FailedReply(reason: failure)
             } else if !message.text.isEmpty {
                 bubble(message)
             }
-            // The plan is docked above the composer, not a card (D4); a question is its own card (D6).
-            ForEach(message.toolCalls.filter { $0.name != PlanTool.spec.name }) { call in
+            // The plan is docked above the composer (D4); a question is its own card (D6); a delegation is the helper's
+            // strip (S8). Every other call is in the run's fold under its words (user 2026-09-15).
+            ForEach(message.toolCalls.filter { $0.name == AskTool.spec.name || $0.name == TeamTools.delegateName }) { call in
                 if call.name == AskTool.spec.name {
                     AskCard(call: call, isWaiting: call.result == nil && !isRunning)
-                } else if call.name == TeamTools.delegateName {
-                    DelegateCard(state: state, call: call, phase: phase(call, in: message)) { state.chat.decide(conversation.id, allow: $0) }
                 } else {
-                    ToolCallCard(call: call, phase: phase(call, in: message), risk: risk(call), preview: preview(call), grant: grant(call),
-                                 remember: { state.chat.decide(conversation.id, $0) }) { state.chat.decide(conversation.id, allow: $0) }
+                    DelegateCard(state: state, call: call, phase: phase(call, in: message.id))
                 }
             }
             ForEach(Self.saved(message), id: \.path) { file in
@@ -653,9 +646,6 @@ private struct AgentRunRow: View {
             if let lane = message.lane, state.conversations.conversation(lane) != nil {
                 SmallButton(title: "看过程", identifier: "reply.lane") { state.selectedConversationID = lane }
             }
-            if let pause = message.pause, !isRunning {
-                PauseCard(reason: pause) { state.chat.resume(conversation.id) }
-            }
         }
     }
 
@@ -672,25 +662,10 @@ private struct AgentRunRow: View {
             .contextMenu { Button("复制") { CopyButton.copy(message.text, state: state) } }
     }
 
-    /// Bob's sentence on the step waiting here (9e, J).
-    private func risk(_ call: ToolCall) -> String? {
-        state.chat.approvals[conversation.id].flatMap { $0.callID == call.id ? $0.risk : nil }
-    }
-
-    /// The change a write or an edit waiting here would make (10d).
-    private func preview(_ call: ToolCall) -> String? {
-        state.chat.approvals[conversation.id].flatMap { $0.callID == call.id ? $0.preview : nil }
-    }
-
-    /// What the step waiting here could be remembered as (10b).
-    private func grant(_ call: ToolCall) -> ApprovalGrant? {
-        state.chat.approvals[conversation.id].flatMap { $0.callID == call.id ? $0.grant : nil }
-    }
-
-    private func phase(_ call: ToolCall, in message: Message) -> ToolCallCard.Phase {
+    private func phase(_ call: ToolCall, in messageID: UUID) -> ToolCallCard.Phase {
         if let result = call.result { return .finished(result) }
         let approval = state.chat.approvals[conversation.id]
-        if let approval, approval.callID == call.id, approval.messageID == message.id { return .waiting(approval.reason) }
+        if let approval, approval.callID == call.id, approval.messageID == messageID { return .waiting }
         if state.chat.executing[conversation.id] == call.id { return .running }
         return isRunning ? .queued : .finished(ToolResult(status: .stopped, output: "没有执行。"))
     }

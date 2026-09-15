@@ -1,33 +1,22 @@
 import AppKit
 import SwiftUI
 
-/// One tool call in a reply (7b, old D14): what it does and how it went; its output folds open. A call above the
-/// Agent's 权限模式 waits here for 允许 / 拒绝 (old D15).
+/// One tool call in a reply (7b, old D14): what it does and how it went; its output folds open. A call waiting for
+/// 允许 / 拒绝 only says so here — the decision is above the composer (user 2026-09-15, `ApprovalPanel`).
 struct ToolCallCard: View {
     enum Phase: Equatable {
         case queued, running
-        /// Waiting for 允许 / 拒绝; the reason when it asks whatever the mode (a dangerous command, 7c).
-        case waiting(String?)
+        /// Waiting for 允许 / 拒绝 above the composer.
+        case waiting
         case finished(ToolResult)
-    }
-
-    private var isWaiting: Bool {
-        if case .waiting = phase { return true }
-        return false
     }
 
     let call: ToolCall
     let phase: Phase
-    /// Bob's sentence on what a waiting step risks (9e, J).
-    var risk: String? = nil
-    /// 10d: what a waiting write or edit would change, before it is allowed.
-    var preview: String? = nil
-    /// 10b: what the step could be remembered as, and where the choice goes; without them, 允许 / 拒绝 only.
-    var grant: ApprovalGrant? = nil
-    var remember: ((ApprovalChoice) -> Void)? = nil
-    let decide: (Bool) -> Void
 
     @State private var isOpen = VerificationHooks.opensToolCards
+
+    private var isWaiting: Bool { phase == .waiting }
 
     private var output: String? {
         if case .finished(let result) = phase, !result.output.isEmpty { return result.output }
@@ -61,7 +50,7 @@ struct ToolCallCard: View {
         VStack(alignment: .leading, spacing: 0) {
             Button { if output != nil { isOpen.toggle() } } label: {
                 HStack(spacing: 8) {
-                    IconView(icon, size: 13).foregroundStyle(Palette.inkMuted.color)
+                    IconView(Self.icon(for: call.name), size: 13).foregroundStyle(Palette.inkMuted.color)
                     Text(call.summary)
                         .font(FormoraFont.mono(11.5))
                         .foregroundStyle(Palette.ink.color)
@@ -81,7 +70,14 @@ struct ToolCallCard: View {
             }
             .buttonStyle(.plain)
             .disabled(output == nil)
-            if isWaiting { approval }
+            if isWaiting {
+                Text("在输入框上方确认")
+                    .font(FormoraFont.ui(11))
+                    .foregroundStyle(Palette.inkFaint.color)
+                    .padding(.bottom, 9)
+                    .padding(.horizontal, 12)
+                    .accessibilityIdentifier("tool.waitingHint")
+            }
             if isOpen, let output {
                 outputView(output)
                     .overlay(alignment: .top) { Rectangle().fill(Palette.line.color).frame(height: 1) }
@@ -96,8 +92,9 @@ struct ToolCallCard: View {
         .accessibilityIdentifier("tool.\(call.name)")
     }
 
-    private var icon: SVGIcon {
-        switch call.name {
+    /// The tool's mark, here and on the approval panel.
+    static func icon(for name: String) -> SVGIcon {
+        switch name {
         case "read", "fetch": Icons.file
         case "glob", "grep", "web_search": Icons.search
         case "write", "edit": Icons.pencil
@@ -146,124 +143,6 @@ struct ToolCallCard: View {
     /// 10f: a bash call that left its command running — not one that ended within the first wait.
     static func startedInBackground(_ call: ToolCall, _ result: ToolResult) -> Bool {
         call.name == AgentTools.bash.name && BackgroundJobs.wantsBackground(call.arguments) && result.output.hasPrefix("已在后台运行")
-    }
-
-    /// What the step will do, in words, and the two answers.
-    private var approval: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(approvalText)
-                .font(FormoraFont.ui(12))
-                .foregroundStyle(reason == nil ? Palette.inkMuted.color : Palette.alert.color)
-                .lineSpacing(3)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityIdentifier("tool.approvalText")
-            if let risk {
-                Text("Bob：\(risk)")
-                    .font(FormoraFont.ui(11.5))
-                    .foregroundStyle(Palette.inkMuted.color)
-                    .lineSpacing(3)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("tool.risk")
-            }
-            // The whole command, as it will run: that is what is being allowed.
-            if let command {
-                Text(command)
-                    .font(FormoraFont.mono(11.5))
-                    .foregroundStyle(Palette.ink.color)
-                    .lineSpacing(2)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 9)
-                    .padding(.horizontal, 11)
-                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Palette.surfaceRaised.color))
-                    .accessibilityIdentifier("tool.command")
-            }
-            // 10d: the change itself, as it would land — what is being allowed.
-            if let preview {
-                DiffText(text: preview, maxHeight: 220).accessibilityIdentifier("tool.preview")
-            }
-            HStack(spacing: 8) {
-                Spacer(minLength: 0)
-                Button("拒绝") { decide(false) }
-                    .buttonStyle(FormoraButtonStyle(kind: .ghost))
-                    .accessibilityIdentifier("tool.deny")
-                // 10b: the same step again in this conversation goes ahead.
-                if let remember, grant != nil {
-                    Button("这个对话里都允许") { remember(.conversation) }
-                        .buttonStyle(FormoraButtonStyle())
-                        .accessibilityIdentifier("tool.allowConversation")
-                }
-                Button("允许") { decide(true) }
-                    .buttonStyle(FormoraButtonStyle(kind: .primary))
-                    .accessibilityIdentifier("tool.allow")
-            }
-            // 10b: remembered for the project — listed, and removable, in 管理项目.
-            if let remember, let grant {
-                HStack {
-                    Spacer(minLength: 0)
-                    Button { remember(.project) } label: {
-                        Text("以后这个项目里都不再问：\(ApprovalGrants.label(grant))")
-                            .font(FormoraFont.ui(11.5))
-                            .foregroundStyle(Palette.accent.color)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("tool.allowProject")
-                }
-            }
-        }
-        .padding(.top, 2)
-        .padding(.bottom, 11)
-        .padding(.horizontal, 12)
-    }
-
-    private var reason: String? {
-        if case .waiting(let reason) = phase { return reason }
-        return nil
-    }
-
-    /// What is being allowed, in full: a command as it will run, or a computer call's steps (7j, C2).
-    private var command: String? {
-        if call.name == "mcp_add" { return MCPConnect.commandLine(call.arguments) }
-        if call.name == ComputerTool.name { return ComputerTool.steps(call.arguments) }
-        if call.name == ScriptTools.osascript.name {
-            return (try? JSONSerialization.jsonObject(with: Data(call.arguments.utf8)) as? [String: Any])?["script"] as? String
-        }
-        guard call.name == "bash" else { return nil }
-        return (try? JSONSerialization.jsonObject(with: Data(call.arguments.utf8)) as? [String: Any])?["command"] as? String
-    }
-
-    private var approvalText: String {
-        let args = (try? JSONSerialization.jsonObject(with: Data(call.arguments.utf8))) as? [String: Any] ?? [:]
-        if let reason {
-            return call.name == "bash" ? "这条命令\(reason)。不管权限模式怎么设，这类命令都先问你。" : "\(reason)。不管权限模式怎么设，这一步都先问你。"
-        }
-        if call.name == ComputerTool.name {
-            return "要操作电脑，做下面这几步。允许后，这次任务里它再操作电脑就不再问你；屏幕顶部会出现停止条，按 ⌘ + Esc 或者在别的应用里动一下鼠标键盘就会停。"
-        }
-        if call.name == ScriptTools.osascript.name {
-            return "要运行这段脚本，它可能会控制别的应用（macOS 会为每个被控制的应用单独问你一次）。按这个 Agent 的「权限模式」，需要你确认。"
-        }
-        if call.name == ScriptTools.shortcutRun.name {
-            return "要运行你的快捷指令「\(args["name"] as? String ?? "")」。按这个 Agent 的「权限模式」，需要你确认。"
-        }
-        if call.name == "bash" { return "要在项目文件夹里运行这条命令。按这个 Agent 的「权限模式」，需要你确认。" }
-        if call.name == "open_url" { return "要在你的浏览器里打开 \(args["url"] as? String ?? "这个网址")。按这个 Agent 的「权限模式」，需要你确认。" }
-        let path = args["path"] as? String ?? "文件"
-        let what: String
-        switch call.name {
-        case "write":
-            let count = (args["content"] as? String)?.count ?? 0
-            what = "要把 \(count) 个字写进 \(path)"
-        case "edit":
-            let old = ((args["old_text"] as? String) ?? "").prefix(24)
-            what = "要改 \(path) 里的「\(old)\(old.count == 24 ? "…" : "")」"
-        default:
-            what = "要\(call.summary)"
-        }
-        return "\(what)。按这个 Agent 的「权限模式」，这一步需要你确认。"
     }
 }
 
@@ -438,7 +317,7 @@ private extension Array where Element == String {
     func dropLastEmpty() -> [String] { last == "" ? Array(dropLast()) : self }
 }
 
-/// `.cmd-card`: the run stopped to ask 「继续？」 (7b, L2) — after 50 model calls or an hour.
+/// The run stopped to ask 「继续？」 (7b, L2) — after 50 model calls or an hour; docked above the composer (user 2026-09-15).
 struct PauseCard: View {
     let reason: String
     let resume: () -> Void
@@ -465,9 +344,9 @@ struct PauseCard: View {
         }
         .padding(.vertical, 14)
         .padding(.horizontal, 16)
-        .frame(maxWidth: 640, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Palette.surface.color))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Palette.line.color, lineWidth: 1))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Palette.surface.color))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Palette.lineStrong.color, lineWidth: 1))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("run.pause")
     }

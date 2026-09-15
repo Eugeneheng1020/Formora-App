@@ -74,10 +74,9 @@ struct TypingDots: View {
 }
 
 /// A reply that didn't come: why, and 重试 on the latest one.
+/// No reply, and why (L3). 重试 waits above the composer (user 2026-09-15, `RetryPanel`).
 struct FailedReply: View {
     let reason: String
-    let canRetry: Bool
-    let retry: () -> Void
 
     var body: some View {
         let shape = UnevenRoundedRectangle(topLeadingRadius: 4, bottomLeadingRadius: 12, bottomTrailingRadius: 12, topTrailingRadius: 12,
@@ -95,12 +94,6 @@ struct FailedReply: View {
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("reply.failure")
-            if canRetry {
-                Button("重试", action: retry)
-                    .buttonStyle(FormoraButtonStyle())
-                    .accessibilityIdentifier("reply.retry")
-                    .padding(.top, 2)
-            }
         }
         .padding(.vertical, 11)
         .padding(.horizontal, 14)

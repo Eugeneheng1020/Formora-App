@@ -120,7 +120,7 @@ struct PlanModePill: View {
     }
 }
 
-/// Under a plan-mode run that ended (D5): the way from the plan to the work.
+/// Above the composer once a plan-mode run ended (D5; user 2026-09-15): the way from the plan to the work.
 struct PlanApprovalCard: View {
     let go: () -> Void
 
@@ -144,9 +144,9 @@ struct PlanApprovalCard: View {
         }
         .padding(.vertical, 14)
         .padding(.horizontal, 16)
-        .frame(maxWidth: 640, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Palette.surface.color))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Palette.line.color, lineWidth: 1))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Palette.surface.color))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Palette.lineStrong.color, lineWidth: 1))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("plan.approval")
     }
