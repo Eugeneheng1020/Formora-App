@@ -10,6 +10,9 @@ struct AgentModelTab: View {
 
     private var providers: ProviderStore { state.providers }
 
+    /// The four phase rows expand in place under a config icon (user 2026-09-16); no dialog.
+    @State private var showingPhases = false
+
     private var draft: AgentModelDraft {
         state.modelDrafts[agent.id] ?? AgentModelDraft(agent: agent, knownModels: knownModels(agent.providerID))
     }
@@ -194,60 +197,67 @@ struct AgentModelTab: View {
 
     // MARK: 分阶段模型 (user 2026-09-16)
 
+    /// A config icon after the title expands the four rows in place; a phase is configured only once both its provider
+    /// and model are chosen — a half-filled one counts as not configured.
     private var phaseBlock: some View {
         DetailBlock(title: "分阶段模型", note: "不同阶段用不同模型：留空就用主模型。") {
-            EmptyView()
+            IconActionButton(icon: Icons.sliders, label: showingPhases ? "收起分阶段模型" : "配置分阶段模型", identifier: "agent.phase.configure") {
+                showingPhases.toggle()
+            }
         } content: {
-            VStack(spacing: 10) {
-                ForEach(ModelPhase.allCases, id: \.self) { phase in phaseRow(phase) }
+            if showingPhases {
+                VStack(spacing: 10) {
+                    ForEach(ModelPhase.allCases, id: \.self) { phase in phaseRow(phase) }
+                }
+            } else {
+                Text(phaseSummary)
+                    .font(FormoraFont.ui(11.5))
+                    .foregroundStyle(Palette.inkMuted.color)
+                    .accessibilityIdentifier("agent.phase.summary")
             }
         }
     }
 
+    private var phaseSummary: String {
+        let set = ModelPhase.allCases.filter { isPhaseConfigured(draft.phase[$0]) }
+        return set.isEmpty ? "都用主模型（还没有分阶段配置）。" : "已配置：" + set.map(\.title).joined(separator: "、") + "。其余用主模型。"
+    }
+
+    private func isPhaseConfigured(_ model: ModelReference?) -> Bool { AgentModelDraft.isConfigured(model) }
+
+    /// Expanded, every row is editable straight away (user 2026-09-16): the provider menu (「选择服务商」 when empty), the
+    /// model, and a × once anything is set. Picking nothing on a row leaves that phase unconfigured.
     @ViewBuilder private func phaseRow(_ phase: ModelPhase) -> some View {
         let model = draft.phase[phase]
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 8) {
                 Text(phase.title).font(FormoraFont.ui(12.5, weight: 600)).foregroundStyle(Palette.ink.color).frame(width: 80, alignment: .leading)
-                if let model {
-                    ProviderMenu(providers: providers, selection: model.providerID, identifier: "agent.phase.\(phase.rawValue).provider") { id in
-                        update { $0.phase[phase] = ModelReference(providerID: id, modelID: "") }
-                    }
-                    .frame(maxWidth: 220)
-                    ModelIDField(providers: providers, providerID: model.providerID, source: phaseSource(model),
-                                 modelID: Binding(get: { draft.phase[phase]?.modelID ?? "" },
-                                                  set: { value in update { $0.phase[phase]?.modelID = value } }),
-                                 identifier: "agent.phase.\(phase.rawValue).model")
-                    if !providers.hasKey(model.providerID) {
-                        Text("不可用").font(FormoraFont.mono(10)).foregroundStyle(Palette.alert.color)
-                    }
+                ProviderMenu(providers: providers, selection: model?.providerID, identifier: "agent.phase.\(phase.rawValue).provider") { id in
+                    update { $0.phase[phase] = ModelReference(providerID: id, modelID: $0.phase[phase]?.modelID ?? "") }
+                }
+                .frame(maxWidth: 210)
+                ModelIDField(providers: providers, providerID: model?.providerID, source: phaseSource(model),
+                             modelID: Binding(get: { draft.phase[phase]?.modelID ?? "" }, set: { value in
+                                 update { if let prov = $0.phase[phase]?.providerID, !prov.isEmpty { $0.phase[phase] = ModelReference(providerID: prov, modelID: value) } }
+                             }),
+                             identifier: "agent.phase.\(phase.rawValue).model")
+                if let model, !providers.hasKey(model.providerID) {
+                    Text("不可用").font(FormoraFont.mono(10)).foregroundStyle(Palette.alert.color)
+                }
+                if model != nil {
                     IconActionButton(icon: Icons.close, label: "清除\(phase.title)", identifier: "agent.phase.\(phase.rawValue).remove") {
                         update { $0.phase[phase] = nil }
                     }
-                } else {
-                    Button("设置") { addPhase(phase) }
-                        .buttonStyle(FormoraButtonStyle(kind: .ghost))
-                        .accessibilityIdentifier("agent.phase.\(phase.rawValue).set")
-                    Spacer(minLength: 0)
                 }
             }
             Text(phase.note).font(FormoraFont.ui(11)).foregroundStyle(Palette.inkFaint.color).fixedSize(horizontal: false, vertical: true)
         }
     }
 
-    private func phaseSource(_ model: ModelReference) -> AgentModelDraft.Source {
+    private func phaseSource(_ model: ModelReference?) -> AgentModelDraft.Source {
+        guard let model else { return .list }
         if case .unsupported = providers.modelLists[model.providerID] { return .custom }
         return .list
-    }
-
-    private func addPhase(_ phase: ModelPhase) {
-        let provider = draft.providerID.flatMap { providers.hasKey($0) ? $0 : nil }
-            ?? providers.entries.first { providers.hasKey($0.id) }?.id
-        guard let provider else {
-            state.toasts.show("没有可用的服务商", note: "先在「设置 → 模型」配置一个服务商", isError: true)
-            return
-        }
-        update { $0.phase[phase] = ModelReference(providerID: provider, modelID: "") }
     }
 
     // MARK: 备用模型

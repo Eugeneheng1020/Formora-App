@@ -46,8 +46,20 @@ struct AgentModelDraft: Equatable, Sendable {
     }
 
     /// The phase overrides as they'd be stored, in a stable order.
+    /// A phase counts as configured only once both its provider and model are chosen (user 2026-09-16); a half-filled
+    /// one is dropped, treated as not configured.
+    static func isConfigured(_ model: ModelReference?) -> Bool {
+        guard let model else { return false }
+        return !model.providerID.isEmpty && !model.modelID.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    /// The phase overrides as they'd be stored, in a stable order — only the fully configured ones.
     var phaseEntries: [PhaseModel] {
-        ModelPhase.allCases.compactMap { p in phase[p].map { PhaseModel(phase: p.rawValue, model: $0) } }
+        ModelPhase.allCases.compactMap { p in
+            guard let model = phase[p], Self.isConfigured(model) else { return nil }
+            return PhaseModel(phase: p.rawValue, model: ModelReference(providerID: model.providerID,
+                                                                       modelID: model.modelID.trimmingCharacters(in: .whitespaces)))
+        }
     }
 
     /// Why this can't be saved, or `nil`. Fallbacks follow the same rule as the primary: their provider must
@@ -63,9 +75,9 @@ struct AgentModelDraft: Equatable, Sendable {
         }
         let primary = ModelReference(providerID: providerID, modelID: trimmedModelID)
         if fallbacks.contains(primary) { return "备用模型不能与主模型重复" }
+        // A half-filled phase is dropped (没选就当没配置); a fully-set one's provider must have a key.
         for p in ModelPhase.allCases {
-            guard let model = phase[p] else { continue }
-            if model.modelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "\(p.title)还没有选择模型" }
+            guard let model = phase[p], Self.isConfigured(model) else { continue }
             if !isConfigured(model.providerID) { return "\(p.title)的服务商未配置" }
         }
         return nil
