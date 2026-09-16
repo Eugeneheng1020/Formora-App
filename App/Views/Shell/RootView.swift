@@ -130,6 +130,17 @@ struct RootView: View {
                 SubagentDialog(state: state)
             }
 
+            if let definition = state.subagentToDelete {
+                ConfirmDialog(kicker: "delete subagent", title: "删除子代理「\(definition.name)」？",
+                              message: "会删掉它的文件，命令 /\(definition.name) 也随之消失。这一步撤不回来。",
+                              confirmTitle: "删除", identifier: "deleteSubagent",
+                              onCancel: { state.subagentToDelete = nil },
+                              onConfirm: {
+                                  state.subagentToDelete = nil
+                                  state.deleteSubagent(definition)
+                              })
+            }
+
             if let dialog = state.groupDialog {
                 switch dialog {
                 case .create: GroupCreateDialog(state: state, session: session)

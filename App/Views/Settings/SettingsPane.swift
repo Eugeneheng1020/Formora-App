@@ -25,6 +25,7 @@ struct SettingsPane: View {
                 case .models: ModelsSection(state: state)
                 case .skills: SkillsSection(state: state)
                 case .mcp: MCPSection(state: state)
+                case .subagents: SubagentsSection(state: state, session: session)
                 case .hooks: HooksSection(state: state, session: session)
                 case .notifications: NotificationsSection(state: state)
                 case .computer: ComputerSection(state: state)

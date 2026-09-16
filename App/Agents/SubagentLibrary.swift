@@ -83,6 +83,28 @@ final class SubagentLibrary {
         }
     }
 
+    /// The file a definition lives in, when Formora can reach it. `.claude` files are the user's Claude Code agents:
+    /// shown but not edited or deleted here (user 2026-09-16).
+    func fileURL(for definition: SubagentDefinition) -> URL? {
+        switch definition.source {
+        case .project: return projectRoot?.appendingPathComponent(Self.projectFolder, isDirectory: true).appendingPathComponent(definition.name + ".md")
+        case .claude: return projectRoot?.appendingPathComponent(Self.claudeFolder, isDirectory: true).appendingPathComponent(definition.name + ".md")
+        case .global, .builtIn: return globalFolder?.appendingPathComponent(definition.name + ".md")
+        }
+    }
+
+    /// Whether this one can be edited or deleted here: everything but a Claude Code file.
+    func isManaged(_ definition: SubagentDefinition) -> Bool { definition.source != .claude }
+
+    /// Deletes the definition's file and reads everything again. A built-in stays deleted (its file is gone and
+    /// `installBuiltIns` only writes when the global folder doesn't exist).
+    func delete(_ definition: SubagentDefinition, commands: [String] = Commands.all.map(\.name)) throws {
+        guard isManaged(definition) else { throw SubagentProblem("这个子代理来自 Claude Code，在 Claude Code 里管理") }
+        guard let url = fileURL(for: definition) else { throw SubagentProblem("找不到它的文件") }
+        try? FileManager.default.removeItem(at: url)
+        reload(projectRoot: projectRoot, commands: commands)
+    }
+
     static func folder(_ scope: Scope, projectRoot: URL?, global: URL?) -> URL? {
         switch scope {
         case .project: projectRoot?.appendingPathComponent(projectFolder, isDirectory: true)

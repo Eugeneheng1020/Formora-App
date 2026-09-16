@@ -1,33 +1,20 @@
 import SwiftUI
 
-/// `/agent 目的` (user 2026-09-15): the model drafts a name, a line and a system prompt from the purpose; the user checks,
-/// changes what they like, picks the tool tier and where it lives, and saves. Everything editable — the model's draft is
-/// a start, not the last word.
+/// 手填 / 编辑一个子代理的表单。`/agent 目的` 不再走这里——它由模型直接写好存好（user 2026-09-16）。这个弹窗只在两处出现：
+/// 「设置 → 子代理 → 新建」空手创建，和「设置 → 子代理 → 编辑」改一个已有的；`/agent` 起草时若撞名或提示词空了，也退回到这里让用户改。
 struct SubagentDialog: View {
     let state: AppState
 
     var body: some View {
         if let draft = state.subagentDraft {
             let binding = Binding(get: { state.subagentDraft ?? draft }, set: { state.subagentDraft = $0 })
-            MessagesDialog(kicker: "new subagent", title: "新建子代理", note: "按目的起草好了名字和提示词，改到满意再保存。保存后 /名字 任务 派活；Agent 也会按需要派它。",
+            let editing = draft.isEditing
+            MessagesDialog(kicker: editing ? "edit subagent" : "new subagent",
+                           title: editing ? "编辑子代理" : "新建子代理",
+                           note: editing ? "改到满意再保存。改名字等于改命令：/名字 任务。"
+                                         : "填好保存。之后 /名字 任务 派活，Agent 也会按需要派它。想让 AI 起草，用消息里的 /agent 目的。",
                            identifier: "subagent", onClose: { state.subagentDraft = nil }) {
                 VStack(alignment: .leading, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        FormLabel(text: "目的")
-                        Text(draft.purpose)
-                            .font(FormoraFont.ui(12))
-                            .foregroundStyle(Palette.inkMuted.color)
-                            .lineSpacing(3)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .accessibilityIdentifier("subagent.purpose")
-                    }
-                    if draft.isGenerating {
-                        HStack(spacing: 8) {
-                            ProgressView().controlSize(.small)
-                            Text("正在按目的起草…").font(FormoraFont.ui(12)).foregroundStyle(Palette.inkMuted.color)
-                        }
-                        .accessibilityIdentifier("subagent.generating")
-                    }
                     HStack(alignment: .top, spacing: 14) {
                         VStack(alignment: .leading, spacing: 6) {
                             FormLabel(text: "名字（也是命令：/名字）")
@@ -57,13 +44,8 @@ struct SubagentDialog: View {
                 }
             } footer: {
                 Button("取消") { state.subagentDraft = nil }.buttonStyle(FormoraButtonStyle(kind: .ghost))
-                Button("重新起草") { state.regenerateSubagentDraft() }
-                    .buttonStyle(FormoraButtonStyle(kind: .ghost))
-                    .disabled(draft.isGenerating)
-                    .accessibilityIdentifier("subagent.regenerate")
                 Button("保存") { state.saveSubagentDraft() }
                     .buttonStyle(FormoraButtonStyle(kind: .primary))
-                    .disabled(draft.isGenerating)
                     .keyboardShortcut(.defaultAction)
                     .accessibilityIdentifier("subagent.save")
             }

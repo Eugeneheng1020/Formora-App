@@ -124,6 +124,8 @@ final class AppState {
     var groupDialog: GroupDialog?
     /// `/agent 目的` (user 2026-09-15): the subagent being drafted, while its dialog is up.
     var subagentDraft: SubagentDraft?
+    /// 设置 → 子代理 (user 2026-09-16): the subagent whose delete confirmation is open.
+    var subagentToDelete: SubagentDefinition?
     /// The archived conversation the delete confirmation is open for.
     var conversationToDelete: UUID?
     var composerDrafts: [UUID: ComposerDraft] = [:]
@@ -432,7 +434,9 @@ final class AppState {
     }
 }
 
-/// What `/agent 目的` is drafting (user 2026-09-15): the model's proposal, then the user's changes, until saved.
+/// A subagent open in the 新建 / 编辑 form (user 2026-09-16). `/agent 目的` no longer drafts through this — the model
+/// writes and saves the subagent directly; this struct only backs the hand-fill form, and the rare `/agent` fallback
+/// when a generated name clashes. `purpose` is carried only so that fallback can regenerate later if wanted.
 struct SubagentDraft: Equatable, Identifiable {
     let id = UUID()
     let conversationID: UUID
@@ -442,12 +446,25 @@ struct SubagentDraft: Equatable, Identifiable {
     var tier: ToolTier = .read
     var scope: SubagentLibrary.Scope = .project
     var prompt = ""
-    var isGenerating = false
     var problem: String?
+    /// The subagent being edited, when the dialog opened from 设置 → 子代理 (user 2026-09-16). `nil` for a blank 新建.
+    /// It carries the old name and source so a rename or a move deletes the old file. `model` is kept as it was.
+    var editingOriginal: SubagentDefinition?
+
+    var isEditing: Bool { editingOriginal != nil }
 
     var definition: SubagentDefinition {
         SubagentDefinition(name: name.trimmingCharacters(in: .whitespacesAndNewlines), description: description.trimmingCharacters(in: .whitespacesAndNewlines),
-                           tier: tier, model: nil, prompt: prompt.trimmingCharacters(in: .whitespacesAndNewlines),
+                           tier: tier, model: editingOriginal?.model, prompt: prompt.trimmingCharacters(in: .whitespacesAndNewlines),
                            source: scope == .project ? .project : .global)
+    }
+
+    /// Opens the dialog on an existing subagent, every field pre-filled, no drafting. `.claude` files are read-only
+    /// and never reach here.
+    static func editing(_ definition: SubagentDefinition) -> SubagentDraft {
+        SubagentDraft(conversationID: UUID(), purpose: "", name: definition.name,
+                      description: definition.description, tier: definition.tier,
+                      scope: definition.source == .project ? .project : .global, prompt: definition.prompt,
+                      editingOriginal: definition)
     }
 }

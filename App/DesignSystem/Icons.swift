@@ -73,6 +73,8 @@ enum Icons {
     static let sparkle = SVGIcon(validated: #"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 4.2 12 8.4l4.2 1.5-4.2 1.5-1.5 4.2L9 11.4 4.8 9.9 9 8.4l1.5-4.2Z"/><path d="M17.3 14.6l.6 1.8 1.8.6-1.8.6-.6 1.8-.6-1.8-1.8-.6 1.8-.6.6-1.8Z"/></svg>"#, name: "sparkle")
 
     /// 设置 → Bob (7h, B1; old app 2026-09-09: a robot).
+    /// 子代理 (user 2026-09-16): a parent node budding two helpers — the spawn/delegate motif, with a spark on the parent.
+    static let subagents = SVGIcon(validated: #"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="2.6"/><circle cx="5" cy="19" r="2.6"/><circle cx="19" cy="19" r="2.6"/><path d="M12 7.6v3.2a2 2 0 0 1-2 2H7a2 2 0 0 0-2 2v1.6"/><path d="M12 10.8a2 2 0 0 0 2 2h3a2 2 0 0 1 2 2v1.6"/><path d="M12 2.2v1.1M10.4 3l.8.7M13.6 3l-.8.7"/></svg>"#, name: "subagents")
     static let robot = SVGIcon(validated: #"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/></svg>"#, name: "robot")
 
     /// 设置 → MCP (mockup `settingsCategories`).

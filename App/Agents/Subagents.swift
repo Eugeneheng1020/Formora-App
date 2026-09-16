@@ -185,14 +185,8 @@ enum SubagentGenerator {
         var prompt: String
     }
 
-    static let system = """
-    你替 Formora 的用户把一句「目的」写成一个子代理的定义。子代理是一个专用助手：主 Agent 或用户把一件事交给它，它在干净的上下文里独立完成，最后交回一份报告。
-    只输出一个 JSON 对象，不要别的文字，字段：
-    - name：名字，2 到 12 个字，中文或英文，能当命令用（用户会打 /名字），没有空格和标点；不能和 reserved 里的任何一个相同。
-    - description：一句话，给主 Agent 看，说清什么时候该派它、它交回什么；30 到 60 字。
-    - tools：它需要的工具档位，只能是 read（只看不改：读文件、搜索、上网）、write（还能写文件、改文件）或 exec（还能运行命令）之一；能只读就只读。
-    - prompt：它的系统提示词，中文，用 Markdown，分这几段：「你是谁」（一两句）、「做什么」（要点）、「怎么做」（步骤，先看什么再做什么，怎么核实）、「不做什么」（边界）、「报告怎么写」（结构，先结论）。写给它自己看，用「你」称呼它；不要提 Formora 的内部机制，不要写它没有的能力。
-    """
+    /// 起草用的系统提示词就是那份隐藏的撰写指南（user 2026-09-16），用户不必再逐字看提示词。
+    static var system: String { SubagentAuthoring.guide }
 
     static func request(purpose: String, reserved: [String]) -> String {
         "目的：\n\(purpose)\n\nreserved（不能用的名字）：\(reserved.joined(separator: "、"))"
