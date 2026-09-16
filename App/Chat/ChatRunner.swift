@@ -1455,8 +1455,11 @@ final class ChatRunner {
         executing[id] = call.id
         defer { executing[id] = nil }
         let root = conversations.conversation(id).flatMap { workRoot(for: $0) }
+        // 子代理读文件给结构摘要（user 2026-09-16）：干净上下文里只要结论，省 token；主 Agent 仍读整篇。
+        let summarizeReads = conversations.conversation(id)?.parent?.subagent != nil
         var result = await AgentTools.run(call, root: root, search: state.searchTarget, readRoots: readRoots(agent),
-                                          writeRoots: createdSkillFolders[id] ?? [], history: fileHistoryFolder)
+                                          writeRoots: createdSkillFolders[id] ?? [], history: fileHistoryFolder,
+                                          summarizeReads: summarizeReads)
         result.output += Self.feedback(HookOutcome(context: pre.context))
         return result
     }

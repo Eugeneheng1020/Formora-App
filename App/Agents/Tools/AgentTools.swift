@@ -127,7 +127,7 @@ enum AgentTools {
     /// on (omp: tool failures go back to the model). The file tools and bash need the project folder; the web ones
     /// don't. `search` is the Agent's own provider when it searches natively (C5).
     static func run(_ call: ToolCall, root: URL?, search: ChatTarget? = nil, readRoots: [URL] = [], writeRoots: [URL] = [],
-                    history: URL? = nil) async -> ToolResult {
+                    history: URL? = nil, summarizeReads: Bool = false) async -> ToolResult {
         guard spec(call.name) != nil else {
             return .failed("没有叫 \(call.name) 的工具。能用的工具：\(all.map(\.name).joined(separator: "、"))")
         }
@@ -142,7 +142,8 @@ enum AgentTools {
             }
             let name = call.name, arguments = call.arguments
             return await Task.detached {
-                FileTools.run(name, arguments: arguments, root: root, readRoots: readRoots, writeRoots: writeRoots, history: history)
+                FileTools.run(name, arguments: arguments, root: root, readRoots: readRoots, writeRoots: writeRoots, history: history,
+                              summarizeReads: summarizeReads)
             }.value
         }
     }

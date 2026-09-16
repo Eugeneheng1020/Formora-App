@@ -234,14 +234,24 @@ enum ChatWire {
 
         case .anthropicMessages:
             let limit = target.maxOutput ?? 32_000
+            // 提示词缓存 (user 2026-09-16): Anthropic 要显式标 cache_control（OpenAI/DeepSeek/Gemini 等是服务端自动缓存，
+            // 不用标）。请求前缀顺序是 tools → system → messages：给 system 打一个断点就把 tools+system 这段稳定前缀缓存了；
+            // 再给最后一条消息打一个断点，把不断增长的历史前缀也缓存起来，后续每轮只为新增部分付全价。5 分钟内命中按约 1 折计费。
+            var messages = anthropicMessages(history)
+            Self.markCache(lastOf: &messages)
             var body: [String: Any] = [
                 "model": target.modelID,
                 "stream": true,
-                "messages": anthropicMessages(history),
+                "messages": messages,
             ]
-            if let system { body["system"] = system }
+            if let system {
+                body["system"] = [["type": "text", "text": system, "cache_control": ["type": "ephemeral"]]]
+            }
             if !tools.isEmpty {
-                body["tools"] = tools.map { ["name": $0.name, "description": $0.description, "input_schema": $0.schema] }
+                var toolList: [[String: Any]] = tools.map { ["name": $0.name, "description": $0.description, "input_schema": $0.schema] }
+                // 没有 system 时，缓存断点落在最后一个工具上，让 tools 这段也缓存。
+                if system == nil, !toolList.isEmpty { toolList[toolList.count - 1]["cache_control"] = ["type": "ephemeral"] }
+                body["tools"] = toolList
             }
             if let budget = anthropicBudget(level) {
                 // The budget has to fit under max_tokens with room left for the answer.
@@ -355,6 +365,21 @@ enum ChatWire {
 
     /// Content blocks merged by role — the API wants user and assistant to alternate, and one turn's tool results
     /// in one user message. A message that is a single text block goes as a plain string.
+    /// 提示词缓存 (user 2026-09-16): put a cache_control breakpoint on the last message's last content block, so each
+    /// turn reuses the cached conversation prefix and pays full price only for what is new. Anthropic ignores it when
+    /// the prefix is too small, so it is always safe to add.
+    private static func markCache(lastOf messages: inout [[String: Any]]) {
+        guard !messages.isEmpty else { return }
+        var last = messages[messages.count - 1]
+        if let text = last["content"] as? String {
+            last["content"] = [["type": "text", "text": text, "cache_control": ["type": "ephemeral"]]]
+        } else if var blocks = last["content"] as? [[String: Any]], !blocks.isEmpty {
+            blocks[blocks.count - 1]["cache_control"] = ["type": "ephemeral"]
+            last["content"] = blocks
+        }
+        messages[messages.count - 1] = last
+    }
+
     private static func anthropicMessages(_ history: [ChatTurn]) -> [[String: Any]] {
         func image(_ picture: ChatImage) -> [String: Any] {
             ["type": "image", "source": ["type": "base64", "media_type": picture.mediaType, "data": picture.base64]]

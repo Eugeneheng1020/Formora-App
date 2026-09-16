@@ -6,6 +6,10 @@ enum FileTools {
     static let readLineLimit = 2000
     static let lineCharacterLimit = 2000
     static let listLimit = 200
+    /// 子代理读文件给结构摘要而不是整篇 (user 2026-09-16)：只对超过这个行数、且没指定 offset/limit 的文件生效。
+    static let summarizeLineThreshold = 120
+    static let summarizeHeadLines = 80
+    static let summarizeMaxOutline = 300
     static let textFileLimit = 10 * 1024 * 1024
     static let grepFileLimit = 2 * 1024 * 1024
     /// Never walked: dependencies and build output, which would drown every search.
@@ -19,7 +23,7 @@ enum FileTools {
     /// `readRoots` / `writeRoots`: outside the project, the Agent's Skill folders (7f, F1–F2). `history`: where a file
     /// is kept as it was before a write or an edit, for 撤销 (10d).
     static func run(_ name: String, arguments json: String, root: URL, readRoots: [URL] = [], writeRoots: [URL] = [],
-                    history: URL? = nil) -> ToolResult {
+                    history: URL? = nil, summarizeReads: Bool = false) -> ToolResult {
         let text = json.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let args = (try? JSONSerialization.jsonObject(with: Data((text.isEmpty ? "{}" : text).utf8))) as? [String: Any] else {
             return .failed("参数不是合法的 JSON 对象：\(json.prefix(200))")
@@ -27,7 +31,7 @@ enum FileTools {
         let sandbox = ProjectSandbox(root: root, readRoots: readRoots, writeRoots: writeRoots)
         do {
             switch name {
-            case "read": return try read(args, sandbox)
+            case "read": return try read(args, sandbox, summarize: summarizeReads)
             case "glob": return try glob(args, sandbox)
             case "grep": return try grep(args, sandbox)
             case "write": return try write(args, sandbox, history: history)
@@ -45,7 +49,7 @@ enum FileTools {
 
     // MARK: read
 
-    static func read(_ args: [String: Any], _ sandbox: ProjectSandbox) throws -> ToolResult {
+    static func read(_ args: [String: Any], _ sandbox: ProjectSandbox, summarize: Bool = false) throws -> ToolResult {
         let path = try string(args, "path")
         let url = try sandbox.resolve(path)
         var isDirectory: ObjCBool = false
@@ -63,6 +67,11 @@ enum FileTools {
         guard !text.isEmpty else { return .done("（空文件）") }
         var lines = text.components(separatedBy: "\n")
         if text.hasSuffix("\n") { lines.removeLast() }
+        // 子代理省 token：没指定范围、又是长文件时，只给结构摘要，它要细看再用 offset/limit 读那一段。
+        let hasRange = args.keys.contains("offset") || args.keys.contains("limit")
+        if summarize, !hasRange, lines.count > summarizeLineThreshold {
+            return .done(outline(lines, path: sandbox.relative(url)))
+        }
         let offset = max(1, int(args, "offset") ?? 1)
         let limit = min(max(1, int(args, "limit") ?? readLineLimit), readLineLimit)
         guard offset <= lines.count else { throw Problem("「\(path)」只有 \(lines.count) 行，offset \(offset) 超出了") }
@@ -78,6 +87,51 @@ enum FileTools {
             output += "\n\n（共 \(lines.count) 行，这里是第 \(offset)–\(end) 行；用 offset=\(end + 1) 接着读）"
         }
         return .done(output)
+    }
+
+    /// A structural outline for a subagent (user 2026-09-16): the headings of a Markdown/text file, or the
+    /// declaration lines of code, with line numbers — enough to see the shape without the full bytes. No structure
+    /// found: the head, with a note. Either way it says how to read a specific range in full.
+    static func outline(_ lines: [String], path: String) -> String {
+        let lower = path.lowercased()
+        let prose = lower.hasSuffix(".md") || lower.hasSuffix(".markdown") || lower.hasSuffix(".txt") || lower.hasSuffix(".rst")
+        let width = String(lines.count).count
+        func numbered(_ n: Int) -> String {
+            var line = lines[n - 1]
+            if line.count > lineCharacterLimit { line = String(line.prefix(lineCharacterLimit)) + "…" }
+            let label = String(n)
+            return String(repeating: " ", count: width - label.count) + label + "\t" + line
+        }
+        var picked: [Int] = []
+        for (index, raw) in lines.enumerated() {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            let keep = prose ? line.hasPrefix("#") : isDeclaration(line)
+            if keep { picked.append(index + 1) }
+            if picked.count >= summarizeMaxOutline { break }
+        }
+        if picked.isEmpty {
+            let head = min(summarizeHeadLines, lines.count)
+            let body = (1...head).map(numbered).joined(separator: "\n")
+            return body + "\n\n（结构摘要：文件共 \(lines.count) 行，没找到明显结构，这里是前 \(head) 行。要看其余用 read 带 offset/limit。子代理默认只给摘要以省 token。）"
+        }
+        let body = picked.map(numbered).joined(separator: "\n")
+        return "文件共 \(lines.count) 行，这是结构摘要（子代理省 token）。要看某段完整内容，用 read 带 offset/limit：\n\n" + body
+    }
+
+    /// Whether a trimmed line begins a declaration: a definition keyword at the start, past any modifiers/attributes.
+    static func isDeclaration(_ line: String) -> Bool {
+        let keywords: Set<String> = ["func", "function", "fn", "def", "class", "struct", "enum", "protocol", "extension",
+                                     "actor", "interface", "trait", "impl", "type", "module", "mod", "namespace", "package"]
+        let modifiers: Set<String> = ["pub", "public", "private", "internal", "fileprivate", "open", "export", "default",
+                                      "async", "static", "final", "abstract", "override", "sealed", "data", "inline"]
+        for token in line.split(whereSeparator: { $0 == " " || $0 == "\t" }).prefix(5) {
+            let word = String(token).trimmingCharacters(in: CharacterSet(charactersIn: "(<{:;"))
+            if keywords.contains(word) { return true }
+            if word.hasPrefix("@") || word.hasPrefix("#[") { continue } // an attribute/annotation before the keyword
+            if modifiers.contains(word) { continue }
+            return false
+        }
+        return false
     }
 
     private static func listing(_ folder: URL, _ sandbox: ProjectSandbox) -> ToolResult {
