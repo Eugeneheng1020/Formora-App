@@ -179,7 +179,6 @@ extension ChatRunner {
         guard conversation.isSubtask, !conversation.isLane else { return nil }
         if calls >= TeamLimits.subtaskCalls { return "用满了 \(TeamLimits.subtaskCalls) 次模型调用" }
         if Date.now.timeIntervalSince(began) > TeamLimits.subtaskDeadline { return "超过了 \(Int(TeamLimits.subtaskDeadline / 60)) 分钟" }
-        if Subtasks.tokens(conversation) >= TeamLimits.subtaskTokens { return "用满了约 \(ContextBudget.format(TeamLimits.subtaskTokens)) token" }
         return nil
     }
 
@@ -203,6 +202,7 @@ enum Subtasks {
             total + (message.role == .agent || message.isUpkeep ? (message.usage?.input ?? 0) + (message.usage?.output ?? 0) : 0)
         }
     }
+
 
     /// The files it wrote, each once.
     static func written(_ conversation: Conversation) -> [String] {

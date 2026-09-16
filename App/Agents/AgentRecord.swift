@@ -70,7 +70,7 @@ final class AgentRecord {
     /// lightweight migration.
     var approvalModeRaw: String = ApprovalMode.write.rawValue
     /// 旁审 (10h; 7d's 写完自审 before): another model reads each step that changed something, and the run's answer.
-    var reviewsOwnWork: Bool = true
+    var reviewsOwnWork: Bool = false
     /// 允许操作电脑 (7j, B3): off by default; only the Developer ID build acts on it.
     var allowsComputer: Bool = false
     /// Whether `Agents/<id>.png` exists in the profile folder.

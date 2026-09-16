@@ -61,8 +61,7 @@ final class ChatRunner {
         var preview: String?
     }
 
-    // The loop's limits (L2, L3).
-    nonisolated static let turnLimit = 50
+    // The loop's limits (L2, L3). The per-run turn cap was removed (user 2026-09-16); the deadline is the safety net.
     nonisolated static let deadline: TimeInterval = 60 * 60
     nonisolated static let retryLimit = 10
     nonisolated static let repeatLimit = 5
@@ -930,9 +929,6 @@ final class ChatRunner {
             guard let conversation = conversations.conversation(id) else { return }
             if let limit = subtaskLimit(conversation, calls: state.calls, began: state.began) {
                 return endSubtask(id, runID: runID, reason: limit)
-            }
-            if state.calls >= Self.turnLimit {
-                return pause(id, runID: runID, reason: "已经连续工作了 \(Self.turnLimit) 轮，停下来等你确认。")
             }
             if Date.now.timeIntervalSince(state.began) > Self.deadline {
                 return pause(id, runID: runID, reason: "这次已经连续工作了 \(Int(Self.deadline / 60)) 分钟，停下来等你确认。")

@@ -14,7 +14,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable, Sendable {
         case .models: "模型"
         case .skills: "Skills"
         case .mcp: "MCP"
-        case .subagents: "子代理"
+        case .subagents: "SubAgent"
         case .hooks: "Hooks"
         case .notifications: "通知"
         case .computer: "电脑操作"

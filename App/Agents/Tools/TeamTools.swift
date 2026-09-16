@@ -9,7 +9,6 @@ enum TeamLimits {
     /// One subtask (S4).
     static let subtaskCalls = 30
     static let subtaskDeadline: TimeInterval = 10 * 60
-    static let subtaskTokens = 200_000
     /// One run's delegations (S3, S4).
     static let delegationsPerRun = 8
     static let concurrentSubtasks = 4

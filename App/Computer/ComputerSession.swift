@@ -28,7 +28,7 @@ final class ComputerSession {
     var settle = Settle.Timing()
     /// How many times in a row each step's `expect` wasn't met — the same step four times stops the run for the user.
     private var expectFailures: [String: Int] = [:]
-    static let retryLimit = 3
+    static let retryLimit = 2  // 同一步最多再试 2 次（user 2026-09-16）
 
     // MARK: Refs
 
