@@ -5,6 +5,15 @@
     <description>Formora 的更新</description>
     <language>zh-Hans</language>
     <item>
+      <title>1.0.13</title>
+      <pubDate>Wed, 16 Sep 2026 21:03:55 +0800</pubDate>
+      <sparkle:version>29</sparkle:version>
+      <sparkle:shortVersionString>1.0.13</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[<p>省 token：给 Anthropic 加提示词缓存（其余服务商本就服务端自动缓存）；子代理读长文件只给结构摘要</p>]]></description>
+      <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.13/Formora-1.0.13.dmg" type="application/octet-stream" sparkle:edSignature="nTIeY7FReCQ0J8zmsO3PBOPYxpI5F3TLjsVuQptomhNG1UKlHRZfAh7TDuIco41cZwckesJovyGFKjSvSMIKDQ==" length="12657155"/>
+    </item>
+    <item>
       <title>1.0.12</title>
       <pubDate>Wed, 16 Sep 2026 20:26:45 +0800</pubDate>
       <sparkle:version>28</sparkle:version>
@@ -84,15 +93,6 @@
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
       <description><![CDATA[<p>要你做决定的一律停在输入框上方（等你确认、方案、要继续吗、重试，消息和看板一样）；消息里的工具执行折叠成一组，只展开正在处理的一步；选项确认能回上一步改答案；Agent 在回复里列的编号方案也做成选项卡片</p>]]></description>
       <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.4/Formora-1.0.4.dmg" type="application/octet-stream" sparkle:edSignature="v5TheKBcRY8A7BDwsK2xcLp3zbRT0XAQc+CgdWHYht58xc//yyithcYUxMIJkhAhU1IfDzZYPTwriLdMf398CA==" length="12637137"/>
-    </item>
-    <item>
-      <title>1.0.3</title>
-      <pubDate>Tue, 15 Sep 2026 19:49:35 +0800</pubDate>
-      <sparkle:version>19</sparkle:version>
-      <sparkle:shortVersionString>1.0.3</sparkle:shortVersionString>
-      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <description><![CDATA[<p>自动更新、设置「关于」和「用量」、「文件」一键提交推送发 PR；修好安装包装好打不开的问题（之前的 1.0.3–1.0.5 已撤下）</p>]]></description>
-      <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.3/Formora-1.0.3.dmg" type="application/octet-stream" sparkle:edSignature="TckHOQAVeWwI23KmxAU817O+nsCkgGP960eWFWfSC86czdLF+WtjGbFu6q/iwvRJujZLMS8RACdIft35l8aWBg==" length="12504138"/>
     </item>
   </channel>
 </rss>
