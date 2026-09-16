@@ -5,6 +5,15 @@
     <description>Formora 的更新</description>
     <language>zh-Hans</language>
     <item>
+      <title>1.0.11</title>
+      <pubDate>Wed, 16 Sep 2026 08:16:01 +0800</pubDate>
+      <sparkle:version>27</sparkle:version>
+      <sparkle:shortVersionString>1.0.11</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[<p>子代理：/agent 改成直接创建（只写目的、模型按隐藏的撰写指南写好并直接保存），新增「设置 → 子代理」管理页</p>]]></description>
+      <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.11/Formora-1.0.11.dmg" type="application/octet-stream" sparkle:edSignature="QtdckEmSezdrmiW56SWsmTB6XqSkQCrlqHzPXhB9CRVWTfr3sk+z5AQO44aZa8SsoQjBIRKAVl65BzPnyCxdDg==" length="12996115"/>
+    </item>
+    <item>
       <title>1.0.10</title>
       <pubDate>Wed, 16 Sep 2026 02:03:03 +0800</pubDate>
       <sparkle:version>26</sparkle:version>
