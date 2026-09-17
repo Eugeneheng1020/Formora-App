@@ -28,6 +28,9 @@ struct ModelInfo: Equatable, Hashable, Sendable, Identifiable {
     var contextWindow: Int?
     var maxOutput: Int?
     var acceptsImages: Bool?
+    /// The endpoints the platform serves this model on, when its list says (`supported_endpoints`: Command Code's
+    /// Claude models only on `/messages`, the rest only on `/chat/completions`). `nil` = the list doesn't say.
+    var endpoints: [String]?
 }
 
 struct ProviderHost: Equatable, Sendable {

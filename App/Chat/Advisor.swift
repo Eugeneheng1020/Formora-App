@@ -114,6 +114,16 @@ enum Advisor {
         Message(role: .user, agentID: agentID, text: "〔旁审看过了，没有意见〕", runID: runID, isHidden: true, marker: "旁审：看过了，没有要提的")
     }
 
+    /// A 提醒 that waited for the run's end speaks of what its look saw. When a file the run had written by then was
+    /// written again afterwards, that version is gone: the note is dropped — the last look reads the newest one. Real
+    /// run 2026-09-18: two looks flagged the same surplus rules, one as a 担心 the Agent answered by rewriting the file,
+    /// the other as a 提醒 that then arrived as a card about rules no longer there.
+    static func isStale(after mark: UUID, in run: [Message]) -> Bool {
+        guard let index = run.firstIndex(where: { $0.id == mark }) else { return false }
+        func written(_ steps: ArraySlice<Message>) -> Set<String> { Set(steps.flatMap(\.toolCalls).compactMap { $0.result?.savedPath }) }
+        return !written(run[...index]).isDisjoint(with: written(run[(index + 1)...]))
+    }
+
     static func isSame(_ message: Message, _ note: Note) -> Bool { message.advice != nil && message.marker == note.text }
 
     // MARK: /review — a full review, graded (10k; omp `prompts/agents/reviewer.md`)

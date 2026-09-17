@@ -13,6 +13,10 @@ extension ChatRunner {
         if !manual {
             // Not plan mode (nothing changes), not a subtask (its requester checks it) — a lane is the member's own work.
             guard agent.reviewsOwnWork, !conversation.planMode, !conversation.isSubtask || conversation.isLane else { return }
+            // One look at a time (real run 2026-09-18): a look takes longer than a quick step, so looks piled up beside
+            // each other — two of them flagged the same surplus in different words, which no de-duplication catches, and
+            // each cost a call. A step that finishes while a look is out waits: the next look reads it with what follows.
+            if !final, (advisorLooksOut[id] ?? 0) > 0 { return }
             if !final, let quiet = advisorQuiet[id], quiet > 0 {
                 advisorQuiet[id] = quiet - 1
                 return
@@ -30,7 +34,9 @@ extension ChatRunner {
                                      screenshot: screenshot != nil)
         // `/review` asks for a full, graded review (10k); watching asks for one note at most.
         let system = manual ? Advisor.reviewSystem : Advisor.system
+        advisorLooksOut[id, default: 0] += 1
         let task = Task { [weak self] in
+            defer { self?.advisorLooksOut[id, default: 1] -= 1 }
             guard let self, let reply = await self.oneShot(system: system, prompt: prompt, candidates: [model], images: screenshot.map { [$0] } ?? [])
             else { return }
             // Its call counts in /cost, like Bob's.
@@ -40,7 +46,7 @@ extension ChatRunner {
             if manual, let review = Advisor.parseReview(reply.summary) {
                 self.deliverReview(review, in: id, runID: runID, agent: agent)
             } else if let note = Advisor.parse(reply.summary) {
-                self.deliver(note, in: id, runID: runID, agent: agent, manual: manual)
+                self.deliver(note, in: id, runID: runID, agent: agent, manual: manual, after: last.id)
             } else if manual {
                 self.announce(Advisor.clear(agentID: agent.id, runID: runID), in: id)
             }
@@ -54,7 +60,7 @@ extension ChatRunner {
     /// Agent reads before its next step; a 提醒 waits for the run's end — a card, no step spent on it; a 必须停 stops the
     /// run and asks the user. After the run, the note is a card — and a 必须停, or a 担心 the user asked for with
     /// `/review`, sends the Agent back to deal with it, once.
-    private func deliver(_ note: Advisor.Note, in id: UUID, runID: UUID, agent: AgentRecord, manual: Bool) {
+    private func deliver(_ note: Advisor.Note, in id: UUID, runID: UUID, agent: AgentRecord, manual: Bool, after mark: UUID) {
         guard let conversation = conversations.conversation(id),
               !conversation.messages.contains(where: { Advisor.isSame($0, note) }),
               !(steering[id] ?? []).contains(where: { Advisor.isSame($0, note) }),
@@ -64,6 +70,7 @@ extension ChatRunner {
             switch note.severity {
             case .nit:
                 heldAdvice[id, default: []].append(message)
+                heldAdviceMarks[message.id] = mark
             case .concern:
                 steer(id, message)
                 advisorQuiet[id] = Advisor.quietSteps
@@ -100,6 +107,7 @@ extension ChatRunner {
     /// 停止, or the conversation going: a look in flight says nothing.
     func dropAdvice(_ id: UUID) {
         advisorTasks.removeValue(forKey: id)?.forEach { $0.cancel() }
+        advisorLooksOut[id] = nil
         advisorQuiet[id] = nil
     }
 }

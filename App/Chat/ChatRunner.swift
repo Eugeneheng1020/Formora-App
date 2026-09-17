@@ -91,6 +91,10 @@ final class ChatRunner {
     @ObservationIgnored private var memoryNotes: [UUID: [MemoryChange]] = [:]
     /// 旁审's 提醒 while the run goes on (user 2026-09-17): cards once it rests — no step is spent answering them.
     @ObservationIgnored var heldAdvice: [UUID: [Message]] = [:]
+    /// Looks still out, by conversation: a step finished meanwhile waits for the next look (`advise`).
+    @ObservationIgnored var advisorLooksOut: [UUID: Int] = [:]
+    /// A held note → the last message its look had read (`Advisor.isStale`).
+    @ObservationIgnored var heldAdviceMarks: [UUID: UUID] = [:]
     /// The foreground command each conversation is running: a message sent meanwhile asks it to step aside.
     @ObservationIgnored private var asides: [UUID: Shell.Aside] = [:]
     /// Seconds a command gets before a message puts it aside (tests: 0).
@@ -433,6 +437,7 @@ final class ChatRunner {
         if let copy = laneCopies.removeValue(forKey: id) { Task.detached { LaneCopies.remove(copy) } }
         queues[id] = nil
         steering[id] = nil
+        for message in heldAdvice[id] ?? [] { heldAdviceMarks[message.id] = nil }
         heldAdvice[id] = nil
         computerSessions[id] = nil
         relays[id] = nil
@@ -565,36 +570,42 @@ final class ChatRunner {
         return .done(record)
     }
 
-    /// One request of the app's own — a summary (E3), a memory extraction (F4): no tools, no reasoning; the next model
-    /// if one fails.
+    /// One request of the app's own — a summary (E3), 旁审, Bob's arranging: no tools, the reasoning level left to the
+    /// host's default (a judgement is worth its thinking); the next model if one fails.
     /// One question to a model, no tools; `images` are file paths the model sees with the words (the last screenshot of a
     /// computer task, user 2026-09-15).
-    func oneShot(system: String, prompt: String, candidates: [ModelReference], images: [String] = []) async
+    func oneShot(system: String, prompt: String, candidates: [ModelReference], images: [String] = [], thinks: Bool = true) async
         -> (summary: String, model: ModelReference, usage: TokenUsage?)? {
         let pictures = images.compactMap { ChatImages.load(URL(fileURLWithPath: $0)) }
         for reference in candidates {
-            guard let target = await target(for: reference),
-                  let request = ChatWire.request(target, system: system, history: [ChatTurn(role: .user, text: prompt, images: pictures)],
-                                                 reasoning: .off, sendsReasoning: false) else { continue }
-            var text = ""
-            var usage = TokenUsage()
-            do {
-                for try await event in client.stream(request, apiProtocol: target.endpoint.apiProtocol) {
-                    switch event {
-                    case .text(let piece): text += piece
-                    case let .usage(input, output, cached, _):
-                        if let input { usage.input = input }
-                        if let output { usage.output = output }
-                        if let cached { usage.cached = cached }
-                    case .failed(let message): throw ChatFailure.provider(message)
-                    default: break
+            guard let target = await target(for: reference) else { continue }
+            // `thinks: false`（起名这类不用想的小事）：明说不思考——不说的话 DeepSeek 默认开着思考，一个标题输出五百多 token
+            // （真实测试 2026-09-18）。服务商不认这个字段，就不带它再问一次。
+            for sendsReasoning in thinks ? [false] : [true, false] {
+                guard let request = ChatWire.request(target, system: system, history: [ChatTurn(role: .user, text: prompt, images: pictures)],
+                                                     reasoning: .off, sendsReasoning: sendsReasoning) else { break }
+                var text = ""
+                var usage = TokenUsage()
+                do {
+                    for try await event in client.stream(request, apiProtocol: target.endpoint.apiProtocol) {
+                        switch event {
+                        case .text(let piece): text += piece
+                        case let .usage(input, output, cached, _):
+                            if let input { usage.input = input }
+                            if let output { usage.output = output }
+                            if let cached { usage.cached = cached }
+                        case .failed(let message): throw ChatFailure.provider(message)
+                        default: break
+                        }
                     }
+                } catch {
+                    if sendsReasoning, ChatFailure.from(error).rejectsReasoning { continue }
+                    break
                 }
-            } catch {
-                continue
+                let summary = SecretShield.shared.restore(ChatText.clean(text))
+                if !summary.isEmpty { return (summary, reference, usage.input == nil && usage.output == nil ? nil : usage) }
+                break
             }
-            let summary = SecretShield.shared.restore(ChatText.clean(text))
-            if !summary.isEmpty { return (summary, reference, usage.input == nil && usage.output == nil ? nil : usage) }
         }
         return nil
     }
@@ -829,7 +840,12 @@ final class ChatRunner {
     /// What the run remembered, and 旁审's 提醒 that waited, once it rests.
     func flushMemoryNotes(_ id: UUID) {
         for change in memoryNotes.removeValue(forKey: id) ?? [] { noteMemory(change, in: id) }
-        for message in heldAdvice.removeValue(forKey: id) ?? [] { conversations.append(message, to: id) }
+        for message in heldAdvice.removeValue(forKey: id) ?? [] {
+            let mark = heldAdviceMarks.removeValue(forKey: message.id)
+            let run = conversations.conversation(id)?.messages.filter { $0.runID == message.runID && !$0.isUpkeep } ?? []
+            if let mark, Advisor.isStale(after: mark, in: run) { continue }
+            conversations.append(message, to: id)
+        }
     }
 
     /// 旁审's 必须停 while the run goes on (user 2026-09-17): the run stops where it is — what had arrived is kept, the
@@ -1900,7 +1916,7 @@ final class ChatRunner {
     /// A ChatGPT sign-in is refreshed here first when it is about to lapse (7i, U2).
     private func target(for reference: ModelReference) async -> ChatTarget? {
         guard !reference.modelID.isEmpty, let authorization = await providers.authorization(reference.providerID),
-              let endpoint = providers.endpoints(for: reference.providerID).first else { return nil }
+              let endpoint = await providers.endpoint(for: reference.providerID, model: reference.modelID) else { return nil }
         return ChatTarget(providerID: reference.providerID, modelID: reference.modelID, endpoint: endpoint, key: authorization.key,
                           maxOutput: providers.modelInfo(reference.providerID, reference.modelID)?.maxOutput, headers: authorization.headers)
     }

@@ -114,6 +114,7 @@ enum VerificationHooks {
 
     static func applySettings(to state: AppState, profile: AppProfile, settings: UserDefaults = .standard) {
         guard !profile.isDefault else { return }
+        if let path = settings.string(forKey: dumpRequestsKey) { ChatWire.requestDumpFolder = URL(fileURLWithPath: path, isDirectory: true) }
         if let raw = settings.string(forKey: settingsCategoryKey), let category = SettingsCategory(rawValue: raw) {
             state.settingsCategory = category
         }
@@ -242,6 +243,8 @@ enum VerificationHooks {
     static let conversationKey = "FormoraConversation"
     /// `-FormoraFreshChat <role>`: a new direct chat with that seeded Agent, selected.
     static let freshChatKey = "FormoraFreshChat"
+    /// `-FormoraFreshGroup 实测`: a new group of every active Agent, selected (real-model test 2026-09-18).
+    static let freshGroupKey = "FormoraFreshGroup"
     /// `-FormoraMessageSearch 短信`: types into the list's search.
     static let messageSearchKey = "FormoraMessageSearch"
     /// `-FormoraGroupDialog create|settings`: the group dialog opens (settings: the first group).
@@ -279,6 +282,12 @@ enum VerificationHooks {
            let agent = state.agents.agents.first(where: { $0.roleID == role }),
            let fresh = try? store.startDirect(agentID: agent.id, projectID: project.id, blockReason: nil) {
             state.selectedConversationID = fresh.id
+        }
+        // Group names are unique in a project, so each one gets a short tail.
+        if let name = settings.string(forKey: freshGroupKey), let project = currentProject,
+           let group = try? store.createGroup(name: name + " " + UUID().uuidString.prefix(4), memberIDs: state.agents.agents.filter(\.isActive).map(\.id),
+                                              projectID: project.id, reasonFor: { _ in nil }) {
+            state.selectedConversationID = group.id
         }
         if let query = settings.string(forKey: messageSearchKey) { state.messageSearch = query }
         if settings.bool(forKey: seedUsageKey) {
@@ -638,6 +647,8 @@ enum VerificationHooks {
     static let seedUnreadKey = "FormoraSeedUnread"
     /// `-FormoraSeedSubagent YES` (user 2026-09-17): a project subagent made and said in the thread, no model needed.
     static let seedSubagentKey = "FormoraSeedSubagent"
+    /// `-FormoraDumpRequests <folder>` (user 2026-09-18): every model request's body is written there, one file a call.
+    static let dumpRequestsKey = "FormoraDumpRequests"
 
     /// `/agent 目的` as it ends, without a model: the project has a code-reviewer and the selected conversation says
     /// so. Called once the project's folder is known — the file is the project's.

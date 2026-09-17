@@ -146,9 +146,15 @@ enum ChatWire {
         let isChatGPT = target.providerID == ChatGPTAuth.providerID
         let path = isChatGPT ? ChatGPTAuth.responsesPath : path(for: apiProtocol, modelID: target.modelID)
         let system = isChatGPT ? (shielded.system.flatMap { $0.isEmpty ? nil : $0 } ?? ChatGPTAuth.defaultInstructions) : shielded.system
+        // Keys in a fixed order (user 2026-09-18): a Swift dictionary hands its keys over in an order of its own each
+        // time, so the same request read differently on every call — and a provider's cache, automatic or asked for,
+        // matches the beginning of a request byte for byte. The tools come first; with their keys shuffled, nothing
+        // after them was ever read from the cache (DeepSeek, three calls of one run: 6%).
         guard var request = target.endpoint.request(path, key: target.key),
               let body = try? JSONSerialization.data(withJSONObject: body(target, system: system, history: shielded.history, reasoning: reasoning,
-                                                                           sendsReasoning: sendsReasoning, tools: tools)) else { return nil }
+                                                                           sendsReasoning: sendsReasoning, tools: tools),
+                                                     options: [.sortedKeys]) else { return nil }
+        if let folder = requestDumpFolder { dump(body, to: folder) }
         request.httpMethod = "POST"
         request.timeoutInterval = idleTimeout
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -187,6 +193,17 @@ enum ChatWire {
 
     /// The system prompt goes where each protocol wants it: a leading system message, `instructions`, `system`,
     /// `systemInstruction`. So do the tools, and the calls and results in the history.
+    /// QA only (`-FormoraDumpRequests <folder>`, user 2026-09-18): every request body as it leaves, one file a call, so two
+    /// calls can be compared byte for byte — what a provider's cache does. A body never holds a key (that is a header).
+    nonisolated(unsafe) static var requestDumpFolder: URL?
+    nonisolated(unsafe) private static var dumped = 0
+
+    private static func dump(_ body: Data, to folder: URL) {
+        dumped += 1
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try? body.write(to: folder.appendingPathComponent(String(format: "%04d.json", dumped)))
+    }
+
     /// Claude through OpenRouter: the one OpenAI-compatible route whose cache has to be asked for. Only there — another
     /// host may not know the field.
     static func wantsCacheControl(_ target: ChatTarget) -> Bool {
@@ -202,7 +219,9 @@ enum ChatWire {
         switch target.endpoint.apiProtocol {
         case .openAICompletions:
             var messages: [[String: Any]] = system.map { [["role": "system", "content": $0]] } ?? []
-            messages += completionsMessages(history, returnsThinking: dialect == .deepSeek || dialect == .zai)
+            // DeepSeek 思考着的请求：上次用户开口以来没带思考的工具轮次，补一个空的 reasoning_content（见下）。
+            let fillsThinking = dialect == .deepSeek && level != .off
+            messages += completionsMessages(history, returnsThinking: dialect == .deepSeek || dialect == .zai, fillsThinking: fillsThinking)
             var body: [String: Any] = [
                 "model": target.modelID,
                 "stream": true,
@@ -218,10 +237,12 @@ enum ChatWire {
             // Anthropic / Vertex / Bedrock / Azure 各路由都支持）。没有这一行，每一步都按全价重发整段历史。
             if Self.wantsCacheControl(target) { body["cache_control"] = ["type": "ephemeral"] }
             // DeepSeek and Z.ai, thinking, want every tool-call round since the last user message back with its thinking
-            // (L7), and refuse the request without it (400). A round another model did — a fallback taking over from a
-            // primary that doesn't think every round — has none to give: this request goes without thinking, the
-            // switch 关闭 already uses (user 2026-09-14).
-            if dialect == .deepSeek || dialect == .zai, lacksThinking(history) {
+            // (L7), and refuse the request without it (400). A round without any — the model didn't think that step, or a
+            // fallback model did it — used to turn thinking off for the request (user 2026-09-14). 真实测试 2026-09-18：
+            // 这样一来同一次运行里思考开一下关一下，服务端渲染出来的整段前缀跟着变，那一次调用的缓存全丢（每次运行的最后
+            // 一步从 96% 掉到 0）。DeepSeek 接受空的 reasoning_content：补一个空值，思考一直开着，前缀不变。Z.ai / Moonshot
+            // 没实测过空值，仍旧这一次不思考。
+            if dialect == .zai, lacksThinking(history) {
                 body["thinking"] = ["type": "disabled"]
                 body["reasoning_effort"] = nil
             }
@@ -303,7 +324,9 @@ enum ChatWire {
     static let resultImagesNote = "上面工具结果里的图片："
 
     /// A tool message takes only text here, so a batch's pictures follow the results as a user message (V3).
-    private static func completionsMessages(_ history: [ChatTurn], returnsThinking: Bool) -> [[String: Any]] {
+    private static func completionsMessages(_ history: [ChatTurn], returnsThinking: Bool, fillsThinking: Bool = false) -> [[String: Any]] {
+        // Rounds since the last user turn are the ones whose thinking goes back.
+        let current = (history.lastIndex { $0.role == .user } ?? -1) + 1
         func image(_ picture: ChatImage) -> [String: Any] { ["type": "image_url", "image_url": ["url": picture.dataURL]] }
         var messages: [[String: Any]] = []
         var pending: [ChatImage] = []
@@ -312,7 +335,7 @@ enum ChatWire {
             messages.append(["role": "user", "content": [["type": "text", "text": resultImagesNote]] + pending.map(image)])
             pending = []
         }
-        for turn in history {
+        for (index, turn) in history.enumerated() {
             if turn.role != .tool { flush() }
             switch turn.role {
             case .user:
@@ -332,7 +355,9 @@ enum ChatWire {
                     message["tool_calls"] = turn.toolCalls.map { call -> [String: Any] in
                         ["id": call.id, "type": "function", "function": ["name": call.name, "arguments": arguments(call)]]
                     }
-                    if returnsThinking, let thinking = turn.thinking { message["reasoning_content"] = thinking }
+                    if returnsThinking, let thinking = turn.thinking ?? (fillsThinking && index >= current ? "" : nil) {
+                        message["reasoning_content"] = thinking
+                    }
                 }
                 messages.append(message)
             }
@@ -570,11 +595,15 @@ enum ChatText {
                 }
                 guard !message.text.isEmpty || !message.toolCalls.isEmpty else { continue }
                 let returnsThinking = index > lastSpoken && !message.toolCalls.isEmpty
-                add(ChatTurn(role: .assistant, text: message.text, toolCalls: message.toolCalls.map(\.forHistory),
+                // A file written in an earlier run isn't carried along (user 2026-09-17); the run that wrote it still
+                // sees what it wrote (2026-09-18) — the history changes here anyway, where the thinking stops going back.
+                let settled = index < lastSpoken
+                add(ChatTurn(role: .assistant, text: message.text, toolCalls: settled ? message.toolCalls.map(\.forHistory) : message.toolCalls,
                              thinking: returnsThinking ? message.thinking : nil,
                              thinkingSignature: returnsThinking ? message.thinkingSignature : nil))
                 for call in message.toolCalls {
                     var output = call.result.map { $0.pruned == true ? Compaction.placeholder($0) : $0.output } ?? "没有执行。"
+                    if settled, call.omitsText { output += ToolCall.omittedNote }
                     var images: [ChatImage] = []
                     if let result = call.result, result.pruned != true, let paths = result.images, !paths.isEmpty {
                         if seesImages {
@@ -601,13 +630,26 @@ extension ToolCall {
     /// file cost 45,000 tokens on every later step. The path stays, the text becomes a line saying how much there was
     /// and where to read it. Only once the call went through; only what is long; the thread, 撤销 and the file history
     /// keep the call as it was written. Keys are sorted, so the same history reads the same and the provider's cache hits.
+    /// The mark that stands for the text: whose it is and what it isn't. The first wording — 「N 字，已经在文件里……」 — a
+    /// model read as its own words: 「I accidentally wrote placeholder content?!」, and it read the whole file back to
+    /// check (real test, DeepSeek, 2026-09-18), spending more than the mark had saved.
+    static func omitted(_ count: Int) -> String {
+        "〔系统省略：你这一步写入的完整内容共 \(count) 字，已经写进文件；为节省上下文，历史里不再重复。这行字是系统的标记，不是文件内容。〕"
+    }
+
+    /// What the call's result adds once its text was left out — the result is where a model looks for what happened.
+    static let omittedNote = "\n〔系统注：上面这次调用的长文本在历史里已省略显示，文件里是你写的完整内容，不用重读核对；确实要看现在的内容再用 read。〕"
+
+    /// Whether `forHistory` leaves text out of this call.
+    var omitsText: Bool { forHistory.arguments != arguments }
+
     var forHistory: ToolCall {
         guard result?.status == .done, name == AgentTools.write.name || name == AgentTools.edit.name,
               arguments.count > Self.writtenTextLimit, var fields = ToolArguments.parse(arguments) else { return self }
         var changed = false
         for key in ["content", "old_text", "new_text"] {
             guard let text = fields[key] as? String, text.count > Self.writtenTextLimit else { continue }
-            fields[key] = "（\(text.count) 字，已经在文件里，这里不再重复；要看现在的内容用 read 读这个文件）"
+            fields[key] = Self.omitted(text.count)
             changed = true
         }
         guard changed, let data = try? JSONSerialization.data(withJSONObject: fields, options: [.sortedKeys]) else { return self }

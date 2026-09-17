@@ -602,7 +602,7 @@ final class BobSession {
 
     private func target(_ reference: ModelReference) async -> ChatTarget? {
         guard !reference.modelID.isEmpty, let authorization = await providers.authorization(reference.providerID),
-              let endpoint = providers.endpoints(for: reference.providerID).first else { return nil }
+              let endpoint = await providers.endpoint(for: reference.providerID, model: reference.modelID) else { return nil }
         return ChatTarget(providerID: reference.providerID, modelID: reference.modelID, endpoint: endpoint, key: authorization.key,
                           maxOutput: providers.modelInfo(reference.providerID, reference.modelID)?.maxOutput, headers: authorization.headers)
     }

@@ -49,7 +49,9 @@ enum ChatFailure: Error, Equatable, Sendable {
         case let .http(status, message):
             let detail = message.map { "：\($0)" } ?? ""
             switch status {
-            case 401, 403: return "服务商没有接受这个 API Key（\(status)）\(detail)"
+            case 401: return "服务商没有接受这个 API Key（401）\(detail)"
+            // 403 = 认得这个 Key，但不让它做这件事（Command Code 对套餐外的模型回 MODEL_NOT_IN_PLAN，user 2026-09-18）。
+            case 403: return "这个 Key 没有权限用这个模型（403，多半是套餐或权限不含它）\(detail)"
             case 404: return "找不到这个模型或地址（404）\(detail)"
             case 429: return "请求太多或额度用完了（429）\(detail)"
             case 500...: return "服务商那边出错了（\(status)）\(detail)"

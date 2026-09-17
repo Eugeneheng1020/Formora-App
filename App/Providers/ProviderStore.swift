@@ -418,6 +418,17 @@ final class ProviderStore {
         }
     }
 
+    /// Where a request for `model` goes: the provider's first host, speaking the protocol the model is served on
+    /// (`ProviderEndpoint.serving`). Only a platform the user added can be mixed; its list is read here when it hasn't
+    /// been this run — once, not per request.
+    func endpoint(for id: String, model: String) async -> ProviderEndpoint? {
+        guard let endpoint = endpoints(for: id).first else { return nil }
+        guard entry(id)?.isCustom == true else { return endpoint }
+        if modelLists[id] == nil { await loadModels(id) }
+        guard case .loaded(let models) = modelLists[id] else { return endpoint }
+        return endpoint.serving(models.first { $0.id == model })
+    }
+
     /// Tests the saved key; on failure tries the provider's other host and remembers the one that works (S15).
     func test(_ id: String) async {
         if entry(id)?.access == .chatGPT { return await testChatGPT() }

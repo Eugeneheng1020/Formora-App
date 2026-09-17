@@ -24,6 +24,28 @@ struct ProviderEndpoint: Equatable, Sendable {
         }
         return request
     }
+
+    /// The endpoint that serves `model` (user 2026-09-18). A platform has one protocol setting, but a mixed one serves
+    /// each model on its own endpoint — Command Code: Claude only on `/messages`, DeepSeek only on `/chat/completions` —
+    /// so whichever protocol was chosen, the other half of its models answered with an error. When the platform's list
+    /// says where a model lives and that isn't the chosen protocol, the request speaks the protocol the model has.
+    /// The base follows the two conventions: an OpenAI base ends in `/v1`, an Anthropic one is the bare host.
+    func serving(_ model: ModelInfo?) -> ProviderEndpoint {
+        guard let served = model?.endpoints, apiProtocol != .googleGenerativeAI else { return self }
+        func has(_ tail: String) -> Bool { served.contains { $0.lowercased().hasSuffix(tail) } }
+        let tails: [(APIProtocol, String)] = [(.openAICompletions, "/chat/completions"), (.anthropicMessages, "/messages"),
+                                              (.openAIResponses, "/responses")]
+        if let own = tails.first(where: { $0.0 == apiProtocol }), has(own.1) { return self }
+        guard let other = tails.first(where: { has($0.1) })?.0 else { return self }
+        var base = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        while base.hasSuffix("/") { base.removeLast() }
+        if other == .anthropicMessages {
+            base = ProviderStore.normalizedBaseURL(base, apiProtocol: .anthropicMessages)
+        } else if apiProtocol == .anthropicMessages {
+            base += "/v1"
+        }
+        return ProviderEndpoint(baseURL: base, apiProtocol: other, keyCheckPath: keyCheckPath, notFoundMeansAuthorized: notFoundMeansAuthorized)
+    }
 }
 
 enum ConnectionOutcome: Equatable, Sendable {
@@ -162,7 +184,8 @@ struct ProviderClient: Sendable {
             return ModelInfo(id: id,
                              name: (item["display_name"] as? String) ?? (item["name"] as? String),
                              contextWindow: (item["context_length"] as? Int) ?? (item["context_window"] as? Int),
-                             acceptsImages: takesImages(item))
+                             acceptsImages: takesImages(item),
+                             endpoints: item["supported_endpoints"] as? [String])
         }
     }
 

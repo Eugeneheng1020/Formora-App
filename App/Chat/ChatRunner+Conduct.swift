@@ -29,8 +29,10 @@ extension ChatRunner {
 
     /// Bob's one call: his model alone — a member's would be the member judging its own work. It counts in the
     /// conversation's /cost, like the dispatcher's (7g). `nil` without his model or an answer.
-    func askBob(_ system: String, _ prompt: String, in id: UUID) async -> String? {
-        guard let model = conductorModel(), let reply = await oneShot(system: system, prompt: prompt, candidates: [model]) else { return nil }
+    func askBob(_ system: String, _ prompt: String, in id: UUID, thinks: Bool = true) async -> String? {
+        guard let model = conductorModel(), let reply = await oneShot(system: system, prompt: prompt, candidates: [model], thinks: thinks) else {
+            return nil
+        }
         conversations.append(Message(role: .user, text: "", model: reply.model, usage: reply.usage, isHidden: true, isUpkeep: true), to: id)
         return reply.summary
     }
@@ -478,7 +480,7 @@ extension ChatRunner {
             guard first?.id == messageID || message.boardParent != nil else { return }
         }
         Task { [weak self] in
-            guard let self, let reply = await self.askBob(TaskTitle.system, input, in: id), let title = TaskTitle.parse(reply) else { return }
+            guard let self, let reply = await self.askBob(TaskTitle.system, input, in: id, thinks: false), let title = TaskTitle.parse(reply) else { return }
             self.conversations.setCardTitle(title, for: messageID.uuidString, in: id)
         }
     }

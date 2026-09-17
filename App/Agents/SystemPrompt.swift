@@ -69,7 +69,7 @@ enum SystemPrompt {
     /// Effort in proportion (user 2026-09-17): nothing told an Agent that a small thing is done directly — 「删除 skills
     /// 来源文件夹」 took nine looks around before the `mv`, and three more to confirm it. Claude Code and Codex say the
     /// same to theirs: what was asked, nothing more.
-    static let proportionRule = "出力和事情的大小相称：一两步能做完的事直接做，做完一两句话说结果；只做用户这一轮要的事，不顺手多做。会删除、覆盖或收不回的操作，动手前核对一次对象、做完确认一次结果就够了，不要换着法子反复验证。"
+    static let proportionRule = "出力和事情的大小相称：一两步能做完的事直接做，做完一两句话说结果；只做用户这一轮要的事，不顺手多做。做完验证一次就够：要查的几样放进同一条命令，不要换着法子反复验证；会删除、覆盖或收不回的操作，动手前先核对一次对象。"
 
     static func preamble(_ environment: Environment) -> String {
         // 2026-09-18, after a month of additions: three rules on how to answer and two on options each became one —
