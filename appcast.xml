@@ -5,6 +5,15 @@
     <description>Formora 的更新</description>
     <language>zh-Hans</language>
     <item>
+      <title>1.0.15</title>
+      <pubDate>Thu, 17 Sep 2026 20:55:35 +0800</pubDate>
+      <sparkle:version>31</sparkle:version>
+      <sparkle:shortVersionString>1.0.15</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[<p>点停止时还在排队的消息不用再发一遍：活停下后它接着回复这条（群聊照常分派）</p>]]></description>
+      <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.15/Formora-1.0.15.dmg" type="application/octet-stream" sparkle:edSignature="zkL15YRaT1L6zlKb9+EmC9KtRcNOsOqufwfhnxZn1oxWzeAIpZfNCQgNyrZdOWuO/EzAcVEMEtBUXeKJtyYIDQ==" length="12688817"/>
+    </item>
+    <item>
       <title>1.0.14</title>
       <pubDate>Thu, 17 Sep 2026 20:47:16 +0800</pubDate>
       <sparkle:version>30</sparkle:version>
@@ -84,15 +93,6 @@
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
       <description><![CDATA[<p>操作电脑更自主：每一步做完自己等画面稳定、核对窗口变化和预期，不对就换做法，同一步最多再试 3 次；做完由旁审看最后一张截图验收（Bob 也一样）；截图更清楚；中文输入法下输入文字不再丢字</p>]]></description>
       <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.6/Formora-1.0.6.dmg" type="application/octet-stream" sparkle:edSignature="Dc6rExkFTFsDlBHBobvHyGUnfqbeE+9azH6zvM4JdLWiaD6Qdmg/vTqu1Gt/sNKXljsyUgnr2tQkwPwZLCgcCg==" length="12760894"/>
-    </item>
-    <item>
-      <title>1.0.5</title>
-      <pubDate>Tue, 15 Sep 2026 21:09:00 +0800</pubDate>
-      <sparkle:version>21</sparkle:version>
-      <sparkle:shortVersionString>1.0.5</sparkle:shortVersionString>
-      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <description><![CDATA[<p>未读角标照微信；命令和代码块前有复制图标；打开对话停在最新、底部留空；消息列表像聊天软件：去掉状态和筛选、按最近更新排、没有回复时提醒；回复里的文件路径和网址能点；文件树显示隐藏文件夹；「全部放行」不再问危险命令</p>]]></description>
-      <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.5/Formora-1.0.5.dmg" type="application/octet-stream" sparkle:edSignature="tvmAkomF9kBGizEEPs/ZqPfoUenDp0YavyACyEv1Hjw5kJU9kv1wACaovX1wd/hOrJMyaLEb3zPlWlWuwULOAQ==" length="12665488"/>
     </item>
   </channel>
 </rss>
