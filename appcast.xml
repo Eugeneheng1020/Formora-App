@@ -5,6 +5,15 @@
     <description>Formora 的更新</description>
     <language>zh-Hans</language>
     <item>
+      <title>1.0.14</title>
+      <pubDate>Thu, 17 Sep 2026 20:47:16 +0800</pubDate>
+      <sparkle:version>30</sparkle:version>
+      <sparkle:shortVersionString>1.0.14</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[<p>工作中发的消息优先处理（长命令转后台让路）；计划条加关闭按钮，关了就不再按计划做；没开计划模式不再自动列计划</p>]]></description>
+      <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.14/Formora-1.0.14.dmg" type="application/octet-stream" sparkle:edSignature="J2kwHQwCy44wRAB2COPoEzRoofMJkDbbz+zjhvuYUbPrSAa+hNXjVEmd9qkLPyiQ3W8Qb9DKwS3AOAGKdjmlDw==" length="12681461"/>
+    </item>
+    <item>
       <title>1.0.13</title>
       <pubDate>Wed, 16 Sep 2026 21:03:55 +0800</pubDate>
       <sparkle:version>29</sparkle:version>
@@ -84,15 +93,6 @@
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
       <description><![CDATA[<p>未读角标照微信；命令和代码块前有复制图标；打开对话停在最新、底部留空；消息列表像聊天软件：去掉状态和筛选、按最近更新排、没有回复时提醒；回复里的文件路径和网址能点；文件树显示隐藏文件夹；「全部放行」不再问危险命令</p>]]></description>
       <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.5/Formora-1.0.5.dmg" type="application/octet-stream" sparkle:edSignature="tvmAkomF9kBGizEEPs/ZqPfoUenDp0YavyACyEv1Hjw5kJU9kv1wACaovX1wd/hOrJMyaLEb3zPlWlWuwULOAQ==" length="12665488"/>
-    </item>
-    <item>
-      <title>1.0.4</title>
-      <pubDate>Tue, 15 Sep 2026 20:34:30 +0800</pubDate>
-      <sparkle:version>20</sparkle:version>
-      <sparkle:shortVersionString>1.0.4</sparkle:shortVersionString>
-      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <description><![CDATA[<p>要你做决定的一律停在输入框上方（等你确认、方案、要继续吗、重试，消息和看板一样）；消息里的工具执行折叠成一组，只展开正在处理的一步；选项确认能回上一步改答案；Agent 在回复里列的编号方案也做成选项卡片</p>]]></description>
-      <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.4/Formora-1.0.4.dmg" type="application/octet-stream" sparkle:edSignature="v5TheKBcRY8A7BDwsK2xcLp3zbRT0XAQc+CgdWHYht58xc//yyithcYUxMIJkhAhU1IfDzZYPTwriLdMf398CA==" length="12637137"/>
     </item>
   </channel>
 </rss>
