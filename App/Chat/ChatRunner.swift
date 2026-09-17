@@ -369,8 +369,9 @@ final class ChatRunner {
         reviewing.remove(id)
         for child in conversations.subtasks(of: id) where isRunning(child.id) { stop(child.id) }
         guard let run = runs.removeValue(forKey: id) else {
-            deliverSteering(id)
+            let spoken = deliverSteering(id)
             stopTeamwork(id)
+            if spoken { answerAfterStop(id) }
             return
         }
         run.task.cancel()
@@ -392,8 +393,20 @@ final class ChatRunner {
             }
         }
         conversations.closeOpenCalls(in: id, ToolResult(status: .stopped, output: "用户停止了，这一步没有执行。"))
-        deliverSteering(id)
+        let spoken = deliverSteering(id)
         stopTeamwork(id)
+        if spoken { answerAfterStop(id) }
+    }
+
+    /// 停止 with the user's message waiting (user 2026-09-17; Claude Code and Codex do the same): the work stops and
+    /// the message is answered as if sent now — nobody sends it twice. A subtask's goes back with its report.
+    private func answerAfterStop(_ id: UUID) {
+        guard let conversation = conversations.conversation(id), !conversation.isSubtask, !isRunning(id) else { return }
+        if conversation.isGroup {
+            if let message = conversation.messages.last(where: Self.isSpoken) { route(id, message: message.id) }
+        } else {
+            reply(to: id)
+        }
     }
 
     /// What 停止 ends besides the run (7g): a chain, an autorun (M4, A4); a subtask's parent gets what it had (S7).
