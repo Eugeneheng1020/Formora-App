@@ -33,7 +33,7 @@ struct AgentModelTab: View {
 
     /// 7b, L5: how far the Agent goes without asking; saved as it changes, like 项目权限.
     private var approvalBlock: some View {
-        DetailBlock(title: "权限模式", note: "这个 Agent 动手之前要不要先问你；修改后自动保存。") {
+        DetailBlock(title: "权限模式", note: "这个 Agent 动手之前要不要先问你。") {
             EmptyView()
         } content: {
             VStack(alignment: .leading, spacing: 9) {
@@ -49,7 +49,7 @@ struct AgentModelTab: View {
                 HStack(alignment: .top, spacing: 11) {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("旁审").font(FormoraFont.ui(12.5, weight: 600)).foregroundStyle(Palette.ink.color)
-                        Text("另一个模型在旁边看它干活：改完文件、跑完命令的每一步和最后的回答都看一眼，没问题不出声，有问题提醒它。用「设置 → Bob」选的模型，没选就用它自己的。每看一次多一次模型调用。")
+                        Text("另一个模型在旁边看它每一步和最后的回答，有问题才提醒；每看一次多一次模型调用。")
                             .font(FormoraFont.ui(11.5))
                             .foregroundStyle(Palette.inkMuted.color)
                             .fixedSize(horizontal: false, vertical: true)
@@ -73,7 +73,7 @@ struct AgentModelTab: View {
                     Text("允许操作电脑").font(FormoraFont.ui(12.5, weight: 600)).foregroundStyle(Palette.ink.color)
                     if !ComputerBuild.isAvailable { SmallTag(text: "只有官网版能用") }
                 }
-                Text("看屏幕、点按和打字、用脚本控制其他应用。第一次动手前会先问你，屏幕顶部随时能停。")
+                Text("看屏幕、点按打字、用脚本控制其他应用；第一次动手前先问你。")
                     .font(FormoraFont.ui(11.5))
                     .foregroundStyle(Palette.inkMuted.color)
                     .fixedSize(horizontal: false, vertical: true)
@@ -134,7 +134,7 @@ struct AgentModelTab: View {
     // MARK: 模型
 
     private var modelBlock: some View {
-        DetailBlock(title: "模型", note: "保存后的新任务使用新配置；运行中任务继续使用启动时快照。") {
+        DetailBlock(title: "模型", note: "保存后的新任务用新配置，运行中的不受影响。") {
             SaveState(isDirty: isDirty)
             Button("保存模型配置") { save() }
                 .buttonStyle(FormoraButtonStyle(kind: .primary))
@@ -263,7 +263,7 @@ struct AgentModelTab: View {
     // MARK: 备用模型
 
     private var fallbackBlock: some View {
-        DetailBlock(title: "备用模型", note: "上面任何一个模型限流、配额不足或不可用时，都退到它兜底；只留一个。") {
+        DetailBlock(title: "备用模型", note: "上面的模型不可用时，退到它兜底。") {
             Button("添加备用模型") { addFallback() }
                 .buttonStyle(FormoraButtonStyle())
                 .disabled(draft.fallbacks.count >= 1)
@@ -313,7 +313,7 @@ struct AgentModelTab: View {
     private var projectBlock: some View {
         let projects = session.projects
         let granted = projects.filter { agent.projectIDs.contains($0.id) }.count
-        return DetailBlock(title: "项目权限", note: "至少保留 1 个授权项目；修改后自动保存。", isLast: true) {
+        return DetailBlock(title: "项目权限", note: "至少保留 1 个授权项目。", isLast: true) {
             BlockMeta(text: "\(granted) 个项目")
         } content: {
             VStack(spacing: 0) {

@@ -289,7 +289,7 @@ private struct BobStepCard: View {
             }
             // Undone, the file isn't what the card says any more: only the line below speaks for it.
             if let card = step.card, step.result?.change?.undone != true {
-                BobResultCard(result: card) { go(card.jump) }
+                BobResultCard(result: card, undo: card.memory == nil ? nil : { state.bob.undoMemory(step: step.id) }) { go(card.jump) }
                     .padding(.horizontal, 8)
                     .padding(.bottom, 8)
             }
@@ -397,6 +397,8 @@ private struct BobChangeLine: View {
 /// `.assistant-result`: a check, the title, the mono meta line, and the way to see it.
 private struct BobResultCard: View {
     let result: BobResult
+    /// A memory card's 撤销 (user 2026-09-17).
+    var undo: (() -> Void)?
     let go: () -> Void
 
     var body: some View {
@@ -417,6 +419,17 @@ private struct BobResultCard: View {
                     .buttonStyle(FormoraButtonStyle())
                     .padding(.top, 4)
                     .accessibilityIdentifier("bob.go")
+            }
+            if let undo {
+                if result.memoryUndone {
+                    Text("已撤销").font(FormoraFont.ui(11.5)).foregroundStyle(Palette.inkFaint.color).padding(.top, 2)
+                        .accessibilityIdentifier("bob.memory.undone")
+                } else {
+                    Button("撤销", action: undo)
+                        .buttonStyle(FormoraButtonStyle())
+                        .padding(.top, 4)
+                        .accessibilityIdentifier("bob.memory.undo")
+                }
             }
         }
         .padding(.vertical, 10)

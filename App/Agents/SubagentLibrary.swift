@@ -75,11 +75,31 @@ final class SubagentLibrary {
 
     /// The three shipped ones, into the global folder — once, when it doesn't exist yet: a deleted one stays deleted.
     func installBuiltIns() {
+        renameEarlierBuiltIns()
         guard let globalFolder, !FileManager.default.fileExists(atPath: globalFolder.path) else { return }
         try? FileManager.default.createDirectory(at: globalFolder, withIntermediateDirectories: true)
         for definition in Self.builtIns {
             try? SubagentFile.render(definition).write(to: globalFolder.appendingPathComponent(definition.name + ".md"), atomically: true,
                                                      encoding: .utf8)
+        }
+    }
+
+    /// Until 1.0.15 the three shipped as 探路、评审、查资料 (user 2026-09-17: English names, so `/scout` is typed without
+    /// switching the input method). A file still under its old name moves to the new one — the name inside too, the
+    /// rest as the user left it. One that was deleted stays deleted; where the user already has a file of the new name,
+    /// the old one is left alone.
+    static let earlierBuiltInNames = ["探路": "scout", "评审": "reviewer", "查资料": "researcher"]
+
+    private func renameEarlierBuiltIns() {
+        guard let globalFolder else { return }
+        for (old, new) in Self.earlierBuiltInNames {
+            let from = globalFolder.appendingPathComponent(old + ".md"), to = globalFolder.appendingPathComponent(new + ".md")
+            guard FileManager.default.fileExists(atPath: from.path), !FileManager.default.fileExists(atPath: to.path),
+                  let text = try? String(contentsOf: from, encoding: .utf8), var definition = SubagentFile.parse(text, source: .global),
+                  definition.name == old else { continue }
+            definition.name = new
+            guard (try? SubagentFile.render(definition).write(to: to, atomically: true, encoding: .utf8)) != nil else { continue }
+            try? FileManager.default.removeItem(at: from)
         }
     }
 
@@ -115,7 +135,7 @@ final class SubagentLibrary {
     /// Writes the definition where `scope` says and reads everything again; the file written.
     @discardableResult
     func save(_ definition: SubagentDefinition, scope: Scope, commands: [String] = Commands.all.map(\.name)) throws -> URL {
-        if let problem = SubagentNames.problem(with: definition.name, commands: commands) { throw SubagentProblem(problem) }
+        if let problem = SubagentNames.creationProblem(with: definition.name, commands: commands) { throw SubagentProblem(problem) }
         guard let folder = Self.folder(scope, projectRoot: projectRoot, global: globalFolder) else {
             throw SubagentProblem(scope == .project ? "项目文件夹现在打不开" : "这个版本没有全局文件夹，存到项目里")
         }
@@ -126,10 +146,11 @@ final class SubagentLibrary {
         return url
     }
 
-    /// 探路、评审、查资料 (omp's scout, reviewer and a researcher): read-only, cheap to run, the report their whole point.
+    /// scout, reviewer, researcher (omp's scout and reviewer, and a researcher): read-only, cheap to run, the report their
+    /// whole point. Named in English, described in Chinese (user 2026-09-17).
     static let builtIns: [SubagentDefinition] = [
         SubagentDefinition(
-            name: "探路", description: "先派它摸清一块代码或文档：读文件、搜索，交回压缩过的结论和每个结论对应的文件位置，不改任何东西。",
+            name: "scout", description: "先派它摸清一块代码或文档：读文件、搜索，交回压缩过的结论和每个结论对应的文件位置，不改任何东西。",
             tier: .read, model: nil, prompt: """
             ## 你是谁
             你是探路的：在动手之前替别人把一块代码或文档看清楚，交回一份能直接拿去用的地图。
@@ -156,7 +177,7 @@ final class SubagentLibrary {
             - 另外发现 / 不确定的。
             """, source: .builtIn),
         SubagentDefinition(
-            name: "评审", description: "方案或改动写好后派它把关：按 P0 到 P3 列出问题和依据，给可交付或不可交付的结论，不动手改。",
+            name: "reviewer", description: "方案或改动写好后派它把关：按 P0 到 P3 列出问题和依据，给可交付或不可交付的结论，不动手改。",
             tier: .read, model: nil, prompt: """
             ## 你是谁
             你是评审：替用户把关一份方案、一段改动或一份文档，指出会出事的地方，不替它重写。
@@ -179,7 +200,7 @@ final class SubagentLibrary {
             第一行只写「可交付」或「不可交付」（有 P0 或 P1 就是不可交付）。然后按级别列问题：每条一行标题 + 位置 + 依据 + 建议怎么改。最后一段「疑问」。
             """, source: .builtIn),
         SubagentDefinition(
-            name: "查资料", description: "要查外部资料时派它：上网搜、读网页，交回带来源链接的结论，分清事实和推测。",
+            name: "researcher", description: "要查外部资料时派它：上网搜、读网页，交回带来源链接的结论，分清事实和推测。",
             tier: .read, model: nil, prompt: """
             ## 你是谁
             你是查资料的：替别人上网把一个问题查清楚，交回有来源、能核对的结论。

@@ -154,7 +154,7 @@ extension ToolTier {
 
 /// A subagent's name is also its command, so it can't be one Formora already has (user 2026-09-15).
 enum SubagentNames {
-    static let lengthLimit = 20
+    static let lengthLimit = 32
     /// Never a subagent's: the composer's commands, `/agent` itself, the Skill prefix, and the clone words.
     static let reserved: Set<String> = ["agent", "agents", "skill", "分身", "自己", "clone", "self", "bob"]
 
@@ -174,6 +174,21 @@ enum SubagentNames {
         guard !taken.contains(key) else { return "「\(name)」和现有指令重名，换一个" }
         return nil
     }
+
+    /// A new one's name (user 2026-09-17): English — lower-case letters, digits, hyphens, a letter first — so `/name`
+    /// is typed without switching the input method. The description says what it is, in Chinese. Files named
+    /// otherwise — the user's earlier ones, Claude Code's — still load: `problem(with:)` is all they must pass.
+    static func creationProblem(with raw: String, commands: [String]) -> String? {
+        if let problem = problem(with: raw, commands: commands) { return problem }
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard EnglishSlug.isValid(name) else {
+            return "名字用英文：小写字母、数字和 -，字母开头，比如 code-reviewer；它是干什么的写在简介里"
+        }
+        return nil
+    }
+
+    /// What a model's or a user's try at a name comes to under that rule; empty when nothing of it is English.
+    static func slug(_ raw: String) -> String { EnglishSlug.make(raw, limit: lengthLimit) }
 }
 
 /// Everything that turns a purpose into a definition (user 2026-09-15: 依据目的创建它的 system prompt).

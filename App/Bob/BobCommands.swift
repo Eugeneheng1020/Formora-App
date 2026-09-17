@@ -18,7 +18,7 @@ struct BobCommand: Identifiable, Equatable, Sendable {
 enum BobCommands {
     static let all: [BobCommand] = [
         BobCommand(name: "/clear", note: "清空和 Bob 的对话", action: .clear),
-        BobCommand(name: "/memory", note: "看 Bob 记下了什么（不分项目，只读）", action: .memory),
+        BobCommand(name: "/memory", note: "看 Bob 读得到的记忆：全局的和他自己的（只读）", action: .memory),
         BobCommand(name: "/help", note: "列出这里能用的指令", action: .help),
         BobCommand(name: "/dump", note: "把和 Bob 的对话复制到剪贴板", action: .dump),
         BobCommand(name: "/export", note: "把和 Bob 的对话导出成 HTML 文件", action: .export),

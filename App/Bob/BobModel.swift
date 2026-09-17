@@ -58,13 +58,12 @@ final class BobModel {
     /// What each mode means for him: his changes are settings as well as files.
     static func note(_ mode: ApprovalMode) -> String {
         switch mode {
+        // One sentence a mode (user 2026-09-17). What always asks is said where it asks.
         case .alwaysAsk: "看和查直接做，会改东西的都先问你。"
-        case .write: "写文件、建 Skill、改设置直接做；跑命令、读网页、打开网址先问你。"
-        case .yolo: "全都直接做，不问；只在信得过时用。"
+        case .write: "写文件、改设置直接做，跑命令和上网先问你。"
+        case .yolo: "全都直接做，只有接入 MCP、清空记忆、会删数据的工具还会问。"
         }
     }
-
-    static let alwaysAsked = "危险命令、接入 MCP、清空记忆、会删数据的工具永远先问。"
 
     static func options(_ providers: ProviderStore) -> [Option] {
         providers.entries.filter { providers.hasKey($0.id) }.compactMap { entry in

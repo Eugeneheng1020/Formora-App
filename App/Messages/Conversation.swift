@@ -33,6 +33,8 @@ struct Conversation: Codable, Identifiable, Equatable, Sendable {
     var plan: [PlanItem] = []
     /// `/plan` (D5): look, ask and plan; change nothing until the user says go.
     var planMode = false
+    /// When it was last looked over for what the memory missed (user 2026-09-17): at most once a day.
+    var memoryPassAt: Date?
     /// A subtask's place (7g, S2): kept out of the list, opened from its parent's card.
     var parent: SubtaskLink?
     /// The board (8a, K3): the user's card positions and auto / custom — the one thing about the canvas that can't be derived.
@@ -69,7 +71,7 @@ struct Conversation: Codable, Identifiable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id, kind, projectID, agentID, groupName, members, title, titleIsAuto, titleIsModelNamed, status, visibility
         case reasoning, unread, createdAt, updatedAt, messages, plan, planMode, parent, boardLayout, groupNameIsAuto, cardTitles
-        case earlier
+        case earlier, memoryPassAt
     }
 
     /// Fields added after 6a are optional on disk, so older files still open.
@@ -98,6 +100,7 @@ struct Conversation: Codable, Identifiable, Equatable, Sendable {
         groupNameIsAuto = try values.decodeIfPresent(Bool.self, forKey: .groupNameIsAuto) ?? false
         cardTitles = try values.decodeIfPresent([String: String].self, forKey: .cardTitles) ?? [:]
         earlier = try values.decodeIfPresent([EarlierVersion].self, forKey: .earlier) ?? []
+        memoryPassAt = try values.decodeIfPresent(Date.self, forKey: .memoryPassAt)
     }
 
     var isGroup: Bool { kind == .group }

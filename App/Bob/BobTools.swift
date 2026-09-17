@@ -11,6 +11,9 @@ struct BobResult: Equatable, Sendable {
     var title: String
     var meta: String
     var jump: Jump?
+    /// A note he wrote, changed or forgot (user 2026-09-17): the card offers 撤销 until it is taken.
+    var memory: MemoryChange?
+    var memoryUndone = false
 
     var jumpLabel: String {
         switch jump {
@@ -61,14 +64,32 @@ enum BobTools {
     /// Everything he remembers, gone, when the user asks — it asks first (D95: his memory has no page of its own).
     static let memoryClear = ToolSpec(
         name: "memory_clear",
-        description: "Forget everything you remember, in every project, when the user asks you to. The user is asked first.",
+        description: "Forget everything in your own layer of the memory (the notes numbered b…), when the user asks you to. The user is asked first. What is global — about the user, read by every Agent — stays: forget those one at a time with remember's forget.",
         parameters: #"{"type":"object","properties":{}}"#,
         tier: .write)
 
+    /// `remember` as Bob is offered it (user 2026-09-17): what holds for the user everywhere, or his own layer — he
+    /// belongs to no project and is no role. The same checks as an Agent's.
+    static let remember = ToolSpec(
+        name: MemoryTools.remember.name,
+        description: MemoryTools.remember.description
+            .replacingOccurrences(of: "scope (global: true in every project — who the user is, how they want to be worked with, their red lines; project: this project's decisions and conventions, read by every Agent in it, and its lessons; agent: what the user wants from your role's work, in every project)",
+                                  with: "scope (global: true in every project and for every Agent — who the user is, how they want to be worked with, their red lines; bob: what the user asks of you, and your lessons about running Formora — never a project's facts)"),
+        parameters: MemoryTools.remember.parameters.replacingOccurrences(of: "For add: global | project | agent", with: "For add: global | bob"),
+        tier: .read)
+
     /// Everything Bob is offered — and every enabled MCP server's tools, added per request (D95).
     static let all: [ToolSpec] = [help, state, AgentTools.read, AgentTools.glob, AgentTools.grep, AgentTools.webSearch, AgentTools.fetch,
-                                  AgentTools.write, AgentTools.edit, AgentTools.bash, SkillTools.load, MemoryTools.remember, memoryClear,
+                                  AgentTools.write, AgentTools.edit, AgentTools.bash, SkillTools.load, remember, MemoryTools.recall, memoryClear,
                                   MCPConnect.catalogSpec, MCPConnect.addSpec, skillCreate, folderCreate, notificationSet, AgentTools.openURL]
+
+    /// What Bob reads and writes: what is global, and his own layer.
+    static let memoryScopes: [MemoryScope] = [.global, .bob]
+
+    static func memoryContext(_ context: Context) -> MemoryTools.Context {
+        MemoryTools.Context(readable: memoryScopes, writable: Dictionary(uniqueKeysWithValues: memoryScopes.map { ($0.name, $0) }),
+                            userWords: context.userWords, hasFailure: context.hasFailure, source: nil)
+    }
 
     static func tier(_ name: String) -> ToolTier? { all.first { $0.name == name }?.tier }
 
@@ -85,8 +106,12 @@ enum BobTools {
         let model: ModelReference?
         /// The model answering now, when its provider searches the web natively.
         let search: ChatTarget?
-        /// His memory, the same in every project (D95).
+        /// The memory: he reads what is global and his own layer, the same in every project (D95; user 2026-09-17).
         var memory: MemoryStore?
+        /// What the user said to him in this panel: what a note may rest on.
+        var userWords: [String] = []
+        /// Whether one of his steps failed here: what a lesson rests on.
+        var hasFailure = false
         /// Where a file's earlier text is kept for 撤销 — the Agents' folder (10d).
         var history: URL?
         var mcpClient = MCPClient()
@@ -206,15 +231,18 @@ enum BobTools {
             return .done(.done(SkillTools.loaded(skill, folder: context.skills.folder(of: skill))), nil)
         case MemoryTools.remember.name:
             guard let memory = context.memory else { return .done(.failed("这里没有记忆。"), nil) }
-            return .done(MemoryTools.run(call.arguments, store: memory, agent: Conductor.bobID, project: BobSession.everywhere), nil)
+            let (result, change) = MemoryTools.remember(call.arguments, store: memory, context: memoryContext(context))
+            return .done(result, change.map { BobResult(title: $0.line, meta: "记忆 · 记错了可以撤销", jump: nil, memory: $0) })
+        case MemoryTools.recall.name:
+            guard let memory = context.memory else { return .done(.failed("这里没有记忆。"), nil) }
+            return .done(MemoryTools.recall(call.arguments, store: memory, context: memoryContext(context)), nil)
         case memoryClear.name:
-            guard let memory = context.memory, let current = memory.text(agent: Conductor.bobID, project: BobSession.everywhere) else {
-                return .done(.done("本来就没有记着什么，不用清空。"), nil)
+            guard let memory = context.memory, !memory.entries(.bob).isEmpty else {
+                return .done(.done("你自己那层本来就没有记着什么，不用清空。"), nil)
             }
-            let count = current.split(separator: "\n").filter { $0.hasPrefix("- ") }.count
-            return .ask(summary: "清空 Bob 的记忆", detail: "一共 \(count) 条，清掉后在哪个项目里都不再记得") {
-                memory.rewrite("", agent: Conductor.bobID, project: BobSession.everywhere)
-                return (.done("记忆清空了。"), nil)
+            return .ask(summary: "清空 Bob 的记忆", detail: "他自己记的一共 \(memory.entries(.bob).count) 条，清掉后在哪个项目里都不再记得；全局记忆不动") {
+                memory.clear(.bob)
+                return (.done("你自己那层记忆清空了；全局记忆没有动。"), nil)
             }
         case AgentTools.write.name, AgentTools.edit.name:
             guard let root = context.project?.root else { return .done(.failed("现在没有打开的项目，写不了文件。"), nil) }

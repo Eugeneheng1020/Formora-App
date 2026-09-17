@@ -1,5 +1,5 @@
 ---
-name: Excel 表格（xlsx）
+name: office-xlsx
 description: 表格文件是输入或产出时用（.xlsx、.csv，用户说「这张表」「做个 Excel」）：取数、清洗、写回带公式和格式的表。用 openpyxl，装在项目文件夹里跑。
 ---
 

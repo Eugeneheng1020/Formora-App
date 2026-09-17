@@ -106,6 +106,8 @@ struct Skill: Identifiable, Equatable, Sendable {
 enum SkillProblem: Error, Equatable {
     case noSkillFile, unreadable
     case duplicate(String)
+    /// A new Skill's name (user 2026-09-17): English, as `/skill:name` is typed; an imported one comes as it is.
+    case englishName
     /// Enabled by this many Agents (spec §8.2, §8.7 rule 2).
     case inUse(Int)
 
@@ -114,6 +116,7 @@ enum SkillProblem: Error, Equatable {
         case .noSkillFile: "这个文件夹里没有 SKILL.md"
         case .unreadable: "SKILL.md 开头需要 name 和 description 两个字段"
         case .duplicate(let name): "已经有一个叫「\(name)」的 Skill，没有重复导入"
+        case .englishName: "name 用英文：小写字母、数字和 -，字母开头，比如 weekly-report；它是干什么的用中文写在 description 里"
         case .inUse(let count): "有 \(count) 个 Agent 启用了它，先在对应 Agent 的 Skills 标签里关掉"
         }
     }
@@ -260,6 +263,7 @@ final class SkillLibrary {
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "\n", with: " ")
         let description = rawDescription.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "\n", with: " ")
         guard !name.isEmpty, !description.isEmpty else { throw SkillProblem.unreadable }
+        guard EnglishSlug.isValid(name) else { throw SkillProblem.englishName }
         if let existing = skills.first(where: { FileSearch.normalize($0.name) == FileSearch.normalize(name) }) {
             throw SkillProblem.duplicate(existing.name)
         }

@@ -55,7 +55,7 @@ struct ModelSetupStep: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             SetupProgress(step: LaunchSetup.Step.model.rawValue).padding(.bottom, 22)
-            StepTitle(title: "配一个模型", detail: "Agent 靠模型思考和干活。选一家服务商，粘贴它的 API Key。")
+            StepTitle(title: "配一个模型", detail: "选一家模型服务商，粘贴它的 API Key。")
             FormLabel(text: "服务商")
             // Every key provider at once — ten in two columns, no hidden ones to scroll to.
             ScrollView {

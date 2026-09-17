@@ -55,9 +55,11 @@ enum SystemPrompt {
             parts.append("可用的 Skill（要做下面某件事之前，先用 skill 工具读它的全文，照里面的做法做）：\n"
                          + environment.skills.map { "- \($0.name)：\($0.description)" }.joined(separator: "\n"))
         }
-        // The memory after the role section (old app): heuristics, not the truth about the project now.
+        // The memory after the role section — its directory only (user 2026-09-17): a line a note, the rest read with
+        // `recall` when the work at hand needs it, as Skills load. Heuristics, not the truth about the project now.
         if environment.subagent == nil, let memory = environment.memory?.trimmingCharacters(in: .whitespacesAndNewlines), !memory.isEmpty {
-            parts.append("你以前在这个项目里记下的（可能已经过时；和用户现在说的或项目现状冲突时，以现在为准）：\n<memory>\n\(memory)\n</memory>")
+            let more = environment.tools.contains(MemoryTools.recall.name) ? "标了「有正文」的，和手上的事有关时用 recall 读细节；" : ""
+            parts.append("你的记忆目录（每条一行，[全局] 在任何项目都适用，[项目] 是这个项目里所有同事共用的，[你] 是你自己的；\(more)可能已经过时，和用户现在说的或项目现状冲突时，以现在为准）：\n<memory>\n\(memory)\n</memory>")
         }
         if let subtask = environment.subtask { parts.append(subtaskSection(subtask)) }
         if let goal = environment.goal { parts.append(goalSection(goal)) }
@@ -88,9 +90,7 @@ enum SystemPrompt {
             rules.append("你现在还不能读写文件、执行命令或上网；需要这些才能做的事，说清楚需要什么，让用户提供。")
         }
         // Memory (7f, F4).
-        if environment.tools.contains("remember") {
-            rules.append("值得下次还记得的事——用户明确说的偏好、项目约定、定下来的结论——用 remember 记一条；一次性的细节不用记。")
-        }
+        if environment.tools.contains(MemoryTools.remember.name) { rules.append(MemoryTools.rules) }
         // Delegation (7g, S1): when a subtask is worth its cold start.
         if environment.tools.contains("delegate") {
             rules.append("一件事能拆成几块并行做（比如分头查几个竞品），或者会翻出大量中间材料，可以用 delegate 委派给同事或你自己的分身；帮手看不到这段对话，交待要自包含。一两步能做完的事自己做。")

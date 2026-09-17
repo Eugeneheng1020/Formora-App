@@ -31,6 +31,8 @@ struct ThreadEvent: Codable, Equatable, Sendable {
         /// 10e: the user went back to a message and sent it again, changed — what it replaced is kept under this line.
         /// Empty text: the model reads nothing of it.
         case rewind
+        /// User 2026-09-17: a note written to the memory, changed or forgotten — said in the thread, with 撤销.
+        case memory
     }
 
     /// Bob's arrangement (9e): the stages in order — the members of one stage start together, the next stage waits
@@ -66,4 +68,8 @@ struct ThreadEvent: Codable, Equatable, Sendable {
     var from: UUID?
     /// rewind: the earlier version it stands for (10e).
     var versionID: UUID?
+    /// memory: what was written, and what 撤销 puts back.
+    var memoryChange: MemoryChange?
+    /// memory: the user took it back.
+    var undone: Bool?
 }

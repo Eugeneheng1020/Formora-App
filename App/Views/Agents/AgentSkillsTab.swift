@@ -7,13 +7,13 @@ struct AgentSkillsTab: View {
     let agent: AgentRecord
 
     var body: some View {
-        DetailBlock(title: "Skills", note: "全局安装，当前 Agent 独立启用。启用后，Agent 会在需要时读取它的全文。", isLast: true) {
+        DetailBlock(title: "Skills", note: "启用后，这个 Agent 需要时会读它的全文。", isLast: true) {
             Button("导入文件夹") { SkillImport.run(state: state, enableFor: agent) }
                 .buttonStyle(FormoraButtonStyle(kind: .primary))
                 .accessibilityIdentifier("agent.skills.import")
         } content: {
             if state.skills.skills.isEmpty {
-                Text("还没有安装 Skill。去「设置 → Skills」导入，或在这里导入一个文件夹。")
+                Text("还没有安装 Skill，在这里导入一个文件夹。")
                     .font(FormoraFont.ui(12))
                     .foregroundStyle(Palette.inkFaint.color)
                     .frame(maxWidth: .infinity)

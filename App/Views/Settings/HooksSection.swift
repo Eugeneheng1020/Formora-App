@@ -30,7 +30,7 @@ struct HooksSection: View {
     var body: some View {
         let hooks = state.hooks
         VStack(alignment: .leading, spacing: 0) {
-            SettingsSectionHead(category: .hooks, note: "到了设定的时机自动运行命令或通知网址；写法和 Claude Code 相同。") {
+            SettingsSectionHead(category: .hooks, note: "到了设定的时机自动运行命令或通知网址。") {
                 Button("添加 Hook") { state.hookEditor = .add(.global) }
                     .buttonStyle(FormoraButtonStyle(kind: .primary))
                     .accessibilityIdentifier("hooks.add")

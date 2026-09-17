@@ -72,8 +72,8 @@ extension AppState {
                 toasts.show("已精简", note: "旧的工具输出换成了占位，原文还在卡片里", seconds: 3)
             }
         case .memory:
-            guard let agent = commandAgent(conversation) else { return "这条对话里没有 Agent" }
-            commandCards[id] = CommandCard(kicker: "memory", title: "\(agent.displayName) 的记忆", body: .memory)
+            guard commandAgent(conversation) != nil else { return "这条对话里没有 Agent" }
+            commandCards[id] = CommandCard(kicker: "memory", title: "这条对话用得到的记忆", body: .memory)
         case .plan:
             return togglePlanMode(id, message: argument, projectRoot: projectRoot, projectName: projectName)
         case .todo:
@@ -173,21 +173,24 @@ extension AppState {
             }
             // 存到项目里（能访问项目文件夹时），否则存到全局。
             let scope: SubagentLibrary.Scope = subagents.projectRoot != nil ? .project : .global
-            let definition = SubagentDefinition(name: draft.name, description: draft.description, tier: draft.tier, model: nil,
+            // 名字用英文（user 2026-09-17）：模型没照做，就把它给的名字折成小写加连字符；折不出来（全是中文）留给弹窗让用户起。
+            let shaped = SubagentNames.slug(draft.name)
+            let name = SubagentNames.creationProblem(with: draft.name, commands: []) == nil || shaped.isEmpty ? draft.name : shaped
+            let definition = SubagentDefinition(name: name, description: draft.description, tier: draft.tier, model: nil,
                                                 prompt: draft.prompt, source: scope == .project ? .project : .global)
             do {
                 try subagents.save(definition, scope: scope)
-                commandCards[id] = CommandCard(kicker: "subagent", title: "已创建「\(draft.name)」", body: .rows([
+                commandCards[id] = CommandCard(kicker: "subagent", title: "已创建「\(name)」", body: .rows([
                     .init(name: "作用", note: draft.description.isEmpty ? "（没写描述）" : draft.description),
-                    .init(name: "命令", note: "/\(draft.name) 任务"),
+                    .init(name: "命令", note: "/\(name) 任务"),
                     .init(name: "工具", note: Self.tierLabel(draft.tier)),
-                    .init(name: "查看 / 编辑", note: "设置 → 子代理"),
+                    .init(name: "查看", note: "设置 → SubAgent"),
                 ]))
-                toasts.show("已创建子代理「\(draft.name)」", note: "/\(draft.name) 任务 派活 · 在 设置 → 子代理 查看和编辑", seconds: 4)
+                toasts.show("已创建子代理「\(name)」", note: "/\(name) 任务 派活", seconds: 4)
             } catch {
-                // 少见：撞名或提示词空。退回编辑弹窗，字段都填好，让用户改一下再存。
+                // 少见：撞名、名字不是英文或提示词空。退回弹窗，字段都填好，让用户改一下再存。
                 commandCards[id] = nil
-                var fallback = SubagentDraft(conversationID: id, purpose: purpose, name: draft.name, description: draft.description,
+                var fallback = SubagentDraft(conversationID: id, purpose: purpose, name: name, description: draft.description,
                                              tier: draft.tier, scope: scope, prompt: draft.prompt)
                 fallback.problem = (error as? SubagentProblem)?.message ?? error.localizedDescription
                 subagentDraft = fallback
@@ -204,31 +207,19 @@ extension AppState {
         }
     }
 
-    /// 设置 → 子代理 → 新建 (user 2026-09-16): a blank creation, filled by hand — no `/agent` purpose, no drafting.
-    func startBlankSubagentDraft() {
-        subagentDraft = SubagentDraft(conversationID: UUID(), purpose: "")
-    }
-
-    /// 设置 → 子代理 → 编辑 (user 2026-09-16): opens the dialog on an existing subagent, no drafting.
-    func beginEditingSubagent(_ definition: SubagentDefinition) {
-        guard subagents.isManaged(definition) else { return } // .claude files are read-only
-        subagentDraft = .editing(definition)
-    }
-
-    /// 保存: the file, the toast, the popover's new command. When editing, a renamed or moved subagent leaves no
-    /// old file behind.
+    /// 保存 on the dialog `/agent 目的` falls back to (a name taken or not English, an empty prompt): the file, the
+    /// toast, the popover's new command. 设置 → SubAgent only shows and deletes (user 2026-09-17): nothing is edited here.
     func saveSubagentDraft() {
         guard var draft = subagentDraft else { return }
         let definition = draft.definition
-        if let problem = SubagentNames.problem(with: definition.name, commands: Commands.all.map(\.name)) {
+        if let problem = SubagentNames.creationProblem(with: definition.name, commands: Commands.all.map(\.name)) {
             draft.problem = problem
             subagentDraft = draft
             return
         }
-        // A rename must not land on another subagent's name (it would overwrite it silently).
-        let originalName = draft.editingOriginal.map { SubagentNames.normalize($0.name) }
+        // It must not land on another subagent's name (it would overwrite it silently).
         let target = SubagentNames.normalize(definition.name)
-        if subagents.definitions.contains(where: { SubagentNames.normalize($0.name) == target && SubagentNames.normalize($0.name) != originalName }) {
+        if subagents.definitions.contains(where: { SubagentNames.normalize($0.name) == target }) {
             draft.problem = "已经有叫「\(definition.name)」的子代理了，换个名字"
             subagentDraft = draft
             return
@@ -239,20 +230,9 @@ extension AppState {
             return
         }
         do {
-            let savedURL = try subagents.save(definition, scope: draft.scope)
-            // Editing: if the name or the scope changed, the file moved — clear the old one.
-            if let original = draft.editingOriginal, let oldURL = subagents.fileURL(for: original),
-               oldURL.standardizedFileURL != savedURL.standardizedFileURL {
-                try? FileManager.default.removeItem(at: oldURL)
-                subagents.reload(projectRoot: subagents.projectRoot)
-            }
-            let wasEditing = draft.isEditing
+            try subagents.save(definition, scope: draft.scope)
             subagentDraft = nil
-            if wasEditing {
-                toasts.show("子代理「\(definition.name)」已保存")
-            } else {
-                toasts.show("子代理「\(definition.name)」已创建", note: "/\(definition.name) 任务 派活；Agent 也会按需要派它", seconds: 4)
-            }
+            toasts.show("子代理「\(definition.name)」已创建", note: "/\(definition.name) 任务 派活", seconds: 4)
         } catch {
             draft.problem = (error as? SubagentProblem)?.message ?? error.localizedDescription
             subagentDraft = draft

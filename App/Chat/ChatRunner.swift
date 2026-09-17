@@ -87,6 +87,8 @@ final class ChatRunner {
     private(set) var steering: [UUID: [Message]] = [:]
     /// Unseen, ahead of the user's own words when they arrive mid-run (user 2026-09-17): the message comes first.
     nonisolated static let steeringNote = "〔用户在你工作时发来了下面这条新消息。先处理它：该回答就回答，该照办就照办；再判断原来的事还要不要接着做、要不要调整。〕"
+    /// What a run remembered, waiting for the thread's line.
+    @ObservationIgnored private var memoryNotes: [UUID: [MemoryChange]] = [:]
     /// The foreground command each conversation is running: a message sent meanwhile asks it to step aside.
     @ObservationIgnored private var asides: [UUID: Shell.Aside] = [:]
     /// Seconds a command gets before a message puts it aside (tests: 0).
@@ -369,6 +371,7 @@ final class ChatRunner {
         reviewing.remove(id)
         for child in conversations.subtasks(of: id) where isRunning(child.id) { stop(child.id) }
         guard let run = runs.removeValue(forKey: id) else {
+            flushMemoryNotes(id)
             let spoken = deliverSteering(id)
             stopTeamwork(id)
             if spoken { answerAfterStop(id) }
@@ -393,6 +396,7 @@ final class ChatRunner {
             }
         }
         conversations.closeOpenCalls(in: id, ToolResult(status: .stopped, output: "用户停止了，这一步没有执行。"))
+        flushMemoryNotes(id)
         let spoken = deliverSteering(id)
         stopTeamwork(id)
         if spoken { answerAfterStop(id) }
@@ -641,8 +645,9 @@ final class ChatRunner {
             all = all.filter { !withheld.contains($0.name) && (!link.readOnly || $0.tier == .read || $0.name == AgentTools.fetch.name) }
         }
         // A subagent's definition says what it may touch (user 2026-09-15); reading a page stays, as for any helper.
+        // It starts without memory: no directory, nothing to recall.
         if let name = conversation.parent?.subagent, let definition = subagents?.definition(named: name) {
-            all = all.filter { $0.tier <= definition.tier || $0.name == AgentTools.fetch.name }
+            all = all.filter { ($0.tier <= definition.tier || $0.name == AgentTools.fetch.name) && $0.name != MemoryTools.recall.name }
         }
         // Plan mode: only what reads — and no hand-off: the plan is for the user to approve (D5, M5).
         // Plan mode looks before it acts; reading a page is looking, and it asks (D70).
@@ -662,7 +667,7 @@ final class ChatRunner {
         var specs: [ToolSpec] = []
         if !enabledSkills(agent).isEmpty { specs.append(SkillTools.load) }
         if skillLibrary != nil { specs.append(SkillTools.create) }
-        if memory != nil { specs.append(MemoryTools.remember) }
+        if memory != nil { specs += [MemoryTools.remember, MemoryTools.recall] }
         if let mcp {
             specs += MCPTools.bindings(for: agent, in: mcp).map(\.spec)
             // Connecting a new service (7h, B9): always asks, whatever the 权限模式.
@@ -720,7 +725,13 @@ final class ChatRunner {
             }
         case MemoryTools.remember.name:
             guard let memory, let conversation = conversations.conversation(id) else { return .failed("这里没有记忆。") }
-            return MemoryTools.run(call.arguments, store: memory, agent: agent.id, project: conversation.projectID)
+            let (result, change) = MemoryTools.remember(call.arguments, store: memory, context: memoryContext(conversation, agent: agent))
+            // The thread's line (user 2026-09-17) lands when the run rests, so the run's steps stay one group.
+            if let change { memoryNotes[id, default: []].append(change) }
+            return result
+        case MemoryTools.recall.name:
+            guard let memory, let conversation = conversations.conversation(id) else { return .failed("这里没有记忆。") }
+            return MemoryTools.recall(call.arguments, store: memory, context: memoryContext(conversation, agent: agent))
         case BackgroundJobs.output.name:
             let wait = min(max(ToolArguments.int(args, "wait") ?? 0, 0), 30)
             return await jobs.output(args["id"] as? String ?? "", in: id, wait: TimeInterval(wait))
@@ -742,25 +753,78 @@ final class ChatRunner {
         enabledSkills(agent).compactMap { skillLibrary?.folder(of: $0) }
     }
 
-    /// After a run with tool calls or more than one model call (F4; old answer 4): one call, in the background, merges
-    /// what is worth keeping into the Agent's memory of the project — or answers 「无需更新」. It counts in /cost.
-    private func extractMemory(_ id: UUID, agent: AgentRecord, runID: UUID) {
-        guard let memory, let conversation = conversations.conversation(id), let primary = agent.primaryModel,
-              let first = conversation.messages.firstIndex(where: { $0.runID == runID }) else { return }
-        let start = conversation.messages[..<first].lastIndex { $0.role == .user && !$0.isHidden } ?? first
-        let text = Compaction.serialize(Array(conversation.messages[start...])) { [agents] message in
+    // MARK: Memory (user 2026-09-17): layers, a note at a time, the thread's line and its 撤销
+
+    /// What this Agent reads here: what holds everywhere, the project's, its own.
+    func memoryScopes(_ conversation: Conversation, agent: AgentRecord) -> [MemoryScope] {
+        [.global, .project(conversation.projectID), .agent(agent.id)]
+    }
+
+    /// Who is writing, and what a note may rest on: the user's own words in this conversation — a lane's and a
+    /// subtask's are in the conversation it works for — and whether a step failed here.
+    func memoryContext(_ conversation: Conversation, agent: AgentRecord) -> MemoryTools.Context {
+        let scopes = memoryScopes(conversation, agent: agent)
+        let above = conversation.parent.flatMap { conversations.conversation($0.conversationID) }?.messages ?? []
+        let messages = above + conversation.messages
+        // What the user picked or typed on an option card is the user's word too — it lives in the `ask` call's result.
+        let answers = messages.flatMap(\.toolCalls).flatMap { $0.result?.answers ?? [] }.flatMap { $0.picked + [$0.typed].compactMap { $0 } }
+        return MemoryTools.Context(readable: scopes, writable: Dictionary(uniqueKeysWithValues: scopes.map { ($0.name, $0) }),
+                                   userWords: messages.filter(Self.isSpoken).map(\.text) + answers,
+                                   hasFailure: messages.contains { $0.toolCalls.contains { $0.result?.status == .failed } },
+                                   source: conversation.id)
+    }
+
+    /// 「记下了（全局）：……」 with its 撤销, in the thread. The model reads nothing of it. `quietly`: dated as the
+    /// conversation's last word, so a look back in the background doesn't lift it to the top of the list.
+    func noteMemory(_ change: MemoryChange, in id: UUID, quietly: Bool = false) {
+        var event = ThreadEvent(kind: .memory, title: change.line)
+        event.memoryChange = change
+        let date = quietly ? conversations.conversation(id)?.updatedAt ?? .now : .now
+        conversations.append(Message(role: .user, text: "", createdAt: date, event: event), to: id)
+    }
+
+    /// Every conversation gone quiet is looked over, one after another (`MemoryUpkeep`) — not one at work.
+    func sweepMemory(now: Date = .now) async {
+        guard memory != nil else { return }
+        for conversation in conversations.conversations where MemoryUpkeep.isDue(conversation, now: now) && !isRunning(conversation.id) {
+            await upkeepMemory(conversation.id, now: now)
+        }
+    }
+
+    /// One look back: the Agent's main model — judging what is worth keeping isn't the cheapest model's job — reads
+    /// what was said since the last look and answers with `remember` calls, usually none. Each goes through the
+    /// same checks as the Agent's own; what passes is said in the thread. It counts in /cost.
+    func upkeepMemory(_ id: UUID, now: Date = .now) async {
+        guard let memory, let conversation = conversations.conversation(id), MemoryUpkeep.isDue(conversation, now: now), !isRunning(id),
+              let agent = agents.agent(conversation.isGroup ? conversation.messages.last { $0.role == .agent }?.agentID : conversation.agentID),
+              let primary = agent.primaryModel else { return }
+        let context = memoryContext(conversation, agent: agent)
+        let text = Compaction.serialize(MemoryUpkeep.window(conversation)) { [agents] message in
             message.role == .user ? "用户" : message.speakerName ?? agents.agent(message.agentID)?.displayName ?? "Agent"
         }
-        let project = conversation.projectID
-        let prompt = MemoryTools.extractionRequest(memory: memory.text(agent: agent.id, project: project), conversation: text)
-        let candidates = [agent.model(for: .chore), primary].compactMap { $0 } + agent.fallbacks
-        let agentID = agent.id
-        Task { [weak self] in
-            guard let self, let reply = await self.oneShot(system: MemoryTools.extractionSystem, prompt: prompt, candidates: candidates) else { return }
-            // The memory first: recording the call redraws the thread, and an open /memory card reads it then.
-            if let updated = MemoryTools.updated(from: reply.summary) { memory.rewrite(updated, agent: agentID, project: project) }
-            self.conversations.append(Message(role: .user, text: "", model: reply.model, usage: reply.usage, isHidden: true, isUpkeep: true), to: id)
+        // Marked before the call: a look that fails isn't tried again and again.
+        conversations.setMemoryPass(now, in: id)
+        let prompt = MemoryUpkeep.request(directory: memory.directory(context.readable, now: now), conversation: text,
+                                          scopes: context.writable.keys.sorted { $0 > $1 }, now: now)
+        guard let reply = await oneShot(system: MemoryUpkeep.system, prompt: prompt, candidates: [primary] + agent.fallbacks) else { return }
+        let quiet = conversations.conversation(id)?.updatedAt ?? now
+        for operation in MemoryUpkeep.operations(from: reply.summary) {
+            if let change = MemoryTools.remember(operation, store: memory, context: context, now: now).change { noteMemory(change, in: id, quietly: true) }
         }
+        conversations.append(Message(role: .user, text: "", createdAt: quiet, model: reply.model, usage: reply.usage, isHidden: true, isUpkeep: true), to: id)
+    }
+
+    /// What the run remembered, once it rests.
+    func flushMemoryNotes(_ id: UUID) {
+        for change in memoryNotes.removeValue(forKey: id) ?? [] { noteMemory(change, in: id) }
+    }
+
+    /// 撤销 on a memory line: what was added goes, what was changed or forgotten is back as it was.
+    func undoMemory(_ messageID: UUID, in id: UUID) {
+        guard let memory, let event = conversations.conversation(id)?.messages.first(where: { $0.id == messageID })?.event,
+              event.kind == .memory, event.undone != true, let change = event.memoryChange else { return }
+        MemoryTools.undo(change, store: memory)
+        conversations.markMemoryUndone(messageID, in: id)
     }
 
     /// An `ask` call (D6): a malformed one, or a second one, goes back to the model; if the user wrote something
@@ -824,6 +888,7 @@ final class ChatRunner {
         }
         conversations.clearPauses(in: id)
         // Sent while a dispatcher chose or between rounds (7g): read before the first call.
+        flushMemoryNotes(id)
         deliverSteering(id)
         // A question left unanswered: the user moved on (D6).
         conversations.closeOpenCalls(in: id, ToolResult(status: .stopped, output: "用户没有回答这个问题，看用户接下来说的。"))
@@ -1042,7 +1107,6 @@ final class ChatRunner {
                         nudge(id, runID: runID, "Hook 要求你继续：\(reason)")
                         continue
                     }
-                    if !isSubtask, state.toolTurns > 0 || state.calls > 1 { extractMemory(id, agent: agent, runID: runID) }
                     // A last line `@名字 交待` hands the work on (7g, M2).
                     let onward = trailingHandoff(ended.text, conversationID: id, agent: agent)
                     if let note = onward.note { ended.note = Self.joined(ended.note, [note]) }
@@ -1059,10 +1123,7 @@ final class ChatRunner {
                 if let reason = state.stopRequested { return stopByHook(id, runID: runID, reason: reason) }
                 if state.asked { return waitForAnswer(id, runID: runID) }
                 // handoff and goal_done end the run with this turn (7g, M2, A3: the terminal result of L2).
-                if state.handoff != nil || state.goalClaimed {
-                    if !isSubtask { extractMemory(id, agent: agent, runID: runID) }
-                    return finish(id, runID: runID, nil, handoff: state.handoff)
-                }
+                if state.handoff != nil || state.goalClaimed { return finish(id, runID: runID, nil, handoff: state.handoff) }
                 // 旁审 (10h): a step that changed something is read; the note, if any, arrives as steering.
                 if reply.toolCalls.contains(where: { (tier(of: $0.name, agent: agent) ?? .exec) > .read }) {
                     await advise(id, runID: runID, agent: agent, final: false)
@@ -1582,6 +1643,7 @@ final class ChatRunner {
         if let last = conversations.conversation(id)?.messages.last(where: { $0.runID == runID && !$0.isHidden }) {
             conversations.setNote(Self.joined(last.note, ["Hook 让它停下：\(reason)"]) ?? "", message: last.id, in: id)
         }
+        flushMemoryNotes(id)
         deliverSteering(id)
         if settleSubtask(id) { return }
         endAutorun(id, .interrupted("Hook 让它停下：\(reason)"))
@@ -1657,6 +1719,7 @@ final class ChatRunner {
         } else if let last {
             notifyUnseen(id, last)
         }
+        flushMemoryNotes(id)
         let spoken = deliverSteering(id)
         // Whatever ends the run below, a message that arrived while it was ending is answered, not left in the
         // thread (user 2026-09-17) — a direct chat's; a group's `@`-ed members are in the queue already.
@@ -1679,6 +1742,7 @@ final class ChatRunner {
         guard isCurrent(runID, id) else { return }
         end(id)
         queues[id] = nil
+        flushMemoryNotes(id)
         deliverSteering(id)
         endRelay(id, .paused)
         endAutorun(id, .interrupted(reason))
@@ -1722,8 +1786,8 @@ final class ChatRunner {
             canAsk: tools.contains { $0.name == AskTool.spec.name }, tools: tools.map(\.name), planMode: conversation.planMode,
             skills: tools.contains { $0.name == SkillTools.load.name }
                 ? enabledSkills(agent).map { SystemPrompt.SkillLine(name: $0.name, description: $0.document.description) } : [],
-            // 10j: without the lines not written or confirmed for half a year.
-            memory: memory?.promptText(agent: agent.id, project: conversation.projectID),
+            // Its directory only (user 2026-09-17) — without the notes not read or confirmed for half a year (10j).
+            memory: memory?.directory(memoryScopes(conversation, agent: agent)),
             // A side conversation (10i) isn't a delegation: its boundary says what it is.
             subtask: conversation.isLane || conversation.isSide ? nil
                 : conversation.parent.map { SystemPrompt.Subtask(requester: $0.requesterName, isCheck: $0.isCheck) },

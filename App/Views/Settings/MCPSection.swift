@@ -15,7 +15,7 @@ struct MCPSection: View {
                     .accessibilityIdentifier("mcp.add")
             }
             if store.servers.isEmpty {
-                Text("还没有添加 MCP 服务。从推荐里挑一个，或粘贴服务文档里的配置。")
+                Text("还没有 MCP 服务，从推荐里挑一个或粘贴配置。")
                     .font(FormoraFont.ui(12))
                     .foregroundStyle(Palette.inkFaint.color)
                     .frame(maxWidth: .infinity)
@@ -35,9 +35,7 @@ struct MCPSection: View {
 
     private var note: String {
         let usable = store.servers.filter { store.isUsable($0.id) }.count
-        // A stdio server starting for the first time may download itself (9d, S5, D73).
-        let timeout = MCPBuild.supportsStdio ? "连接最多等 10 秒，本机服务 60 秒" : "连接最多等 10 秒"
-        return "\(store.servers.count) 个服务 · \(usable) 个可用 · \(timeout)"
+        return "\(store.servers.count) 个服务 · \(usable) 个可用"
     }
 }
 

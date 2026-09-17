@@ -11,7 +11,7 @@ struct AgentOverviewTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            DetailBlock(title: "身份信息", note: "角色在创建后不可修改；其他字段自动保存。") {
+            DetailBlock(title: "身份信息", note: "角色创建后不能改，其他字段自动保存。") {
                 BlockMeta(text: "自动保存")
             } content: {
                 Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 12) {

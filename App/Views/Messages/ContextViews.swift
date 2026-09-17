@@ -125,45 +125,98 @@ struct ContextRing: View {
     }
 }
 
-/// `/memory` (7f, F4): what the Agent remembered about this project — read-only (spec §8.3 keeps its management
-/// out of the app; this is only visibility).
+/// `/memory` (7f, F4; user 2026-09-17): what this conversation's Agent reads — what holds everywhere, the project's, its
+/// own — a layer a group, read-only. A note with more to it opens; the ones gone stale are listed apart (10j).
 struct MemorySummary: View {
-    let text: String?
-    var now: Date = .now
+    struct Group: Identifiable {
+        let scope: MemoryScope
+        let title: String
+        let fresh: [MemoryEntry]
+        let stale: [MemoryEntry]
+
+        var id: String { scope.name }
+    }
+
+    let groups: [Group]
+
+    @MainActor
+    static func groups(_ memory: MemoryStore?, conversation: Conversation, agent: AgentRecord?, now: Date = .now) -> [Group] {
+        guard let memory else { return [] }
+        var scopes: [(MemoryScope, String)] = [(.global, "全局 · 任何项目、每个 Agent 都读得到"), (.project(conversation.projectID), "项目 · 这个项目里的 Agent 共用")]
+        if let agent { scopes.append((.agent(agent.id), "\(agent.displayName) 自己的 · 不分项目")) }
+        return scopes.map { Group(scope: $0.0, title: $0.1, fresh: memory.fresh($0.0, now: now), stale: memory.stale($0.0, now: now)) }
+            .filter { !$0.fresh.isEmpty || !$0.stale.isEmpty }
+    }
 
     var body: some View {
-        if let text {
-            // 10j: what the Agent is given, then what went stale — kept, listed apart, not given.
-            let split = MemoryStore.split(text, now: now)
-            VStack(alignment: .leading, spacing: 12) {
-                if !split.kept.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    MarkdownText(source: split.kept)
-                        .accessibilityIdentifier("memory.text")
-                }
-                if !split.stale.isEmpty {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("很久没用到（半年多没再写下或确认，不再给 Agent 看；它再记一次就恢复）")
-                            .font(FormoraFont.ui(11.5, weight: 600))
-                            .foregroundStyle(Palette.inkMuted.color)
-                            .fixedSize(horizontal: false, vertical: true)
-                        ForEach(split.stale, id: \.self) { line in
-                            Text(line)
-                                .font(FormoraFont.ui(12))
-                                .foregroundStyle(Palette.inkFaint.color)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                    .accessibilityElement(children: .contain)
-                    .accessibilityIdentifier("memory.stale")
-                }
-            }
-        } else {
-            Text("还没有记忆。Agent 记下的偏好、约定和定下来的结论会出现在这里。")
+        if groups.isEmpty {
+            Text("还没有记忆。你让它记住的、纠正过它的、拍过板的事，和它踩过的坑，会出现在这里。")
                 .font(FormoraFont.ui(12))
                 .foregroundStyle(Palette.inkFaint.color)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("memory.empty")
+        } else {
+            VStack(alignment: .leading, spacing: 14) {
+                ForEach(groups) { group in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(group.title)
+                            .font(FormoraFont.ui(11.5, weight: 600))
+                            .foregroundStyle(Palette.inkMuted.color)
+                        ForEach(group.fresh) { MemoryLine(entry: $0, isStale: false) }
+                        if !group.stale.isEmpty {
+                            Text("很久没用到（半年多没再读到或确认，不再列给 Agent；它再用到就恢复）")
+                                .font(FormoraFont.ui(11))
+                                .foregroundStyle(Palette.inkFaint.color)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(.top, 2)
+                            ForEach(group.stale) { MemoryLine(entry: $0, isStale: true) }
+                        }
+                    }
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("memory.group.\(group.scope.name)")
+                }
+            }
         }
+    }
+}
+
+/// One note in /memory: its number, its sentence, its day; the body under it once opened.
+private struct MemoryLine: View {
+    let entry: MemoryEntry
+    let isStale: Bool
+
+    @State private var isOpen = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .top, spacing: 8) {
+                Text(entry.id).font(FormoraFont.mono(11)).foregroundStyle(Palette.inkFaint.color).frame(minWidth: 22, alignment: .leading)
+                Text(entry.summary)
+                    .font(FormoraFont.ui(12))
+                    .foregroundStyle(isStale ? Palette.inkFaint.color : Palette.ink.color)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                if entry.hasBody {
+                    Button(isOpen ? "收起" : "正文") { isOpen.toggle() }
+                        .buttonStyle(.plain)
+                        .font(FormoraFont.ui(11))
+                        .foregroundStyle(Palette.accent.color)
+                        .accessibilityIdentifier("memory.body.toggle")
+                }
+                Text(entry.used).font(FormoraFont.mono(10.5)).foregroundStyle(Palette.inkFaint.color)
+            }
+            if isOpen, entry.hasBody {
+                Text(entry.body)
+                    .font(FormoraFont.ui(11.5))
+                    .foregroundStyle(Palette.inkMuted.color)
+                    .lineSpacing(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, 30)
+                    .accessibilityIdentifier("memory.body")
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(isStale ? "memory.stale" : "memory.note")
     }
 }
 

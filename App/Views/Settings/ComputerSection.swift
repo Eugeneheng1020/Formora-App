@@ -14,7 +14,7 @@ struct ComputerSection: View {
                 ForEach(ComputerPermission.allCases) { permission in
                     PermissionRow(permission: permission, access: state.computer)
                 }
-                Text("授权屏幕录制后 macOS 会重启 Formora；哪个 Agent 能操作电脑在它的「模型与权限」里开，Bob 的在「Bob」页开。")
+                Text("授权屏幕录制后 macOS 会重启 Formora。")
                     .font(FormoraFont.ui(11.5))
                     .foregroundStyle(Palette.inkFaint.color)
                     .lineSpacing(3)

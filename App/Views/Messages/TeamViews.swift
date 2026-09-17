@@ -7,6 +7,8 @@ struct EventDivider: View {
     let event: ThreadEvent
     /// The thread it is in: a direct chat's upgrade offers 重命名 there (8d; mockup `dividerHtml`).
     var conversationID: UUID? = nil
+    /// The message carrying it: a memory line's 撤销 names it (user 2026-09-17).
+    var messageID: UUID? = nil
 
     var body: some View {
         VStack(spacing: 6) {
@@ -15,12 +17,22 @@ struct EventDivider: View {
                 Text(event.title)
                     .font(FormoraFont.mono(10.5))
                     .foregroundStyle(color)
+                    .strikethrough(event.undone == true)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
                     .layoutPriority(1)
                     .accessibilityIdentifier("event.title")
                 if let subtaskID = event.subtaskID, state.conversations.conversation(subtaskID) != nil {
                     SmallButton(title: "看复核过程", identifier: "event.subtask") { state.selectedConversationID = subtaskID }
+                }
+                // What it remembered is said where the user reads, and taken back right there (user 2026-09-17).
+                if event.kind == .memory, let conversationID, let messageID {
+                    if event.undone == true {
+                        Text("已撤销").font(FormoraFont.ui(11)).foregroundStyle(Palette.inkFaint.color)
+                            .accessibilityIdentifier("event.memory.undone")
+                    } else {
+                        SmallButton(title: "撤销", identifier: "event.memory.undo") { state.chat.undoMemory(messageID, in: conversationID) }
+                    }
                 }
                 // No dialog at the `@` (it is frequent), but the name the group took can be changed right here.
                 if event.kind == .upgrade, event.agentID != nil, let conversationID {

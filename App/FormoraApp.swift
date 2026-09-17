@@ -131,6 +131,17 @@ struct FormoraApp: App {
                 state.updater?.check()
             }
         }
+        // User 2026-09-17: conversations gone quiet are looked over for what the memory missed — a minute after the
+        // start (the ones that went quiet while the app was closed), then every five. The user's own profile only.
+        if !underTests, profile.isDefault {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(60))
+                while !Task.isCancelled {
+                    await state.chat.sweepMemory()
+                    try? await Task.sleep(for: .seconds(300))
+                }
+            }
+        }
         if let section = VerificationHooks.initialSection(for: profile) { state.select(section) }
         VerificationHooks.applyOverlay(to: state, profile: profile)
         VerificationHooks.applySettings(to: state, profile: profile)

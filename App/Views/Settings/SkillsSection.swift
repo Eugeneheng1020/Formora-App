@@ -92,7 +92,7 @@ struct SkillSummary: View {
 }
 
 extension Skill {
-    /// Its `.capability-mark`: the name's first two characters, as an MCP server's — 「写 Skill」 gives 「写」, not 「写 」.
+    /// Its `.capability-mark`: the name's first two characters, as an MCP server's — `de` for debugging; an earlier 「写 Skill」 gave 「写」, not 「写 」.
     var mark: String {
         String(name.trimmingCharacters(in: .whitespaces).prefix(2)).trimmingCharacters(in: .whitespaces).uppercased()
     }

@@ -1,5 +1,5 @@
 ---
-name: Word 文档（docx）
+name: office-docx
 description: 用户提到 Word、.docx，或要一份 Word 版的报告、合同、说明时用：读取或生成 .docx——提取正文与表格、按模板填内容、把 Markdown 交付成 Word。用 python-docx，装在项目文件夹里跑。
 ---
 

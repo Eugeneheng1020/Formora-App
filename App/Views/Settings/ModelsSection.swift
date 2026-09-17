@@ -228,7 +228,7 @@ private struct ModelListPanel: View {
                         .buttonStyle(FormoraButtonStyle())
                 }
             case .unsupported:
-                Text("这家没有模型列表；下面是常用模型，也能在 Agent 里直接填 Model ID。")
+                Text("这家没有模型列表，下面是常用模型。")
                     .font(FormoraFont.ui(11.5)).foregroundStyle(Palette.inkFaint.color)
                 list(entry.commonModels)
             case .loaded(let models):

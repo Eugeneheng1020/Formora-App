@@ -246,9 +246,8 @@ private struct ThreadView: View {
                                         "\(state.providers.entry(model.providerID)?.name ?? model.providerID) · \(model.modelID)"
                                     }
                                 case .memory:
-                                    MemorySummary(text: state.commandAgent(conversation).flatMap {
-                                        state.chat.memory?.text(agent: $0.id, project: conversation.projectID)
-                                    })
+                                    MemorySummary(groups: MemorySummary.groups(state.chat.memory, conversation: conversation,
+                                                                               agent: state.commandAgent(conversation)))
                                 default:
                                     PlanList(items: conversation.plan)
                                 }
@@ -307,7 +306,7 @@ private struct ThreadView: View {
                 } else if event.kind == .rewind {
                     rewindRow(event, isEarlier: isEarlier).id(message.id)
                 } else {
-                    EventDivider(state: state, event: event, conversationID: conversation.id).id(message.id)
+                    EventDivider(state: state, event: event, conversationID: conversation.id, messageID: message.id).id(message.id)
                 }
             } else {
                 MessageRow(state: state, session: session, conversation: conversation, message: message, isFlashing: flashing == message.id,

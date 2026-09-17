@@ -1,5 +1,5 @@
 ---
-name: 接 MCP 服务
+name: mcp-connect
 description: 用户想让 Agent 连上 Linear、GitHub、Notion 或自家内部服务时用：走目录 → 添加 → 测试连接三步，用 mcp_catalog / mcp_add / mcp_test 完成。
 ---
 

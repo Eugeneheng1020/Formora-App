@@ -41,7 +41,7 @@ struct GroupCreateDialog: View {
                 .accessibilityIdentifier("groupCreate.gotoAgents")
             }
         } else {
-            MessagesDialog(kicker: "new group", title: "新建群聊", note: "勾选参与的角色并起个名字。群里由你 @ 谁，谁才接活。",
+            MessagesDialog(kicker: "new group", title: "新建群聊", note: "勾选参与的角色并起个名字。",
                            identifier: "groupCreate", onClose: close) {
                 VStack(alignment: .leading, spacing: 18) {
                     VStack(alignment: .leading, spacing: 6) {
@@ -104,7 +104,7 @@ struct GroupSettingsDialog: View {
     var body: some View {
         let rows = state.agents.agents.map { MemberRowData(agent: $0, reason: reason($0)) }
         let original = Set(state.conversations.conversation(conversationID)?.members.map(\.agentID) ?? [])
-        MessagesDialog(kicker: "group", title: "群设置", note: "群名是这个会话的稳定标识，不会跟着任务名变。停用的成员留在群里，但不能被 @。",
+        MessagesDialog(kicker: "group", title: "群设置", note: "停用的成员留在群里，但不能被 @。",
                        identifier: "groupSettings", onClose: close) {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 6) {

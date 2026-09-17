@@ -1,5 +1,5 @@
 ---
-name: PPT 演示（pptx）
+name: office-pptx
 description: 用户提到 PPT、幻灯片、演示、deck 或 .pptx 时用：读取或生成 .pptx——提取每页文字、按模板成套出片。用 python-pptx，装在项目文件夹里跑。
 ---
 

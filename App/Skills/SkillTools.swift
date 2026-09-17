@@ -2,7 +2,7 @@ import Foundation
 
 /// Skills in use (7f, F1–F2): the prompt lists only each enabled Skill's name and description; `skill` loads the full
 /// instructions and the folder when the task calls for it (Claude's three loading levels), `skill_create` writes a
-/// new one (the built-in 「写 Skill」 relies on it).
+/// new one (the built-in `skill-writing` relies on it).
 enum SkillTools {
     static let load = ToolSpec(
         name: "skill",
@@ -12,7 +12,7 @@ enum SkillTools {
 
     static let create = ToolSpec(
         name: "skill_create",
-        description: "Create a new Skill in the user's Skills library, for a way of working the user wants reused. name: short; description: what it does and when to use it, in the words users say; instructions: the SKILL.md body in Markdown. Returns the new Skill's folder — put references/ or scripts/ into it with write. It is enabled for you at once; the user can turn it off in your Skills tab.",
+        description: "Create a new Skill in the user's Skills library, for a way of working the user wants reused. name: in English — lower-case letters, digits and hyphens, like weekly-report (it is typed as /skill:name and names the folder); description: in Chinese, what it does and when to use it, in the words users say; instructions: the SKILL.md body in Markdown. Returns the new Skill's folder — put references/ or scripts/ into it with write. It is enabled for you at once; the user can turn it off in your Skills tab.",
         parameters: #"{"type":"object","properties":{"name":{"type":"string"},"description":{"type":"string"},"instructions":{"type":"string"}},"required":["name","description","instructions"]}"#,
         tier: .write)
 

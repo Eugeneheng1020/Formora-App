@@ -7,7 +7,6 @@ struct AboutSection: View {
     let state: AppState
 
     @State private var items: [DiagnosticBundle.Item] = []
-    @State private var showsItems = false
     @State private var exporting = false
     @State private var checksAutomatically = true
 
@@ -38,56 +37,26 @@ struct AboutSection: View {
                         .accessibilityIdentifier("about.noUpdater")
                 }
             }
-            SettingRow(label: "诊断包",
-                       description: "崩溃报告、7 天日志、最近一天的对话和版本信息打成 zip 放到"
-                           + (state.diagnosticSources.profileName == nil ? "桌面" : "这个副本的文件夹") + "，密钥已遮蔽、不会自动发送。\n里面现在有："
-                           + DiagnosticBundle.summary(items) + "。") {
-                VStack(alignment: .trailing, spacing: 8) {
+            // One sentence, two actions (user 2026-09-17: what the zip holds and the list of its files are gone).
+            SettingRow(label: "诊断包", description: "把日志和最近的对话打成 zip 放到"
+                           + (state.diagnosticSources.profileName == nil ? "桌面" : "这个副本的文件夹") + "，密钥已遮蔽。") {
+                HStack(spacing: 8) {
+                    Button("打开日志文件夹", action: openLogs)
+                        .buttonStyle(FormoraButtonStyle(kind: .ghost))
+                        .accessibilityIdentifier("about.openLogs")
                     Button(exporting ? "正在打包…" : "导出诊断包…", action: export)
                         .buttonStyle(FormoraButtonStyle(kind: .primary))
                         .disabled(exporting)
                         .accessibilityIdentifier("about.exportDiagnostics")
-                    HStack(spacing: 8) {
-                        Button(showsItems ? "收起清单" : "看清单") { showsItems.toggle() }
-                            .buttonStyle(FormoraButtonStyle(kind: .ghost))
-                            .accessibilityIdentifier("about.diagnosticsList")
-                        Button("打开日志文件夹", action: openLogs)
-                            .buttonStyle(FormoraButtonStyle(kind: .ghost))
-                            .accessibilityIdentifier("about.openLogs")
-                    }
                 }
             }
-            if showsItems {
-                VStack(alignment: .leading, spacing: 3) {
-                    ForEach(items) { item in
-                        Text(Self.folder(item.kind) + item.name)
-                            .font(FormoraFont.mono(11))
-                            .foregroundStyle(Palette.inkMuted.color)
-                    }
-                }
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Palette.surfaceRaised.color))
-                .padding(.vertical, 12)
-                .accessibilityIdentifier("about.diagnosticsItems")
-            }
-            SettingRow(label: "反馈", description: "到 GitHub Issues 提问题，附上诊断包最省事。", showsRule: false) {
+            SettingRow(label: "反馈", description: "到 GitHub Issues 提问题，附上诊断包。", showsRule: false) {
                 Button("去 GitHub 反馈") {
                     NSWorkspace.shared.open(URL(string: "https://github.com/Eugeneheng1020/Formora-App/issues")!)
                 }
                 .buttonStyle(FormoraButtonStyle(kind: .ghost))
                 .accessibilityIdentifier("about.feedback")
             }
-        }
-        .onAppear(perform: gather)
-    }
-
-    private static func folder(_ kind: DiagnosticBundle.Item.Kind) -> String {
-        switch kind {
-        case .crash: "crashes/"
-        case .log: "logs/"
-        case .conversation: "conversations/"
-        case .about: ""
         }
     }
 

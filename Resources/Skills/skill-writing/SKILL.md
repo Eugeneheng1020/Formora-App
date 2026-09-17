@@ -1,5 +1,5 @@
 ---
-name: 写 Skill
+name: skill-writing
 description: 用户说「以后都按这个来」「把这套做法记下来」或想要一个新 Skill 时用：把反复要用的做法写成 Skill 文件夹，用 skill_create 落盘，写完告诉用户去哪儿开它。
 ---
 
@@ -61,7 +61,9 @@ Skill 是一份写给模型自己看的操作说明。用户说「以后都按�
 
 ### 5. 落盘
 
-用 `skill_create`：传 `name`、`description`、`instructions`（正文）。它在 Skills
+用 `skill_create`：传 `name`、`description`、`instructions`（正文）。`name` 用英文——小写
+字母、数字和连字符，比如 `weekly-report`（用户打 `/skill:名字` 调用时不用切输入法，它也是
+文件夹名）；它是干什么的、什么时候用，用中文写在 `description` 里。它在 Skills
 目录建好文件夹、写好 SKILL.md，并返回文件夹路径；要放参考资料或脚本，用 `write`
 写进这个文件夹的 `references/`、`scripts/`。
 

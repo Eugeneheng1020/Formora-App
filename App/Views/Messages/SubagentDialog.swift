@@ -1,24 +1,20 @@
 import SwiftUI
 
-/// 手填 / 编辑一个子代理的表单。`/agent 目的` 不再走这里——它由模型直接写好存好（user 2026-09-16）。这个弹窗只在两处出现：
-/// 「设置 → 子代理 → 新建」空手创建，和「设置 → 子代理 → 编辑」改一个已有的；`/agent` 起草时若撞名或提示词空了，也退回到这里让用户改。
+/// `/agent 目的` 由模型直接写好存好（user 2026-09-16），平时用不到这个弹窗；只有它起的名字撞了车、不是英文，或者提示词是空的，
+/// 才退到这里，字段都填好，让用户改一下再存。「设置 → SubAgent」只看、只删，不从这里新建或编辑（user 2026-09-17）。
 struct SubagentDialog: View {
     let state: AppState
 
     var body: some View {
         if let draft = state.subagentDraft {
             let binding = Binding(get: { state.subagentDraft ?? draft }, set: { state.subagentDraft = $0 })
-            let editing = draft.isEditing
-            MessagesDialog(kicker: editing ? "edit subagent" : "new subagent",
-                           title: editing ? "编辑子代理" : "新建子代理",
-                           note: editing ? "改到满意再保存。改名字等于改命令：/名字 任务。"
-                                         : "填好保存。之后 /名字 任务 派活，Agent 也会按需要派它。想让 AI 起草，用消息里的 /agent 目的。",
+            MessagesDialog(kicker: "new subagent", title: "新建子代理", note: "改好再保存；之后用 /名字 任务 派活。",
                            identifier: "subagent", onClose: { state.subagentDraft = nil }) {
                 VStack(alignment: .leading, spacing: 16) {
                     HStack(alignment: .top, spacing: 14) {
                         VStack(alignment: .leading, spacing: 6) {
-                            FormLabel(text: "名字（也是命令：/名字）")
-                            InputField(placeholder: "例如：探路", text: binding.name, isInvalid: draft.problem != nil, identifier: "subagent.name")
+                            FormLabel(text: "名字（英文，也是命令：/名字）")
+                            InputField(placeholder: "例如：code-reviewer", text: binding.name, isInvalid: draft.problem != nil, identifier: "subagent.name")
                         }
                         VStack(alignment: .leading, spacing: 6) {
                             FormLabel(text: "工具")
@@ -32,7 +28,7 @@ struct SubagentDialog: View {
                         }
                     }
                     VStack(alignment: .leading, spacing: 6) {
-                        FormLabel(text: "一句话描述（Agent 靠它判断什么时候派）")
+                        FormLabel(text: "中文简介（Agent 靠它判断什么时候派）")
                         InputField(placeholder: "什么时候派它、它交回什么", text: binding.description, isInvalid: false, identifier: "subagent.description")
                     }
                     VStack(alignment: .leading, spacing: 6) {

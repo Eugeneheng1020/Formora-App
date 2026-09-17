@@ -12,7 +12,7 @@ struct BobSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             SettingsSectionHead(category: .bob, note: model == nil ? BobSession.noModel
-                                    : "Bob 用哪个模型、动手前问不问你；右下角的按钮就能和他说话。") { EmptyView() }
+                                    : "Bob 用哪个模型、动手前问不问你。") { EmptyView() }
             BobModelRow(state: state)
             BobApprovalRow(state: state)
             BobComputerRow(state: state)
@@ -89,7 +89,7 @@ private struct BobApprovalRow: View {
 
     var body: some View {
         let mode = state.bobModel.approvalMode
-        SettingRow(label: "权限模式", description: BobModel.note(mode) + BobModel.alwaysAsked) {
+        SettingRow(label: "权限模式", description: BobModel.note(mode)) {
             SegmentedControl(options: ApprovalMode.allCases.map { ($0, $0.label) },
                              selection: Binding(get: { mode }, set: { set($0) }),
                              identifier: "bob.approvalMode")
@@ -116,7 +116,7 @@ private struct BobComputerRow: View {
         let asking = state.bobModel.approvalMode == .yolo ? "「全部放行」下不问" : "每次回答第一次动手前先问"
         SettingRow(label: "允许操作电脑",
                    description: ComputerBuild.isAvailable
-                       ? "看屏幕、点按打字、控制其他应用；\(asking)。"
+                       ? "看屏幕、点按打字、控制其他应用，\(asking)。"
                        : "App Store 版没有这个功能，官网版才有。") {
             HStack(spacing: 10) {
                 if !missing.isEmpty {

@@ -9,7 +9,7 @@ struct NotificationsSection: View {
     var body: some View {
         let settings = state.notifications
         VStack(alignment: .leading, spacing: 0) {
-            SettingsSectionHead(category: .notifications, note: "Agent 回复时怎么提醒你；系统权限在 macOS 通知设置里。") { EmptyView() }
+            SettingsSectionHead(category: .notifications, note: "Agent 回复时怎么提醒你。") { EmptyView() }
             SettingRow(label: "桌面通知", description: "Formora 不在前台时，Agent 回复会弹出系统通知。",
                        showsRule: !(settings.desktop && settings.permission == .denied)) {
                 FormoraSwitch(isOn: Binding(get: { settings.desktop }, set: { on in

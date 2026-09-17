@@ -12,7 +12,7 @@ struct AgentMCPTab: View {
     private var isDirty: Bool { state.hasUnsavedDraft(agent.id) && draft != agent.mcpAccess }
 
     var body: some View {
-        DetailBlock(title: "MCP", note: "服务由全局维护；当前 Agent 独立选择可用工具。", isLast: true) {
+        DetailBlock(title: "MCP", note: "给这个 Agent 选它能用的 MCP 工具。", isLast: true) {
             SaveState(isDirty: isDirty)
             Button("全局设置") {
                 state.settingsCategory = .mcp
@@ -26,7 +26,7 @@ struct AgentMCPTab: View {
                 .accessibilityIdentifier("agent.mcp.save")
         } content: {
             if store.servers.isEmpty {
-                Text("还没有 MCP 服务。去「设置 → MCP」添加。")
+                Text("还没有 MCP 服务，去「设置 → MCP」添加。")
                     .font(FormoraFont.ui(12)).foregroundStyle(Palette.inkFaint.color)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 22)

@@ -293,6 +293,18 @@ final class ConversationStore {
         }
     }
 
+    func setMemoryPass(_ date: Date, in id: UUID) {
+        change(id) { $0.memoryPassAt = date }
+    }
+
+    /// 撤销 on a memory line (user 2026-09-17): the line stays and says so.
+    func markMemoryUndone(_ messageID: UUID, in id: UUID) {
+        change(id) { conversation in
+            guard let index = conversation.messages.firstIndex(where: { $0.id == messageID }) else { return }
+            conversation.messages[index].event?.undone = true
+        }
+    }
+
     /// `/plan` (D5).
     func setPlanMode(_ isOn: Bool, in id: UUID) {
         guard conversation(id)?.planMode != isOn else { return }

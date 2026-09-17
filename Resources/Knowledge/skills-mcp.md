@@ -5,7 +5,7 @@
 Skill 是一份可复用的做法说明：一个文件夹，里面有 SKILL.md，可以带参考资料和脚本。Agent 平时只看得到每个 Skill 的名字和一句说明，要做相应的事时才读全文照做。
 
 - **全局安装、按 Agent 启用**：Skill 装在「设置 → Skills」的全局库里；哪个 Agent 能用，在那个 Agent 的 Skills 标签里打开。装了不等于启用。
-- **三种来源**：Formora 内置的 10 个（比如需求澄清、写实施计划，还有处理 Word、Excel、PPT、PDF 文件的）；从本地文件夹导入（文件夹里要有 SKILL.md）；让 Bob 或 Agent 写一个。
+- **三种来源**：Formora 内置的 10 个（名字是英文、介绍是中文，比如 requirement-brief 需求澄清、implementation-plan 写实施计划，还有处理 Word、Excel、PPT、PDF 文件的 office-docx / xlsx / pptx / pdf）；从本地文件夹导入（文件夹里要有 SKILL.md）；让 Bob 或 Agent 写一个。
 - 在对话里用 `/skill:名字 要做的事` 指定用哪个 Skill。
 - Bob 创建的 Skill 进全局库，不替任何 Agent 启用，要用就去 Agent 的 Skills 标签打开。
 - Bob 自己能用所有已安装的 Skill，不用给他启用。

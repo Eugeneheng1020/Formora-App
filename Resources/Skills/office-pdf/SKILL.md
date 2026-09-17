@@ -1,5 +1,5 @@
 ---
-name: PDF 文档
+name: office-pdf
 description: 只要涉及 PDF 就用：读正文、取表格、拆分合并、填可填写的表单、生成简单的 PDF。用 pypdf / pdfplumber / reportlab，装在项目文件夹里跑。
 ---
 

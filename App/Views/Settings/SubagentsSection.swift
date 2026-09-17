@@ -1,10 +1,10 @@
 import AppKit
 import SwiftUI
 
-/// 设置 → 子代理 (user 2026-09-16): every subagent in one place — the ones Formora keeps (本项目 / 全局 / 内置)
-/// and the ones the user wrote for Claude Code (`.claude/agents`, read here but managed there). Formora's own can be
-/// edited (opens the creation dialog pre-filled) or deleted; the list is read again whenever it shows, so a file
-/// changed in Finder appears. 新建 opens a blank creation; `/agent 目的` in 消息 fills one in from a purpose.
+/// 设置 → SubAgent (user 2026-09-16): every subagent in one place — the ones Formora keeps (本项目 / 全局 / 内置)
+/// and the ones the user wrote for Claude Code (`.claude/agents`, read here but managed there). Like the Skills page
+/// (user 2026-09-17): it shows them and deletes them, nothing is edited or made here — `/agent 目的` in 消息 makes one,
+/// its file in Finder is where it is changed. The list is read again whenever it shows, so a changed file appears.
 struct SubagentsSection: View {
     let state: AppState
     let session: ProjectSession
@@ -25,12 +25,18 @@ struct SubagentsSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             SettingsSectionHead(category: .subagents, note: note) {
-                Button("新建") { state.startBlankSubagentDraft() }
-                    .buttonStyle(FormoraButtonStyle(kind: .primary))
-                    .accessibilityIdentifier("subagents.new")
+                Button("在 Finder 中打开") {
+                    guard let folder = library.globalFolder else { return }
+                    try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                    NSWorkspace.shared.open(folder)
+                }
+                .buttonStyle(FormoraButtonStyle())
+                .disabled(library.globalFolder == nil)
+                .help("全局子代理的文件夹；项目的在项目的 .formora/agents")
+                .accessibilityIdentifier("subagents.openFolder")
             }
             if library.definitions.isEmpty {
-                Text("还没有子代理。在消息里用 /agent 目的 让 Agent 起草一个，或点右上角新建自己填。")
+                Text("还没有子代理，在消息里用 /agent 目的 创建一个。")
                     .font(FormoraFont.ui(12))
                     .foregroundStyle(Palette.inkFaint.color)
                     .frame(maxWidth: .infinity)
@@ -64,7 +70,7 @@ struct SubagentsSection: View {
         let managed = library.definitions.filter { $0.source != .claude }.count
         let claude = library.definitions.count - managed
         if claude > 0 { return "\(managed) 个由 Formora 管理 · \(claude) 个来自 Claude Code" }
-        return "\(managed) 个 · /名字 任务 派活，Agent 也会按需要派"
+        return "\(managed) 个 · 用 /名字 任务 派活"
     }
 }
 
@@ -88,8 +94,8 @@ private struct SubagentGroupLabel: View {
     }
 }
 
-/// One subagent: its mark, name + description, its tier tag, then edit / delete — or, for a Claude Code file, a tag
-/// saying it is managed there.
+/// One subagent: its mark, name + description, its tier tag, then 删除 — or, for a Claude Code file, a tag saying it
+/// is managed there.
 private struct SubagentRow: View {
     let state: AppState
     let definition: SubagentDefinition
@@ -115,15 +121,9 @@ private struct SubagentRow: View {
             }
             Spacer(minLength: 8)
             if managed {
-                HStack(spacing: 8) {
-                    IconActionButton(icon: Icons.pencil, label: "编辑 \(definition.name)",
-                                     identifier: "subagents.edit.\(definition.name)") {
-                        state.beginEditingSubagent(definition)
-                    }
-                    IconActionButton(icon: Icons.trash, label: "删除 \(definition.name)",
-                                     identifier: "subagents.delete.\(definition.name)") {
-                        state.subagentToDelete = definition
-                    }
+                IconActionButton(icon: Icons.trash, label: "删除 \(definition.name)",
+                                 identifier: "subagents.delete.\(definition.name)") {
+                    state.subagentToDelete = definition
                 }
             } else {
                 SmallTag(text: "Claude Code")
@@ -135,7 +135,7 @@ private struct SubagentRow: View {
         .accessibilityIdentifier("subagents.row.\(definition.name)")
     }
 
-    /// The mark: the first two characters of the name (a Chinese name shows its first two glyphs).
+    /// The mark: the first two characters of the name — `sc` for scout; an earlier Chinese name shows two glyphs.
     private var mark: String { String(definition.name.prefix(2)) }
 
 }

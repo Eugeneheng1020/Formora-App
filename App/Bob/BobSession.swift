@@ -248,10 +248,23 @@ final class BobSession {
     }
 
     private var memoryReply: String {
-        guard let text = memory.text(agent: Conductor.bobID, project: Self.everywhere) else {
-            return "我还没有记下什么。你说以后都要怎样，我会记下来。"
+        let groups = BobTools.memoryScopes.compactMap { scope -> String? in
+            let notes = memory.fresh(scope)
+            guard !notes.isEmpty else { return nil }
+            let title = scope == .bob ? "我自己记的（不分项目）" : "全局（关于你的，每个 Agent 都读得到）"
+            return "**\(title)**\n" + notes.map { "- \($0.id) \($0.summary)（\($0.created)）" }.joined(separator: "\n")
         }
-        return "我记着这些（不分项目）：\n\n" + text
+        return groups.isEmpty ? "我还没有记下什么。你说以后都要怎样，我会记下来。" : groups.joined(separator: "\n\n")
+    }
+
+    /// 撤销 on a memory card (user 2026-09-17): what was added goes, what was changed or forgotten is back.
+    func undoMemory(step id: String) {
+        for entry in entries.indices {
+            guard let step = entries[entry].steps.firstIndex(where: { $0.id == id }),
+                  let change = entries[entry].steps[step].card?.memory, entries[entry].steps[step].card?.memoryUndone == false else { continue }
+            MemoryTools.undo(change, store: memory)
+            entries[entry].steps[step].card?.memoryUndone = true
+        }
     }
 
     /// 允许 / 不用了 on the card.
@@ -498,7 +511,9 @@ final class BobSession {
         if call.name == ComputerTool.name || ScriptTools.names.contains(call.name) { return (await operate(call), nil) }
         let context = BobTools.Context(agents: agents, conversations: conversations, chat: chat, providers: providers, skills: skills,
                                        mcp: mcp, notifications: notifications, project: project, model: model.current(providers), search: search,
-                                       memory: memory, history: chat.fileHistoryFolder, mcpClient: mcpClient, attachmentsFolder: attachmentsFolder)
+                                       memory: memory, userWords: entries.filter { $0.role == .user }.map(\.text),
+                                       hasFailure: entries.contains { $0.steps.contains { $0.result?.status == .failed } },
+                                       history: chat.fileHistoryFolder, mcpClient: mcpClient, attachmentsFolder: attachmentsFolder)
         switch await BobTools.prepare(call, context: context) {
         case let .done(result, card):
             return (result, card)
@@ -600,9 +615,10 @@ final class BobSession {
         context.append("今天是 \(SystemPrompt.dateText(date))。")
         let name = userName().trimmingCharacters(in: .whitespacesAndNewlines)
         if !name.isEmpty { context.append("称呼用户时用「\(name)」。") }
-        // D95: his own memory, not the project's — the lines gone stale left out (10j).
-        if let remembered = memory.promptText(agent: Conductor.bobID, project: Self.everywhere) {
-            context.append("\n\n你的记忆（你自己记下的，不分项目；和现在的情况冲突时以现在为准）：\n" + remembered)
+        // D95, user 2026-09-17: the memory's directory — what is global and his own layer, never a project's — without
+        // the notes gone stale (10j). The rest he reads with recall.
+        if let remembered = memory.directory(BobTools.memoryScopes) {
+            context.append("\n\n你的记忆目录（每条一行，[全局] 是关于用户的、每个 Agent 都读得到，[你] 是你自己记的、不分项目；标了「有正文」的，和手上的事有关时用 recall 读细节；和现在的情况冲突时以现在为准）：\n" + remembered)
         }
         return """
         你叫 Bob，住在 Formora 里。你帮用户三件事：回答关于 Formora 的问题，替他改设置，以及直接动手做事——用 Skill、用已接入的 MCP 服务、在当前项目里读写文件和运行命令。
@@ -618,7 +634,7 @@ final class BobSession {
         - 要做的事有对应的 Skill，先用 skill 读它的做法；所有已安装的 Skill 你都能用。
         - 已接入的 MCP 服务的工具你都能用（名字以 mcp__ 开头）：只读的直接用，会改东西的按下面说的确认方式来。
         - 在当前项目里写文件、改文件（write / edit）和运行命令（bash），和 Agent 一样只在项目文件夹里；没打开项目时告诉用户做不了。\(offersComputer ? "\n- " + Self.computerRule : "")
-        - 用户说以后都要怎样、或者定下了什么约定，用 remember 记下来，一句话一条；你的记忆不分项目，每次对话都带着。用户想看你记了什么，照下面「你的记忆」告诉他；让你全忘掉，用 memory_clear（会先问他）。
+        - \(MemoryTools.rules.replacingOccurrences(of: "放哪一层：任何项目都适用的（用户是谁、怎么沟通、红线）放 global；这个项目的决定、约定和踩过的坑放 project；用户对你这个岗位产出的要求放 agent。", with: "放哪一层：关于用户、任何项目任何 Agent 都适用的（他是谁、怎么沟通、红线）放 global；他对你的要求、你操作 Formora 踩过的坑放 bob；某个项目的事不归你记。"))用户想看你记了什么，照下面「你的记忆目录」告诉他；让你把自己记的全忘掉，用 memory_clear（会先问他）。
         - \(Self.askingRule(model.approvalMode))用户没同意就别换个工具再试一次。
         - 需要用户提供的东西（名字、地址）没有时，先问，别编。
         - 接入要选文件夹的服务（mcp_catalog 里写着「要选…（folder）」的，比如 Obsidian 的笔记库）：问用户那个文件夹的完整路径，填进 mcp_add 的 folder。要填好几项的（写着括号里名字的，比如飞书的 app_id 和 app_secret）：按括号里的名字放进 values。

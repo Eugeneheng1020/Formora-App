@@ -447,24 +447,9 @@ struct SubagentDraft: Equatable, Identifiable {
     var scope: SubagentLibrary.Scope = .project
     var prompt = ""
     var problem: String?
-    /// The subagent being edited, when the dialog opened from 设置 → 子代理 (user 2026-09-16). `nil` for a blank 新建.
-    /// It carries the old name and source so a rename or a move deletes the old file. `model` is kept as it was.
-    var editingOriginal: SubagentDefinition?
-
-    var isEditing: Bool { editingOriginal != nil }
-
     var definition: SubagentDefinition {
         SubagentDefinition(name: name.trimmingCharacters(in: .whitespacesAndNewlines), description: description.trimmingCharacters(in: .whitespacesAndNewlines),
-                           tier: tier, model: editingOriginal?.model, prompt: prompt.trimmingCharacters(in: .whitespacesAndNewlines),
+                           tier: tier, model: nil, prompt: prompt.trimmingCharacters(in: .whitespacesAndNewlines),
                            source: scope == .project ? .project : .global)
-    }
-
-    /// Opens the dialog on an existing subagent, every field pre-filled, no drafting. `.claude` files are read-only
-    /// and never reach here.
-    static func editing(_ definition: SubagentDefinition) -> SubagentDraft {
-        SubagentDraft(conversationID: UUID(), purpose: "", name: definition.name,
-                      description: definition.description, tier: definition.tier,
-                      scope: definition.source == .project ? .project : .global, prompt: definition.prompt,
-                      editingOriginal: definition)
     }
 }

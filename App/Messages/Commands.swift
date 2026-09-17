@@ -34,7 +34,7 @@ enum Commands {
         ComposerCommand(name: "/plan", note: "切换计划模式：先出方案，你确认后再动手", action: .plan),
         ComposerCommand(name: "/compact", note: "压缩上下文：把前面的对话整理成摘要（/compact 重点 指定要保留的）", action: .compact),
         ComposerCommand(name: "/todo", note: "看当前的计划（/todo 文字 可以加一项）", takesArgument: true, action: .todo),
-        ComposerCommand(name: "/memory", note: "看这个 Agent 在当前项目里记下了什么（只读）", action: .memory),
+        ComposerCommand(name: "/memory", note: "看这条对话用得到的记忆：全局、本项目、这个 Agent 自己的（只读）", action: .memory),
         ComposerCommand(name: "/review", note: "请旁审把它最近一轮做的审一遍：给结论和分级的问题（/review 重点 指定要看什么）", action: .review),
         ComposerCommand(name: "/side", note: "岔开问一句：临时问点别的，主对话不受影响（/side 问题）", takesArgument: true, action: .side),
         ComposerCommand(name: "/loop", note: "自主运行 N 轮：/loop 3 接着完善这份需求（最多 10 轮）", takesArgument: true, action: .loop),

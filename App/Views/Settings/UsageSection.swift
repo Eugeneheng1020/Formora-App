@@ -23,7 +23,7 @@ struct UsageSection: View {
         let entries = entries
         let totals = UsageLedger.totals(entries, price: price)
         VStack(alignment: .leading, spacing: 0) {
-            SettingsSectionHead(category: .usage, note: "Agent 回复用掉的 token 和折算的花费；单价是参考值，可以改。") {
+            SettingsSectionHead(category: .usage, note: "Agent 回复用掉的 token 和折算的花费。") {
                 SegmentedControl(options: UsageLedger.Period.allCases.map { ($0, $0.title) }, selection: $period, identifier: "usage.period")
             }
             totalsRow(totals)
@@ -45,7 +45,7 @@ struct UsageSection: View {
                 stat("花费", value: UsageLedger.money(totals.cost), identifier: "usage.total.cost")
             }
             if !totals.unpricedModels.isEmpty {
-                Text("还有 \(totals.unpricedModels.count) 个模型没有单价，它们的 token 算了、钱没算：\(totals.unpricedModels.map(\.modelID).joined(separator: "、"))")
+                Text("有 \(totals.unpricedModels.count) 个模型没有单价，花费没算进去：\(totals.unpricedModels.map(\.modelID).joined(separator: "、"))")
                     .font(FormoraFont.ui(11))
                     .foregroundStyle(Palette.alert.color)
                     .accessibilityIdentifier("usage.unpriced")
@@ -152,7 +152,7 @@ struct UsageSection: View {
     // MARK: Budget
 
     private var budgetRow: some View {
-        SettingRow(label: "每月预算", description: "本月花费超过时通知一次；留空不提醒。", showsRule: false) {
+        SettingRow(label: "每月预算", description: "本月花费超过时通知一次。", showsRule: false) {
             HStack(spacing: 8) {
                 SegmentedControl(options: Currency.allCases.map { ($0, $0.symbol) }, selection: Binding(get: { budgetCurrency }, set: { currency in
                     budgetCurrency = currency

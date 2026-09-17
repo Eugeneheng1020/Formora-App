@@ -131,7 +131,7 @@ struct CreateAgentDialog: View {
 
     private var identityStep: some View {
         VStack(alignment: .leading, spacing: 0) {
-            sectionTitle("选择角色", note: "角色决定 Agent 的职责模板；每个角色最多创建 \(AgentRole.limit) 个。")
+            sectionTitle("选择角色", note: "每个角色最多创建 \(AgentRole.limit) 个。")
             HStack(spacing: 8) {
                 ForEach(AgentRole.all) { option in roleCard(option) }
             }
@@ -268,7 +268,7 @@ struct CreateAgentDialog: View {
 
     private var projectStep: some View {
         VStack(alignment: .leading, spacing: 0) {
-            sectionTitle("授权项目", note: "Agent 全局保存，但只能读取已授权项目；至少选择 1 个项目。")
+            sectionTitle("授权项目", note: "Agent 只能读取已授权的项目，至少选 1 个。")
             VStack(spacing: 0) {
                 ForEach(session.projects) { project in
                     ProjectCheckRow(name: project.name, isOn: flow.projectIDs.contains(project.id),

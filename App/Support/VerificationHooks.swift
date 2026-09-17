@@ -315,21 +315,21 @@ enum VerificationHooks {
             ])
             store.append(Advisor.message(review, agentID: agentID, runID: UUID()), to: id)
         }
-        // `-FormoraSeedMemory YES` (10j): the selected conversation's Agent remembers a few things, one of them gone stale,
-        // and /memory is open.
+        // `-FormoraSeedMemory YES` (10j; user 2026-09-17): every layer has a note — the project's has one with a body and
+        // one gone stale — the thread says the last one was just remembered (with its 撤销), and /memory is open.
         if settings.bool(forKey: seedMemoryKey), let id = state.selectedConversationID, let conversation = store.conversation(id),
            let agent = state.commandAgent(conversation), let memory = state.chat.memory {
-            let day = { (offset: Double) in MemoryStore.day(Date.now.addingTimeInterval(offset * 86_400)) }
-            memory.rewrite("""
-            ## 用户偏好
-            - 先给结论，再给要点（\(day(-3))）
-            ## 项目约定
-            - 金额一律写到分（\(day(-20))）
-            - 需求用飞书文档管理（\(day(-240))）
-            ## 已定的结论
-            - 短信重试最多 3 次（\(day(-9))）
-            """, agent: agent.id, project: conversation.projectID)
-            state.commandCards[id] = CommandCard(kicker: "memory", title: "\(agent.displayName) 的记忆", body: .memory)
+            let at = { (offset: Double) in Date.now.addingTimeInterval(offset * 86_400) }
+            _ = memory.add(kind: .preference, summary: "先给结论，再给要点", body: "", to: .global, source: id, now: at(-3))
+            _ = memory.add(kind: .decision, summary: "金额一律写到分", body: "含税价。理由：和财务系统对账按分。", to: .project(conversation.projectID),
+                           source: id, now: at(-20))
+            _ = memory.add(kind: .decision, summary: "需求用飞书文档管理", body: "", to: .project(conversation.projectID), source: id, now: at(-240))
+            _ = memory.add(kind: .preference, summary: "PRD 每条需求都带验收标准", body: "", to: .agent(agent.id), source: id, now: at(-9))
+            if case .success(let added) = memory.add(kind: .decision, summary: "短信重试最多 3 次", body: "", to: .project(conversation.projectID),
+                                                     source: id, now: .now) {
+                state.chat.noteMemory(MemoryChange(op: .add, scope: .project(conversation.projectID), before: nil, after: added.entry), in: id)
+            }
+            state.commandCards[id] = CommandCard(kicker: "memory", title: "这条对话用得到的记忆", body: .memory)
         }
         // `-FormoraSeedSide YES` (10i): a side conversation opened from the selected one — a question and its answer —
         // shown in its place, its banner on top.
@@ -509,7 +509,7 @@ enum VerificationHooks {
         }
         // `-FormoraSubagentDraft YES` (user 2026-09-15): the dialog as the model would have filled it.
         if settings.bool(forKey: subagentDraftKey), let id = state.selectedConversationID {
-            state.subagentDraft = SubagentDraft(conversationID: id, purpose: "改完代码后替我审一遍，按严重程度列问题", name: "代码评审",
+            state.subagentDraft = SubagentDraft(conversationID: id, purpose: "改完代码后替我审一遍，按严重程度列问题", name: "code-reviewer",
                                                 description: "改完代码派它：按 P0 到 P3 列问题和依据，不动手改。", tier: .read, scope: .project,
                                                 prompt: "## 你是谁\n你是代码评审。\n\n## 报告怎么写\n先结论，再按级别列问题。")
         }

@@ -287,7 +287,7 @@ enum BoardCards {
                 add(.line(event.title), to: card, id: message.id.uuidString)
                 current[taker] = card
                 lastOpened = card
-            case .dispatch, .relayEnd, .summary, .rewind:
+            case .dispatch, .relayEnd, .summary, .rewind, .memory:
                 // The pick is on the message as its assignees; an end, Bob's summary or a message sent again (10e) says
                 // nothing about a card.
                 break

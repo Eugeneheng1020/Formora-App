@@ -12,7 +12,7 @@ struct AccountSection: View {
         VStack(alignment: .leading, spacing: 0) {
             SettingsSectionHead(category: .account, note: "名字和头像，只在本机显示。") { EmptyView() }
             SettingRow(label: "头像",
-                       description: "PNG、JPEG 或 HEIC，不超过 10 MB；不设就显示昵称首字。") {
+                       description: "PNG、JPEG 或 HEIC，不超过 10 MB。") {
                 HStack(spacing: 10) {
                     AccountAvatar(image: account.avatar, initial: account.initial, size: 56, style: .preview)
                         .accessibilityIdentifier("account.avatar")
