@@ -33,6 +33,9 @@ struct ThreadEvent: Codable, Equatable, Sendable {
         case rewind
         /// User 2026-09-17: a note written to the memory, changed or forgotten — said in the thread, with 撤销.
         case memory
+        /// User 2026-09-17: `/agent 目的` made a subagent (`passed`), or couldn't — said in the thread, so the canvas's
+        /// window says it too.
+        case subagent
     }
 
     /// Bob's arrangement (9e): the stages in order — the members of one stage start together, the next stage waits

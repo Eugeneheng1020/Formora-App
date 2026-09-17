@@ -507,12 +507,7 @@ enum VerificationHooks {
             store.append(Message(role: .agent, agentID: agentID, speakerName: state.agents.agent(agentID)?.displayName, text: "两件事要你定。",
                                  toolCalls: [call], runID: UUID()), to: id)
         }
-        // `-FormoraSubagentDraft YES` (user 2026-09-15): the dialog as the model would have filled it.
-        if settings.bool(forKey: subagentDraftKey), let id = state.selectedConversationID {
-            state.subagentDraft = SubagentDraft(conversationID: id, purpose: "改完代码后替我审一遍，按严重程度列问题", name: "code-reviewer",
-                                                description: "改完代码派它：按 P0 到 P3 列问题和依据，不动手改。", tier: .read, scope: .project,
-                                                prompt: "## 你是谁\n你是代码评审。\n\n## 报告怎么写\n先结论，再按级别列问题。")
-        }
+        // `-FormoraSeedSubagent YES` (user 2026-09-17): see `seedSubagent` — it waits for the project's folder.
         // `-FormoraSeedUnread YES` (user 2026-09-15): the badge on a row.
         if settings.bool(forKey: seedUnreadKey), let selected = state.selectedConversationID,
            let other = store.list(project: currentProject?.id, hiddenView: false).first(where: { $0.id != selected }) {
@@ -641,8 +636,20 @@ enum VerificationHooks {
     static let boardApprovalKey = "FormoraBoardApproval"
     /// `-FormoraSeedUnread YES` (user 2026-09-15): a conversation other than the open one has 3 unread.
     static let seedUnreadKey = "FormoraSeedUnread"
-    /// `-FormoraSubagentDraft YES` (user 2026-09-15): the new-subagent dialog open on a filled draft, no model needed.
-    static let subagentDraftKey = "FormoraSubagentDraft"
+    /// `-FormoraSeedSubagent YES` (user 2026-09-17): a project subagent made and said in the thread, no model needed.
+    static let seedSubagentKey = "FormoraSeedSubagent"
+
+    /// `/agent 目的` as it ends, without a model: the project has a code-reviewer and the selected conversation says
+    /// so. Called once the project's folder is known — the file is the project's.
+    @MainActor
+    static func seedSubagent(in state: AppState, profile: AppProfile, settings: UserDefaults = .standard) {
+        guard !profile.isDefault, settings.bool(forKey: seedSubagentKey), state.subagents.projectRoot != nil,
+              state.subagents.definition(named: "code-reviewer") == nil, let id = state.selectedConversationID else { return }
+        let definition = SubagentDefinition(name: "code-reviewer", description: "改完代码派它：按 P0 到 P3 列问题和依据，不动手改。", tier: .read,
+                                            model: nil, prompt: "## 你是谁\n你是代码评审。\n\n## 报告怎么写\n先结论，再按级别列问题。", source: .project)
+        guard (try? state.subagents.save(definition, scope: .project)) != nil else { return }
+        state.conversations.append(Message(role: .user, text: "", event: SubagentGenerator.created(definition)), to: id)
+    }
     /// `-FormoraSeedInterrupted YES`: a conversation other than the open one ends on a reply that never came, unread.
     static let seedInterruptedKey = "FormoraSeedInterrupted"
     static let seedInstructionsKey = "FormoraSeedInstructions"

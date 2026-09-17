@@ -287,6 +287,11 @@ enum BoardCards {
                 add(.line(event.title), to: card, id: message.id.uuidString)
                 current[taker] = card
                 lastOpened = card
+            case .subagent:
+                // `/agent 目的` from the canvas (user 2026-09-17): what came of it is a line on the card it was typed at —
+                // or the one last opened.
+                guard let card = message.boardCard.flatMap({ index[$0] }) ?? lastOpened else { return }
+                add(.line([event.title, event.detail].filter { !$0.isEmpty }.joined(separator: "\n")), to: card, id: message.id.uuidString)
             case .dispatch, .relayEnd, .summary, .rewind, .memory:
                 // The pick is on the message as its assignees; an end, Bob's summary or a message sent again (10e) says
                 // nothing about a card.

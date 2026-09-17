@@ -389,8 +389,10 @@ struct ComposerView: View {
     private func run(_ command: ComposerCommand, argument: String) {
         let root = projectRoot
         let name = projectName
+        let card = boardCard?.id
         Task {
-            if let reason = await state.runCommand(command, argument: argument, in: id, projectRoot: root, projectName: name) {
+            if let reason = await state.runCommand(command, argument: argument, in: id, projectRoot: root, projectName: name,
+                                                   boardCard: card) {
                 state.toasts.show("\(command.name) 没有执行", note: reason, isError: true)
             }
         }

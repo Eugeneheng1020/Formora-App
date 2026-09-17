@@ -126,10 +126,6 @@ struct RootView: View {
                               })
             }
 
-            if state.subagentDraft != nil {
-                SubagentDialog(state: state)
-            }
-
             if let definition = state.subagentToDelete {
                 ConfirmDialog(kicker: "delete subagent", title: "删除子代理「\(definition.name)」？",
                               message: "会删掉它的文件，命令 /\(definition.name) 也随之消失。这一步撤不回来。",
@@ -225,6 +221,7 @@ struct RootView: View {
     private func openFiles() async {
         // The project's subagents come and go with its folder (user 2026-09-15).
         state.subagents.reload(projectRoot: session.accessibleRoot)
+        VerificationHooks.seedSubagent(in: state, profile: AppProfile.current)
         guard let root = session.accessibleRoot else {
             state.files = nil
             return

@@ -20,7 +20,8 @@ extension AppState {
     }
 
     /// Runs one command. `nil` when it ran; otherwise why not, for the toast.
-    func runCommand(_ command: ComposerCommand, argument: String, in id: UUID, projectRoot: URL?, projectName: String?) async -> String? {
+    func runCommand(_ command: ComposerCommand, argument: String, in id: UUID, projectRoot: URL?, projectName: String?,
+                    boardCard: String? = nil) async -> String? {
         guard let conversation = conversations.conversation(id) else { return nil }
         switch command.action {
         case .help:
@@ -60,7 +61,7 @@ extension AppState {
         case .subagent:
             let purpose = argument.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !purpose.isEmpty else { return "写上它的目的：/agent 它要替你做什么" }
-            createSubagent(purpose: purpose, in: id)
+            createSubagent(purpose: purpose, in: id, boardCard: boardCard)
         case .cost:
             commandCards[id] = CommandCard(kicker: "cost", title: "本次对话的用量", body: .usage)
         case .compact:
@@ -150,92 +151,70 @@ extension AppState {
         [chat.conductorModel(), commandAgent(conversation)?.primaryModel].compactMap { $0 }
     }
 
-    /// `/agent 目的` (user 2026-09-16): 用户只写目的，模型按隐藏的撰写指南把整个子代理写出来并直接存好，不再走填写弹窗。
-    /// 进度和结果落在对话下方的一张命令卡片里；名字撞车或提示词空了这种少见情况，退回到编辑弹窗让用户改，不丢已写的内容。
-    func createSubagent(purpose: String, in id: UUID) {
+    /// `/agent 目的` (user 2026-09-16, 2026-09-17): 用户只写核心目的，剩下的全自动——模型按隐藏的撰写指南写出整个子代理，
+    /// 名字不是英文就折成英文、撞了名就加编号、第一次写得不能用就带着原因再要一次，直接存好；从头到尾不弹窗、不让用户填表。
+    /// 起草时对话下方有一张「正在创建」的卡片；结果（成了或没成）是对话里的一行，看板读的是同一条对话，浮窗里也看得到。
+    /// `boardCard`: 在看板上哪张卡片的输入框里打的。
+    func createSubagent(purpose: String, in id: UUID, boardCard: String? = nil) {
         guard let conversation = conversations.conversation(id) else { return }
         let models = drafterModels(for: conversation)
         guard !models.isEmpty else {
-            toasts.show("没法起草子代理", note: "先在「设置 → 模型」配一个模型，或去「设置 → Bob」选一个", isError: true)
+            toasts.show("没法创建子代理", note: "先在「设置 → 模型」配一个模型，或去「设置 → Bob」选一个", isError: true)
             return
         }
-        commandCards[id] = CommandCard(kicker: "subagent", title: "正在起草子代理…", body: .text("目的：\(purpose)"))
-        let reserved = Commands.all.map { String($0.name.dropFirst()) } + subagents.names + Array(SubagentNames.reserved)
-        let request = SubagentGenerator.request(purpose: purpose, reserved: reserved)
+        commandCards[id] = CommandCard(kicker: "subagent", title: "正在创建子代理…", body: .text("目的：\(purpose)"))
+        toasts.show("正在创建子代理…", note: purpose, seconds: 3)
+        let commands = Commands.all.map(\.name)
+        let reserved = commands.map { String($0.dropFirst()) } + subagents.names + Array(SubagentNames.reserved)
         Task { [weak self] in
             guard let self else { return }
-            let reply = await chat.oneShot(system: SubagentGenerator.system, prompt: request, candidates: models)
-            guard conversations.conversation(id) != nil else { return }
-            guard let reply, let draft = SubagentGenerator.parse(reply.summary) else {
-                commandCards[id] = CommandCard(kicker: "subagent", title: "没起草成功",
-                                               body: .text("把目的写得更具体些再试：/agent 它要替你做什么、交回什么"))
-                return
+            let say = { (event: ThreadEvent) in self.saySubagent(event, in: id, boardCard: boardCard) }
+            var problem: String?
+            // 最多两次：第一次写得不能用（读不出、缺名字或提示词、名字折不出英文），带着原因再要一次。
+            for _ in 0..<2 {
+                let request = SubagentGenerator.request(purpose: purpose, reserved: reserved, problem: problem)
+                guard let reply = await chat.oneShot(system: SubagentGenerator.system, prompt: request, candidates: models) else {
+                    return say(SubagentGenerator.failed("模型没有回复。检查一下模型和网络，再发一次 /agent \(purpose)"))
+                }
+                guard let draft = SubagentGenerator.parse(reply.summary) else {
+                    problem = "回复不是一个能读的 JSON 对象，或者缺了 name 或 prompt"
+                    continue
+                }
+                guard let name = SubagentGenerator.settledName(draft.name, taken: subagents.names, commands: commands) else {
+                    problem = "name「\(draft.name)」不是英文（小写字母、数字和 -，字母开头，比如 code-reviewer）"
+                    continue
+                }
+                // 存到项目里（能访问项目文件夹时），否则存到全局。
+                let scope: SubagentLibrary.Scope = subagents.projectRoot != nil ? .project : .global
+                let definition = SubagentDefinition(name: name, description: draft.description, tier: draft.tier, model: nil,
+                                                    prompt: draft.prompt, source: scope == .project ? .project : .global)
+                do {
+                    try subagents.save(definition, scope: scope)
+                    toasts.show("已创建子代理 \(name)", note: "/\(name) 任务 派活", seconds: 4)
+                    return say(SubagentGenerator.created(definition))
+                } catch {
+                    return say(SubagentGenerator.failed((error as? SubagentProblem)?.message ?? error.localizedDescription))
+                }
             }
-            // 存到项目里（能访问项目文件夹时），否则存到全局。
-            let scope: SubagentLibrary.Scope = subagents.projectRoot != nil ? .project : .global
-            // 名字用英文（user 2026-09-17）：模型没照做，就把它给的名字折成小写加连字符；折不出来（全是中文）留给弹窗让用户起。
-            let shaped = SubagentNames.slug(draft.name)
-            let name = SubagentNames.creationProblem(with: draft.name, commands: []) == nil || shaped.isEmpty ? draft.name : shaped
-            let definition = SubagentDefinition(name: name, description: draft.description, tier: draft.tier, model: nil,
-                                                prompt: draft.prompt, source: scope == .project ? .project : .global)
-            do {
-                try subagents.save(definition, scope: scope)
-                commandCards[id] = CommandCard(kicker: "subagent", title: "已创建「\(name)」", body: .rows([
-                    .init(name: "作用", note: draft.description.isEmpty ? "（没写描述）" : draft.description),
-                    .init(name: "命令", note: "/\(name) 任务"),
-                    .init(name: "工具", note: Self.tierLabel(draft.tier)),
-                    .init(name: "查看", note: "设置 → SubAgent"),
-                ]))
-                toasts.show("已创建子代理「\(name)」", note: "/\(name) 任务 派活", seconds: 4)
-            } catch {
-                // 少见：撞名、名字不是英文或提示词空。退回弹窗，字段都填好，让用户改一下再存。
-                commandCards[id] = nil
-                var fallback = SubagentDraft(conversationID: id, purpose: purpose, name: name, description: draft.description,
-                                             tier: draft.tier, scope: scope, prompt: draft.prompt)
-                fallback.problem = (error as? SubagentProblem)?.message ?? error.localizedDescription
-                subagentDraft = fallback
-            }
+            say(SubagentGenerator.failed("模型两次都没写出能用的定义（\(problem ?? "原因不明")）。把目的写得更具体些再试：/agent 它要替你做什么、交回什么"))
         }
     }
 
+    /// What came of `/agent 目的`, as a line of the thread — the canvas's window reads it from the card it was typed at.
+    private func saySubagent(_ event: ThreadEvent, in id: UUID, boardCard: String?) {
+        guard conversations.conversation(id) != nil else { return }
+        commandCards[id] = nil
+        var message = Message(role: .user, text: "", event: event)
+        message.boardCard = boardCard
+        conversations.append(message, to: id)
+    }
+
     /// 子代理列表和命令卡里的工具档位名。
-    static func tierLabel(_ tier: ToolTier) -> String {
+    nonisolated static func tierLabel(_ tier: ToolTier) -> String {
         switch tier {
         case .read: "只读"
         case .write: "可写"
         case .exec: "可执行"
-        }
-    }
-
-    /// 保存 on the dialog `/agent 目的` falls back to (a name taken or not English, an empty prompt): the file, the
-    /// toast, the popover's new command. 设置 → SubAgent only shows and deletes (user 2026-09-17): nothing is edited here.
-    func saveSubagentDraft() {
-        guard var draft = subagentDraft else { return }
-        let definition = draft.definition
-        if let problem = SubagentNames.creationProblem(with: definition.name, commands: Commands.all.map(\.name)) {
-            draft.problem = problem
-            subagentDraft = draft
-            return
-        }
-        // It must not land on another subagent's name (it would overwrite it silently).
-        let target = SubagentNames.normalize(definition.name)
-        if subagents.definitions.contains(where: { SubagentNames.normalize($0.name) == target }) {
-            draft.problem = "已经有叫「\(definition.name)」的子代理了，换个名字"
-            subagentDraft = draft
-            return
-        }
-        guard !definition.prompt.isEmpty else {
-            draft.problem = "提示词不能是空的"
-            subagentDraft = draft
-            return
-        }
-        do {
-            try subagents.save(definition, scope: draft.scope)
-            subagentDraft = nil
-            toasts.show("子代理「\(definition.name)」已创建", note: "/\(definition.name) 任务 派活", seconds: 4)
-        } catch {
-            draft.problem = (error as? SubagentProblem)?.message ?? error.localizedDescription
-            subagentDraft = draft
         }
     }
 

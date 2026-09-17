@@ -123,7 +123,6 @@ final class AppState {
     var messageSearch = ""
     var groupDialog: GroupDialog?
     /// `/agent 目的` (user 2026-09-15): the subagent being drafted, while its dialog is up.
-    var subagentDraft: SubagentDraft?
     /// 设置 → 子代理 (user 2026-09-16): the subagent whose delete confirmation is open.
     var subagentToDelete: SubagentDefinition?
     /// The archived conversation the delete confirmation is open for.
@@ -434,22 +433,3 @@ final class AppState {
     }
 }
 
-/// A subagent open in the 新建 / 编辑 form (user 2026-09-16). `/agent 目的` no longer drafts through this — the model
-/// writes and saves the subagent directly; this struct only backs the hand-fill form, and the rare `/agent` fallback
-/// when a generated name clashes. `purpose` is carried only so that fallback can regenerate later if wanted.
-struct SubagentDraft: Equatable, Identifiable {
-    let id = UUID()
-    let conversationID: UUID
-    var purpose: String
-    var name = ""
-    var description = ""
-    var tier: ToolTier = .read
-    var scope: SubagentLibrary.Scope = .project
-    var prompt = ""
-    var problem: String?
-    var definition: SubagentDefinition {
-        SubagentDefinition(name: name.trimmingCharacters(in: .whitespacesAndNewlines), description: description.trimmingCharacters(in: .whitespacesAndNewlines),
-                           tier: tier, model: nil, prompt: prompt.trimmingCharacters(in: .whitespacesAndNewlines),
-                           source: scope == .project ? .project : .global)
-    }
-}

@@ -203,8 +203,45 @@ enum SubagentGenerator {
     /// 起草用的系统提示词就是那份隐藏的撰写指南（user 2026-09-16），用户不必再逐字看提示词。
     static var system: String { SubagentAuthoring.guide }
 
-    static func request(purpose: String, reserved: [String]) -> String {
+    /// `problem`: what was wrong with the first try, when it is asked again (user 2026-09-17: nobody is shown a form).
+    static func request(purpose: String, reserved: [String], problem: String? = nil) -> String {
         "目的：\n\(purpose)\n\nreserved（不能用的名字）：\(reserved.joined(separator: "、"))"
+            + (problem.map { "\n\n上一次你写的不能用：\($0)。这次改掉，其余照旧，仍然只输出 JSON。" } ?? "")
+    }
+
+    /// The name a draft is saved under, settled without asking (user 2026-09-17): English as given, folded into
+    /// lower-case and hyphens when it isn't, numbered when a command or another subagent has it. `nil` when there is
+    /// nothing English in it to fold — then the model is asked again.
+    static func settledName(_ raw: String, taken: [String], commands: [String]) -> String? {
+        let given = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = EnglishSlug.isValid(given) ? given : SubagentNames.slug(given)
+        guard base.count >= 2 else { return nil }
+        let used = Set(taken.map(SubagentNames.normalize))
+        var candidate = base
+        var number = 2
+        while used.contains(candidate) || SubagentNames.creationProblem(with: candidate, commands: commands) != nil {
+            candidate = "\(base.prefix(SubagentNames.lengthLimit - 3))-\(number)"
+            number += 1
+            if number > 99 { return nil }
+        }
+        return candidate
+    }
+
+    /// The thread's line once it is made (user 2026-09-17): in 消息 and, the board reading the same thread, in the
+    /// canvas's window — its name and command, what it is for, its tools, where it is kept.
+    static func created(_ definition: SubagentDefinition) -> ThreadEvent {
+        let place = definition.source == .project ? "存在本项目" : "存在全局"
+        var event = ThreadEvent(kind: .subagent, title: "已创建子代理 \(definition.name)",
+                                detail: [definition.description, "/\(definition.name) 任务 派活 · \(AppState.tierLabel(definition.tier)) · \(place)"]
+                                    .filter { !$0.isEmpty }.joined(separator: "\n"))
+        event.passed = true
+        return event
+    }
+
+    static func failed(_ reason: String) -> ThreadEvent {
+        var event = ThreadEvent(kind: .subagent, title: "子代理没创建成功", detail: reason)
+        event.passed = false
+        return event
     }
 
     /// The JSON in the reply — fenced or bare; `nil` when it can't be read.
