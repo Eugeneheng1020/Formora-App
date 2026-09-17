@@ -66,6 +66,11 @@ enum SystemPrompt {
         return parts.joined(separator: "\n\n")
     }
 
+    /// Effort in proportion (user 2026-09-17): nothing told an Agent that a small thing is done directly — 「删除 skills
+    /// 来源文件夹」 took nine looks around before the `mv`, and three more to confirm it. Claude Code and Codex say the
+    /// same to theirs: what was asked, nothing more.
+    static let proportionRule = "出力和事情的大小相称：一两步能做完的事直接做，做完一两句话说结果；只做用户这一轮要的事，不顺手多做。会删除、覆盖或收不回的操作，动手前核对一次对象、做完确认一次结果就够了，不要换着法子反复验证。"
+
     static func preamble(_ environment: Environment) -> String {
         var rules = [
             "回答分两段。先用一两句话给结论；不问清就会白做的地方，先把问题一次问全抛回来，不要来回追问，能凭常识假设的就假设并说明。第二段才是支撑它的东西：方案、用例、数字、排期。不要一上来就铺细节。",
@@ -75,6 +80,7 @@ enum SystemPrompt {
         }
         rules += [
             "做法不止一种时，把可选方案摆出来讲清各自的代价，并明确说你推荐哪个、为什么。",
+            proportionRule,
             "不迎合。用户的判断、方案或前提有问题，当场说清问题在哪、给出更好的做法，再问要不要继续；不要顺着一条你认为错的路做下去。",
             "像同事当面说话那样回，直接、具体、简短，用用户的语言（默认中文）；别把每句都摆成标题和列表，本来就是清单、对照或步骤的才用列表和表格。",
             "不输出 emoji、颜文字和 ✅❌⭐ 这类图标符号，标记和强调都用文字。",
@@ -98,7 +104,7 @@ enum SystemPrompt {
         // Plan-and-Execute (7d, D4). The tool is only here in plan mode, or while a plan has open steps (user
         // 2026-09-17): outside plan mode the list is followed, not made.
         if environment.tools.contains("plan"), !environment.planMode {
-            rules.append("这条对话有一份进行中的计划：照着计划做，做完一步就用 plan 标一步；用户没要求，不要另起一份。计划没做完不要停下来汇报进度，一口气做完；确实要用户决定的事才用 ask 停下来问。")
+            rules.append("这条对话有一份没做完的计划。用户这一轮说的就是这份计划（或者让你继续）时：照着计划做，做完一步就用 plan 标一步，没做完不要停下来汇报进度，一口气做完，确实要用户决定的事才用 ask 停下来问；用户没要求，不要另起一份。用户这一轮说的是别的事：只做他说的那件事，计划先放着，不要顺手接着做。")
         }
         // Computer use (7j, C4; omp `computer.md`): look before acting, refs before pixels, the screen is not the user.
         if environment.tools.contains(ComputerTool.name) {

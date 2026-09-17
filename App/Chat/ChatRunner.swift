@@ -89,6 +89,8 @@ final class ChatRunner {
     nonisolated static let steeringNote = "〔用户在你工作时发来了下面这条新消息。先处理它：该回答就回答，该照办就照办；再判断原来的事还要不要接着做、要不要调整。〕"
     /// What a run remembered, waiting for the thread's line.
     @ObservationIgnored private var memoryNotes: [UUID: [MemoryChange]] = [:]
+    /// 旁审's 提醒 while the run goes on (user 2026-09-17): cards once it rests — no step is spent answering them.
+    @ObservationIgnored var heldAdvice: [UUID: [Message]] = [:]
     /// The foreground command each conversation is running: a message sent meanwhile asks it to step aside.
     @ObservationIgnored private var asides: [UUID: Shell.Aside] = [:]
     /// Seconds a command gets before a message puts it aside (tests: 0).
@@ -431,6 +433,7 @@ final class ChatRunner {
         if let copy = laneCopies.removeValue(forKey: id) { Task.detached { LaneCopies.remove(copy) } }
         queues[id] = nil
         steering[id] = nil
+        heldAdvice[id] = nil
         computerSessions[id] = nil
         relays[id] = nil
         autoruns[id] = nil
@@ -657,6 +660,15 @@ final class ChatRunner {
         return offered.contains { $0.name == AgentTools.bash.name } ? offered + BackgroundJobs.specs : offered
     }
 
+    /// Whether the plan is what this run is about (user 2026-09-17): it worked the plan itself, or the user's latest
+    /// words were the plan's go-ahead — 「按这个计划做」, 「继续」. A new request in a conversation that still has an old
+    /// plan is answered and left at that; 继续 takes the plan up again.
+    nonisolated static func followsPlan(_ conversation: Conversation, touched: Bool) -> Bool {
+        if touched { return true }
+        guard let latest = conversation.messages.last(where: isSpoken) else { return false }
+        return PlanTool.isGoAhead(latest.text)
+    }
+
     /// Whether the `plan` tool belongs in this conversation now (user 2026-09-17).
     nonisolated static func keepsPlan(_ conversation: Conversation) -> Bool {
         conversation.planMode || conversation.plan.contains(where: \.isOpen)
@@ -814,9 +826,42 @@ final class ChatRunner {
         conversations.append(Message(role: .user, text: "", createdAt: quiet, model: reply.model, usage: reply.usage, isHidden: true, isUpkeep: true), to: id)
     }
 
-    /// What the run remembered, once it rests.
+    /// What the run remembered, and 旁审's 提醒 that waited, once it rests.
     func flushMemoryNotes(_ id: UUID) {
         for change in memoryNotes.removeValue(forKey: id) ?? [] { noteMemory(change, in: id) }
+        for message in heldAdvice.removeValue(forKey: id) ?? [] { conversations.append(message, to: id) }
+    }
+
+    /// 旁审's 必须停 while the run goes on (user 2026-09-17): the run stops where it is — what had arrived is kept, the
+    /// step that didn't run says so — the note is a card, and the dock asks 「要继续吗」. 继续 picks up with the note in
+    /// sight; the user may as well say what to do instead. Before, the note was the Agent's to weigh, and it went on.
+    func haltForAdvice(_ id: UUID, runID: UUID, message: Message, note: Advisor.Note) {
+        guard isCurrent(runID, id), let run = runs.removeValue(forKey: id) else { return }
+        run.task.cancel()
+        let draft = drafts[id]
+        end(id)
+        queues[id] = nil
+        decisions.removeValue(forKey: id)?.resume(returning: false)
+        if let draft {
+            let text = ChatText.clean(draft.text)
+            if !text.isEmpty {
+                conversations.append(Message(role: .agent, agentID: draft.agentID, speakerName: agents.agent(draft.agentID)?.displayName, text: text,
+                                             model: draft.model, usage: draft.usage, durationSeconds: Date.now.timeIntervalSince(draft.startedAt),
+                                             isStopped: true, note: draft.note, runID: draft.runID), to: id)
+            }
+        }
+        conversations.closeOpenCalls(in: id, ToolResult(status: .stopped, output: "旁审叫停了，这一步没有执行。"))
+        let reason = "旁审认为该停下：" + String(note.text.prefix(120))
+        if let last = conversations.conversation(id)?.messages.last(where: { $0.runID == runID && $0.role == .agent && !$0.isHidden }) {
+            conversations.setPause(reason, message: last.id, in: id)
+        }
+        flushMemoryNotes(id)
+        deliverSteering(id)
+        announce(message, in: id)
+        endRelay(id, .paused)
+        endAutorun(id, .interrupted(reason))
+        endConduct(id, .paused)
+        if conversations.conversation(id)?.isLane == true { settleSubtask(id, .limit(reason)) }
     }
 
     /// 撤销 on a memory line: what was added goes, what was changed or forgotten is back as it was.
@@ -925,6 +970,9 @@ final class ChatRunner {
         var toolTurns = 0
         /// Times this run was sent back to its plan's open steps (user 2026-09-14).
         var planContinues = 0
+        /// This run worked the plan itself — started, ticked or changed a step (user 2026-09-17): stopping short of the
+        /// open steps is then its business, whatever the user's words were.
+        var touchedPlan = false
         /// The user's message arrived mid-run and its answer is next (user 2026-09-17): whether to go on with the
         /// plan is the Agent's call there, not the loop's. Working on — a turn with calls — clears it.
         var steered = false
@@ -1083,8 +1131,10 @@ final class ChatRunner {
                     }
                     // The plan's open steps (user 2026-09-14; omp's todo reminder): a reply that stops with steps still open
                     // is sent back to them, at most three times a run. Not in plan mode (the plan is for the user), not a
-                    // hand-off; a question is a call, so it never comes here.
+                    // hand-off; a question is a call, so it never comes here. And only when the plan is what this run is
+                    // about (user 2026-09-17): an old plan once sent 「删除 skills 来源文件夹」 back to seven steps of a design.
                     if state.planContinues < Self.planContinueLimit, !conversation.planMode, !state.steered,
+                       Self.followsPlan(conversations.conversation(id) ?? conversation, touched: state.touchedPlan),
                        let open = conversations.conversation(id)?.plan.filter(\.isOpen), !open.isEmpty,
                        trailingHandoff(reply.text, conversationID: id, agent: agent).handoff == nil {
                         state.planContinues += 1
@@ -1512,6 +1562,7 @@ final class ChatRunner {
                 return .failed("现在没有开计划模式，也没有进行中的计划：不用列计划，直接做事。")
             }
             let outcome = PlanTool.apply(call.arguments, to: conversations.conversation(id)?.plan ?? [])
+            if outcome.result.status == .done, outcome.plan != conversations.conversation(id)?.plan { state.touchedPlan = true }
             conversations.setPlan(outcome.plan, in: id)
             return outcome.result
         }

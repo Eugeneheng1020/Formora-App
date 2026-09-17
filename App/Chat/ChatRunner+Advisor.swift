@@ -49,16 +49,27 @@ extension ChatRunner {
         if advisesInline { await task.value }
     }
 
-    /// While its run goes on, the Agent reads the note before its next step; after it, the note is a card — and a
-    /// 必须停, or a 担心 the user asked for with `/review`, sends the Agent back to deal with it, once.
+    /// While its run goes on, by what the note weighs (user 2026-09-17 — a run once took nineteen notes, four of them
+    /// 必须停, and went on for 37 steps; each note, a 提醒 too, cost it a step of 50,000 tokens to answer): a 担心 the
+    /// Agent reads before its next step; a 提醒 waits for the run's end — a card, no step spent on it; a 必须停 stops the
+    /// run and asks the user. After the run, the note is a card — and a 必须停, or a 担心 the user asked for with
+    /// `/review`, sends the Agent back to deal with it, once.
     private func deliver(_ note: Advisor.Note, in id: UUID, runID: UUID, agent: AgentRecord, manual: Bool) {
         guard let conversation = conversations.conversation(id),
               !conversation.messages.contains(where: { Advisor.isSame($0, note) }),
-              !(steering[id] ?? []).contains(where: { Advisor.isSame($0, note) }) else { return }
+              !(steering[id] ?? []).contains(where: { Advisor.isSame($0, note) }),
+              !(heldAdvice[id] ?? []).contains(where: { Advisor.isSame($0, note) }) else { return }
         let message = Advisor.message(note, agentID: agent.id, runID: runID)
         if activeRuns[id]?.id == runID {
-            steer(id, message)
-            if note.severity != .nit { advisorQuiet[id] = Advisor.quietSteps }
+            switch note.severity {
+            case .nit:
+                heldAdvice[id, default: []].append(message)
+            case .concern:
+                steer(id, message)
+                advisorQuiet[id] = Advisor.quietSteps
+            case .blocker:
+                haltForAdvice(id, runID: runID, message: message, note: note)
+            }
             return
         }
         announce(message, in: id)

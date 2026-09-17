@@ -19,7 +19,7 @@ extension AppState {
     /// 「按这个计划做」 under a plan-mode run: plan mode off, and the Agent that planned is told to go.
     func executePlan(_ id: UUID, projectRoot: URL?, projectName: String?) {
         conversations.setPlanMode(false, in: id)
-        sendFromCommand("按这个计划做。", to: id, projectRoot: projectRoot, projectName: projectName)
+        sendFromCommand(PlanTool.goAhead, to: id, projectRoot: projectRoot, projectName: projectName)
     }
 
     /// `/review` (10h): 旁审 reads what the Agent did in its latest run — its note lands in the thread.

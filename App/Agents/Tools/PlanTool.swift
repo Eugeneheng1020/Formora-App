@@ -10,6 +10,17 @@ enum PlanTool {
         parameters: #"{"type":"object","properties":{"op":{"type":"string","enum":["init","start","done","drop","append","view"]},"items":{"type":"array","items":{"type":"string"},"description":"Steps, for init and append"},"item":{"type":"string","description":"The exact text of one step, for start, done and drop"}},"required":["op"]}"#,
         tier: .read)
 
+    /// What 「按这个计划做」 sends.
+    static let goAhead = "按这个计划做。"
+
+    /// Whether the user's words mean the plan (user 2026-09-17): the button's, or a few words that say go on. A longer
+    /// message that merely contains 「继续」 is a request of its own.
+    static func isGoAhead(_ text: String) -> Bool {
+        let words = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !words.isEmpty, words.count <= 12 else { return false }
+        return words == goAhead || ["继续", "接着", "往下做", "按计划", "按这个计划", "continue", "go on", "keep going"].contains { words.contains($0) }
+    }
+
     struct Outcome: Equatable {
         var plan: [PlanItem]
         var result: ToolResult

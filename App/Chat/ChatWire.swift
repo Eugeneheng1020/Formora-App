@@ -187,6 +187,13 @@ enum ChatWire {
 
     /// The system prompt goes where each protocol wants it: a leading system message, `instructions`, `system`,
     /// `systemInstruction`. So do the tools, and the calls and results in the history.
+    /// Claude through OpenRouter: the one OpenAI-compatible route whose cache has to be asked for. Only there — another
+    /// host may not know the field.
+    static func wantsCacheControl(_ target: ChatTarget) -> Bool {
+        target.endpoint.apiProtocol == .openAICompletions && target.modelID.lowercased().hasPrefix("anthropic/")
+            && URL(string: target.endpoint.baseURL.trimmingCharacters(in: .whitespacesAndNewlines))?.host?.lowercased().hasSuffix("openrouter.ai") == true
+    }
+
     static func body(_ target: ChatTarget, system: String? = nil, history: [ChatTurn], reasoning: ReasoningLevel,
                      sendsReasoning: Bool, tools: [ToolSpec] = []) -> [String: Any] {
         let level: ReasoningLevel = sendsReasoning ? reasoning : .auto
@@ -206,6 +213,10 @@ enum ChatWire {
                 body["tools"] = tools.map { ["type": "function", "function": ["name": $0.name, "description": $0.description, "parameters": $0.schema]] }
             }
             applyCompletionsReasoning(&body, dialect: dialect, level: level)
+            // 提示词缓存 (user 2026-09-17)：OpenAI、DeepSeek、Gemini 在服务端自动缓存，但 OpenRouter 上的 Claude 不会——要在请求
+            // 顶层写 cache_control，OpenRouter 才替它在最后一个可缓存的块上打断点、随对话往前挪（它的文档：automatic caching，
+            // Anthropic / Vertex / Bedrock / Azure 各路由都支持）。没有这一行，每一步都按全价重发整段历史。
+            if Self.wantsCacheControl(target) { body["cache_control"] = ["type": "ephemeral"] }
             // DeepSeek and Z.ai, thinking, want every tool-call round since the last user message back with its thinking
             // (L7), and refuse the request without it (400). A round another model did — a fallback taking over from a
             // primary that doesn't think every round — has none to give: this request goes without thinking, the
@@ -559,7 +570,7 @@ enum ChatText {
                 }
                 guard !message.text.isEmpty || !message.toolCalls.isEmpty else { continue }
                 let returnsThinking = index > lastSpoken && !message.toolCalls.isEmpty
-                add(ChatTurn(role: .assistant, text: message.text, toolCalls: message.toolCalls,
+                add(ChatTurn(role: .assistant, text: message.text, toolCalls: message.toolCalls.map(\.forHistory),
                              thinking: returnsThinking ? message.thinking : nil,
                              thinkingSignature: returnsThinking ? message.thinkingSignature : nil))
                 for call in message.toolCalls {
@@ -578,5 +589,30 @@ enum ChatText {
             }
         }
         return turns
+    }
+}
+
+extension ToolCall {
+    /// A text argument longer than this isn't sent again once it is in the file.
+    static let writtenTextLimit = 1_500
+
+    /// What the model is sent of a call in later requests (user 2026-09-17). A file written or edited is on disk: its
+    /// text needn't ride along as the call's arguments for the rest of the conversation — one 70,000-character HTML
+    /// file cost 45,000 tokens on every later step. The path stays, the text becomes a line saying how much there was
+    /// and where to read it. Only once the call went through; only what is long; the thread, 撤销 and the file history
+    /// keep the call as it was written. Keys are sorted, so the same history reads the same and the provider's cache hits.
+    var forHistory: ToolCall {
+        guard result?.status == .done, name == AgentTools.write.name || name == AgentTools.edit.name,
+              arguments.count > Self.writtenTextLimit, var fields = ToolArguments.parse(arguments) else { return self }
+        var changed = false
+        for key in ["content", "old_text", "new_text"] {
+            guard let text = fields[key] as? String, text.count > Self.writtenTextLimit else { continue }
+            fields[key] = "（\(text.count) 字，已经在文件里，这里不再重复；要看现在的内容用 read 读这个文件）"
+            changed = true
+        }
+        guard changed, let data = try? JSONSerialization.data(withJSONObject: fields, options: [.sortedKeys]) else { return self }
+        var slim = self
+        slim.arguments = String(decoding: data, as: UTF8.self)
+        return slim
     }
 }

@@ -1,7 +1,7 @@
 # 设置里的每一页
 
 - **账户**：你的名字和头像。Agent 称呼你时用这个名字。
-- **模型**：模型服务商，分两组。「API 绑定」：给一家填上 API Key、测试连接，就能展开看这家的可用模型；也可以添加自定义服务商（任何兼容 OpenAI 或 Anthropic 接口的地址）。「订阅绑定」：用 ChatGPT Plus / Pro 的订阅，在浏览器里登录 ChatGPT 账号，不用 API Key（这是非官方接入）。Claude 的订阅不能这样用，要用 Anthropic 的 API Key。每家可以设工具调用的方式：自动、原生、文本（给不支持原生工具调用的模型用）。Agent 用哪个模型不在这里选，在 Agent 详情的「模型与权限」里选。清除某家的 API Key 前，Formora 会先看有没有 Agent 在用它：有就不让清，写明是几个 Agent，先去它们的「模型与权限」换掉。
+- **模型**：模型服务商，分两组。「API 绑定」：给一家填上 API Key、测试连接，就能展开看这家的可用模型；也可以添加自定义服务商（任何兼容 OpenAI 或 Anthropic 接口的地址）。自定义平台上用 Claude 模型时，平台要是提供 Anthropic 接口，协议就选 Anthropic（地址通常比 OpenAI 的少一段 `/v1`）：Claude 的提示词缓存要请求里带标记才生效，Formora 只在 Anthropic 协议和 OpenRouter 上带，选成 OpenAI 协议就没有缓存、每一步按全价算；GPT、DeepSeek、Gemini 这些是服务端自动缓存，选哪种都一样。同一个平台上的其他模型仍走 OpenAI 协议，就配成两个服务商。「订阅绑定」：用 ChatGPT Plus / Pro 的订阅，在浏览器里登录 ChatGPT 账号，不用 API Key（这是非官方接入）。Claude 的订阅不能这样用，要用 Anthropic 的 API Key。每家可以设工具调用的方式：自动、原生、文本（给不支持原生工具调用的模型用）。Agent 用哪个模型不在这里选，在 Agent 详情的「模型与权限」里选。清除某家的 API Key 前，Formora 会先看有没有 Agent 在用它：有就不让清，写明是几个 Agent，先去它们的「模型与权限」换掉。
 - **Skills**：全局 Skill 库（官网版放在 `~/.formora/skills`）：看每个 Skill 的说明和来源、导入本地文件夹、在 Finder 里打开、卸载。
 - **MCP**：接入的 MCP 服务：从推荐目录接入、粘贴配置、手动填写、测试连接、浏览器登录、删除。
 - **SubAgent**：集中看和管理所有子代理，按来源分组：本项目（`.formora/agents`）、全局（`~/.formora/agents`）、内置（Formora 自带的三个）、Claude Code（`.claude/agents`，只读，去 Claude Code 里改）。每行显示名字、一句话描述、工具档位（只读/可写/可执行）、有没有指定模型。Formora 自己的可以「编辑」（打开创建弹窗、字段都填好，改名字等于改命令）和「删除」（先问一次，会删掉文件）。右上角「新建」空手创建一个；在消息里用 `/agent 目的` 让 Agent 按目的起草一个。
