@@ -110,6 +110,24 @@ final class BackgroundJobs {
         return BashTool.outcome(Shell.Result(exit: job.exit, stdout: text), timeout: 0)
     }
 
+    /// A foreground command that stepped aside for the user's message (user 2026-09-17): the conversation's job from
+    /// here on, read and stopped like one started with `background: true`. Already running, so `maxRunning` doesn't
+    /// turn it away. Returns its id.
+    func adopt(_ aside: Shell.Aside, command: String, in conversationID: UUID, cwd: URL) -> String {
+        counter += 1
+        let id = "j\(counter)"
+        let process = JobProcess(adopting: aside.pid, command: command, cwd: cwd)
+        processes[id] = process
+        jobs.append(Job(id: id, conversationID: conversationID, command: command, startedAt: .now))
+        aside.attach(output: { process.keep($0) }, exit: { [weak self] status in
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(250))
+                self?.ended(id, status: status)
+            }
+        })
+        return id
+    }
+
     /// `bash_output`: what it printed since the last look, collected for `wait` seconds unless it ends first.
     func output(_ id: String, in conversationID: UUID, wait: TimeInterval) async -> ToolResult {
         guard let job = job(id), job.conversationID == conversationID, let process = processes[id] else { return unknown(id, in: conversationID) }
@@ -230,13 +248,24 @@ final class JobProcess: @unchecked Sendable {
     /// A command that doesn't read its input would otherwise take the app down with SIGPIPE.
     private static let ignoresBrokenPipes: Void = { signal(SIGPIPE, SIG_IGN) }()
 
+    /// A command started elsewhere and taken over while it runs (`BackgroundJobs.adopt`): its output is handed to `keep`.
+    private let adopted: pid_t?
+
     init(command: String, cwd: URL, environment: [String: String]) {
         self.command = command
         self.cwd = cwd
         self.environment = environment
+        adopted = nil
     }
 
-    var pid: pid_t { process.processIdentifier }
+    init(adopting pid: pid_t, command: String, cwd: URL) {
+        self.command = command
+        self.cwd = cwd
+        environment = [:]
+        adopted = pid
+    }
+
+    var pid: pid_t { adopted ?? process.processIdentifier }
 
     func start(onExit: @escaping @Sendable (Int32) -> Void) throws {
         _ = Self.ignoresBrokenPipes
@@ -259,7 +288,7 @@ final class JobProcess: @unchecked Sendable {
         try process.run()
     }
 
-    private func keep(_ chunk: Data) {
+    func keep(_ chunk: Data) {
         lock.withLock {
             kept.append(chunk)
             guard kept.count > Self.keepLimit else { return }
@@ -282,7 +311,8 @@ final class JobProcess: @unchecked Sendable {
 
     /// The command and everything it started — a dev server's workers, a watcher's children.
     func stop() {
-        guard process.isRunning else { return }
-        ProcessTree.signal(process.processIdentifier, SIGKILL)
+        // An adopted one: `BackgroundJobs.halt` only comes here while the job still runs.
+        guard adopted != nil || process.isRunning else { return }
+        ProcessTree.signal(pid, SIGKILL)
     }
 }

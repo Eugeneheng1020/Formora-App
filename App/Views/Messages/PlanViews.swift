@@ -9,7 +9,7 @@ struct PlanList: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if items.isEmpty {
-                Text("还没有计划。步骤多的任务，Agent 会先列出来；也可以用 /todo 要做的事 加一项。")
+                Text("还没有计划。用 /plan 开计划模式，Agent 会先出方案、列步骤；也可以用 /todo 要做的事 加一项。")
                     .font(FormoraFont.ui(12))
                     .foregroundStyle(Palette.inkFaint.color)
                     .fixedSize(horizontal: false, vertical: true)
@@ -51,9 +51,12 @@ struct PlanList: View {
 }
 
 /// The plan docked above the composer while steps are open (spec §9.8b: what is pending stays in sight): one line
-/// — 「计划 2/5 · 正在：…」 — that opens to the list.
+/// — 「计划 2/5 · 正在：…」 — that opens to the list. While the Agent isn't working, × closes the plan (user
+/// 2026-09-17): the open steps are dropped and it no longer goes by them.
 struct PlanStrip: View {
     let plan: [PlanItem]
+    /// `nil` under a run: 停止 comes first.
+    var close: (() -> Void)?
 
     @State private var isOpen = false
 
@@ -80,6 +83,8 @@ struct PlanStrip: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("plan.strip.toggle")
+            // Room for the × that lies over the row's end.
+            .padding(.trailing, close == nil ? 0 : 28)
             if isOpen {
                 PlanList(items: plan)
                     .padding(.top, 6)
@@ -89,6 +94,20 @@ struct PlanStrip: View {
         .padding(.horizontal, 14)
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Palette.surface.color))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Palette.line.color, lineWidth: 1))
+        .overlay(alignment: .topTrailing) {
+            if let close {
+                Button(action: close) {
+                    IconView(Icons.close, size: 11).frame(width: 18, height: 18).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Palette.inkFaint.color)
+                .help("关闭计划：剩下的步骤不再做")
+                .accessibilityLabel("关闭计划")
+                .accessibilityIdentifier("plan.strip.close")
+                .padding(.top, 7.5)
+                .padding(.trailing, 12)
+            }
+        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("plan.strip")
     }

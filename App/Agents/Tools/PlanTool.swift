@@ -6,7 +6,7 @@ import Foundation
 enum PlanTool {
     static let spec = ToolSpec(
         name: "plan",
-        description: "Keep the plan of the current task: a short list of steps the user sees above the input box. Make one when the work takes three or more steps, or the user gave a list (then every item is its own step); not for a quick answer. op `init` with items replaces the list; `start` marks one item in progress; `done` / `drop` mark an item finished / abandoned (without item: every open one); `append` adds items; `view` shows the list. Refer to items by their exact text. Items are short: what, not how. Mark an item done as soon as it is finished, and send plan calls together with real work, not as a turn of their own.",
+        description: "Keep the plan of the current task: a short list of steps the user sees above the input box. In plan mode, list the steps of your proposal (the user gave a list: every item is its own step); afterwards, follow the list there is. op `init` with items replaces the list; `start` marks one item in progress; `done` / `drop` mark an item finished / abandoned (without item: every open one); `append` adds items; `view` shows the list. Refer to items by their exact text. Items are short: what, not how. Mark an item done as soon as it is finished, and send plan calls together with real work, not as a turn of their own.",
         parameters: #"{"type":"object","properties":{"op":{"type":"string","enum":["init","start","done","drop","append","view"]},"items":{"type":"array","items":{"type":"string"},"description":"Steps, for init and append"},"item":{"type":"string","description":"The exact text of one step, for start, done and drop"}},"required":["op"]}"#,
         tier: .read)
 

@@ -95,7 +95,7 @@ enum AgentTools {
 
     static let bash = ToolSpec(
         name: "bash",
-        description: "Run a shell command with bash in the project folder; returns its output (stdout, then stderr) and a non-zero exit code. For builds, tests, scripts, git, package managers. Stopped after 300 seconds unless timeout says otherwise (at most 600). Long output keeps its beginning and its end.\(shellNote) For files, prefer read, glob, grep, write and edit. For what keeps running — a dev server, a watcher, a long build — pass background: true: it returns at once with a job id (j1…) and its first output, and timeout doesn't apply; read on with bash_output, stop it with bash_stop, and you are told when it ends. At most 8 at a time.",
+        description: "Run a shell command with bash in the project folder; returns its output (stdout, then stderr) and a non-zero exit code. For builds, tests, scripts, git, package managers. Stopped after 300 seconds unless timeout says otherwise (at most 600). Long output keeps its beginning and its end.\(shellNote) For files, prefer read, glob, grep, write and edit. For what keeps running — a dev server, a watcher, a long build — pass background: true: it returns at once with a job id (j1…) and its first output, and timeout doesn't apply; read on with bash_output, stop it with bash_stop, and you are told when it ends. At most 8 at a time. A command still running when the user sends a message is moved to the background the same way, so you can answer first: its result then carries the job id.",
         parameters: #"{"type":"object","properties":{"command":{"type":"string","description":"The command line to run"},"timeout":{"type":"integer","description":"Seconds before it is stopped (default 300, at most 600)"},"background":{"type":"boolean","description":"Keep it running in the background: servers, watchers, long builds"}},"required":["command"]}"#,
         tier: .exec)
 
@@ -127,12 +127,12 @@ enum AgentTools {
     /// on (omp: tool failures go back to the model). The file tools and bash need the project folder; the web ones
     /// don't. `search` is the Agent's own provider when it searches natively (C5).
     static func run(_ call: ToolCall, root: URL?, search: ChatTarget? = nil, readRoots: [URL] = [], writeRoots: [URL] = [],
-                    history: URL? = nil, summarizeReads: Bool = false) async -> ToolResult {
+                    history: URL? = nil, summarizeReads: Bool = false, aside: Shell.Aside? = nil) async -> ToolResult {
         guard spec(call.name) != nil else {
             return .failed("没有叫 \(call.name) 的工具。能用的工具：\(all.map(\.name).joined(separator: "、"))")
         }
         switch call.name {
-        case "bash": return await BashTool.run(arguments: call.arguments, root: root)
+        case "bash": return await BashTool.run(arguments: call.arguments, root: root, aside: aside)
         case "web_search": return await WebTools.search(arguments: call.arguments, native: search)
         case "fetch": return await WebTools.fetch(arguments: call.arguments)
         case "open_url": return await WebTools.open(arguments: call.arguments)

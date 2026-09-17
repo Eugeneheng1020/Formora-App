@@ -7,7 +7,9 @@ enum BashTool {
     static let maxTimeout = 600
     static let outputLimit = 30_000
 
-    static func run(arguments json: String, root: URL?) async -> ToolResult {
+    /// `aside`: asked to, a command still running steps aside (user 2026-09-17) — what it printed comes back, and the
+    /// caller takes the command over as a background job.
+    static func run(arguments json: String, root: URL?, aside: Shell.Aside? = nil) async -> ToolResult {
         guard let args = ToolArguments.parse(json) else { return .failed("参数不是合法的 JSON 对象：\(json.prefix(200))") }
         guard let command = (args["command"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !command.isEmpty else {
             return .failed("缺少参数 command")
@@ -16,8 +18,16 @@ enum BashTool {
             return .failed("项目文件夹现在打不开，不能运行命令。请用户在 Formora 里重新打开项目。")
         }
         let timeout = min(max(ToolArguments.int(args, "timeout") ?? defaultTimeout, 1), maxTimeout)
-        let result = await Shell.run(command, cwd: root, timeout: TimeInterval(timeout), environment: Shell.environment(projectPath: root.path))
+        let result = await Shell.run(command, cwd: root, timeout: TimeInterval(timeout), environment: Shell.environment(projectPath: root.path),
+                                     aside: aside)
         return outcome(result, timeout: timeout)
+    }
+
+    /// What the model reads of a command that stepped aside for the user's message.
+    static func asideNote(job: String, printed: String) -> String {
+        "用户发来了新消息，这条命令还没跑完，已经转到后台继续运行，编号 \(job)。"
+            + (printed.isEmpty ? "到现在还没有输出。" : "到现在的输出：\n" + printed)
+            + "\n先处理用户的新消息。之后用 bash_output 看它的输出，用 bash_stop 停止；它自己结束时你会收到通知。"
     }
 
     /// What the model reads: the output, then what went to stderr; the exit code when it isn't 0.
@@ -29,6 +39,8 @@ enum BashTool {
         let errors = result.stderr.trimmingCharacters(in: .newlines)
         if !errors.isEmpty { text += (text.isEmpty ? "" : "\n") + "[stderr]\n" + errors }
         text = trimmed(text, limit: outputLimit)
+        // Still running, in the background now: only what it printed — the caller says the rest.
+        if result.steppedAside { return .done(text) }
         if result.timedOut {
             return .failed("超过 \(timeout) 秒还没结束，已经停下了。" + (text.isEmpty ? "" : "停下前的输出：\n\(text)"))
         }

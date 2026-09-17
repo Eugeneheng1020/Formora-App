@@ -11,6 +11,54 @@ enum Shell {
         var timedOut = false
         /// It couldn't run, or it was stopped.
         var failure: String?
+        /// It stepped aside (`Aside`): still running, this is what it had printed.
+        var steppedAside = false
+    }
+
+    /// A way for a running command to step aside (user 2026-09-17; omp's cooperative steering signal, Codex's yield):
+    /// asked to, `run` returns what the command printed so far and the command goes on. What it prints from then on,
+    /// and its end, wait here for whoever takes it over with `attach`.
+    final class Aside: @unchecked Sendable {
+        /// Seconds a command gets from its start before it is put aside: a quick one ends as it would.
+        let grace: TimeInterval
+        private let lock = NSLock()
+        private var requested = false
+        private var process: pid_t = 0
+        private var buffered = Data()
+        private var status: Int32?
+        private var output: (@Sendable (Data) -> Void)?
+        private var exit: (@Sendable (Int32) -> Void)?
+
+        init(grace: TimeInterval = 3) { self.grace = grace }
+
+        func request() { lock.withLock { requested = true } }
+        var isRequested: Bool { lock.withLock { requested } }
+        /// The command's process, once it stepped aside.
+        var pid: pid_t { lock.withLock { process } }
+
+        /// From here on its output and its end go to these; what came between stepping aside and now goes first.
+        func attach(output: @escaping @Sendable (Data) -> Void, exit: @escaping @Sendable (Int32) -> Void) {
+            lock.withLock {
+                if !buffered.isEmpty { output(buffered) }
+                buffered = Data()
+                self.output = output
+                if let status { exit(status) } else { self.exit = exit }
+            }
+        }
+
+        fileprivate func took(_ pid: pid_t) { lock.withLock { process = pid } }
+
+        fileprivate func receive(_ chunk: Data) {
+            lock.withLock {
+                if let output { output(chunk) } else if buffered.count < Shell.captureLimit { buffered.append(chunk) }
+            }
+        }
+
+        fileprivate func ended(_ status: Int32) {
+            lock.withLock {
+                if let exit { exit(status) } else { self.status = status }
+            }
+        }
     }
 
     static let stopped = "用户停止了，命令已经结束。"
@@ -29,12 +77,14 @@ enum Shell {
         return environment
     }
 
-    static func run(_ command: String, input: Data = Data(), cwd: URL?, timeout: TimeInterval, environment: [String: String]) async -> Result {
+    static func run(_ command: String, input: Data = Data(), cwd: URL?, timeout: TimeInterval, environment: [String: String],
+                    aside: Aside? = nil) async -> Result {
         let job = ShellJob()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { (continuation: CheckedContinuation<Result, Never>) in
                 DispatchQueue.global(qos: .userInitiated).async {
-                    continuation.resume(returning: job.run(command, input: input, cwd: cwd, timeout: timeout, environment: environment))
+                    continuation.resume(returning: job.run(command, input: input, cwd: cwd, timeout: timeout, environment: environment,
+                                                           aside: aside))
                 }
             }
         } onCancel: {
@@ -53,6 +103,8 @@ private final class ShellJob: @unchecked Sendable {
     private var isCancelled = false
     private var stdout = Data()
     private var stderr = Data()
+    /// Once the command stepped aside: what it prints goes there.
+    private var late: Shell.Aside?
 
     /// A command that doesn't read its input would otherwise take the app down with SIGPIPE.
     private static let ignoresBrokenPipes: Void = { signal(SIGPIPE, SIG_IGN) }()
@@ -61,7 +113,8 @@ private final class ShellJob: @unchecked Sendable {
 
     private var cancelled: Bool { lock.withLock { isCancelled } }
 
-    func run(_ command: String, input data: Data, cwd: URL?, timeout: TimeInterval, environment: [String: String]) -> Shell.Result {
+    func run(_ command: String, input data: Data, cwd: URL?, timeout: TimeInterval, environment: [String: String],
+             aside: Shell.Aside? = nil) -> Shell.Result {
         _ = Self.ignoresBrokenPipes
         if cancelled { return Shell.Result(failure: Shell.stopped) }
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
@@ -79,25 +132,49 @@ private final class ShellJob: @unchecked Sendable {
         let reading = DispatchGroup()
         reading.enter()
         DispatchQueue.global().async {
-            self.drain(self.output.fileHandleForReading) { chunk in self.lock.withLock { Self.append(chunk, to: &self.stdout) } }
+            self.drain(self.output.fileHandleForReading) { chunk in
+                self.lock.withLock { if let late = self.late { late.receive(chunk) } else { Self.append(chunk, to: &self.stdout) } }
+            }
             reading.leave()
         }
         reading.enter()
         DispatchQueue.global().async {
-            self.drain(self.errors.fileHandleForReading) { chunk in self.lock.withLock { Self.append(chunk, to: &self.stderr) } }
+            self.drain(self.errors.fileHandleForReading) { chunk in
+                self.lock.withLock { if let late = self.late { late.receive(chunk) } else { Self.append(chunk, to: &self.stderr) } }
+            }
             reading.leave()
         }
         DispatchQueue.global().async {
             try? self.input.fileHandleForWriting.write(contentsOf: data)
             try? self.input.fileHandleForWriting.close()
         }
-        let deadline = Date().addingTimeInterval(timeout)
+        let began = Date()
+        let deadline = began.addingTimeInterval(timeout)
         var timedOut = false
         var stopped = false
         var graceEnds: Date?
         while reading.wait(timeout: .now() + 0.2) == .timedOut {
             if cancelled { stopped = true; break }
             if Date() >= deadline { timedOut = true; break }
+            // Asked to step aside, and past its grace: what it printed goes back now, the command goes on — its
+            // output and its end are the `Aside`'s from here (user 2026-09-17).
+            if let aside, aside.isRequested, process.isRunning, Date() >= began.addingTimeInterval(aside.grace) {
+                let (out, err) = lock.withLock {
+                    late = aside
+                    return (stdout, stderr)
+                }
+                aside.took(process.processIdentifier)
+                // Its end is watched from a thread of its own. Not `waitUntilExit`: away from the thread that started
+                // the command it can wait for good on a command that ends meanwhile (seen in tests, one run in three).
+                Thread.detachNewThread { [self] in
+                    while process.isRunning { Thread.sleep(forTimeInterval: 0.1) }
+                    // A moment for the last words; something it started may hold the pipe open for good.
+                    _ = reading.wait(timeout: .now() + 1)
+                    aside.ended(process.terminationStatus)
+                }
+                return Shell.Result(stdout: String(decoding: out, as: UTF8.self), stderr: String(decoding: err, as: UTF8.self),
+                                    steppedAside: true)
+            }
             // The command ended, but something it started in the background still holds its output open: a moment
             // more for the last words, then stop waiting.
             if !process.isRunning {
@@ -116,8 +193,19 @@ private final class ShellJob: @unchecked Sendable {
                             stderr: String(decoding: err, as: UTF8.self), timedOut: timedOut, failure: stopped ? Shell.stopped : nil)
     }
 
+    /// As it comes: `FileHandle.read(upToCount:)` waits for the whole count or the end, and a command that steps
+    /// aside hands back what it printed so far.
     private func drain(_ handle: FileHandle, _ keep: (Data) -> Void) {
-        while let chunk = try? handle.read(upToCount: 65_536), !chunk.isEmpty { keep(chunk) }
+        let descriptor = handle.fileDescriptor
+        var buffer = [UInt8](repeating: 0, count: 65_536)
+        while true {
+            let count = read(descriptor, &buffer, buffer.count)
+            if count > 0 {
+                keep(Data(buffer[0..<count]))
+            } else if count == 0 || errno != EINTR {
+                return
+            }
+        }
     }
 
     private static func append(_ chunk: Data, to data: inout Data) {

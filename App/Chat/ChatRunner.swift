@@ -85,6 +85,12 @@ final class ChatRunner {
     private(set) var waiting: [UUID: String] = [:]
     /// What the user sent while the Agent worked, delivered after the current step (L4).
     private(set) var steering: [UUID: [Message]] = [:]
+    /// Unseen, ahead of the user's own words when they arrive mid-run (user 2026-09-17): the message comes first.
+    nonisolated static let steeringNote = "〔用户在你工作时发来了下面这条新消息。先处理它：该回答就回答，该照办就照办；再判断原来的事还要不要接着做、要不要调整。〕"
+    /// The foreground command each conversation is running: a message sent meanwhile asks it to step aside.
+    @ObservationIgnored private var asides: [UUID: Shell.Aside] = [:]
+    /// Seconds a command gets before a message puts it aside (tests: 0).
+    @ObservationIgnored var asideGrace: TimeInterval = 3
 
     // 7g: Agents working together — the dispatcher, relay, subtasks, autorun.
     /// A dispatcher choosing who takes a group message (M1): the conversation counts as busy meanwhile.
@@ -219,6 +225,8 @@ final class ChatRunner {
     func steer(_ id: UUID, _ message: Message) {
         guard isRunning(id) else { return }
         steering[id, default: []].append(message)
+        // A long command doesn't keep the user waiting (user 2026-09-17): it goes on in the background.
+        if Self.isSpoken(message) { asides[id]?.request() }
         guard conversations.conversation(id)?.isGroup == true else { return }
         for agentID in message.assignees where agentID != activeRuns[id]?.agentID && !pending(id).contains(agentID) {
             queues[id, default: []].append(agentID)
@@ -610,6 +618,9 @@ final class ChatRunner {
     /// only those that read (D5, F5).
     private func offeredTools(_ conversation: Conversation, agent: AgentRecord) -> [ToolSpec] {
         var all = tools + loopTools + agentTools(agent) + teamTools(conversation, agent: agent)
+        // No plan mode, no plan (user 2026-09-17): the list is made in plan mode; outside it the tool stays only while
+        // steps are open — a plan being carried out, or the user's own `/todo`.
+        if !Self.keepsPlan(conversation) { all.removeAll { $0.name == PlanTool.spec.name } }
         // A subtask (7g, S2): nothing to ask the user, nothing kept for later; `read_only` leaves the read tier.
         if let link = conversation.parent {
             let withheld = Set([AskTool.spec.name, MemoryTools.remember.name, SkillTools.create.name, ComputerTool.name]).union(ScriptTools.names)
@@ -626,6 +637,11 @@ final class ChatRunner {
             ? all.filter { ($0.tier == .read || $0.name == AgentTools.fetch.name) && $0.name != TeamTools.handoff.name } : all
         // What was started in the background is read and stopped with these — wherever bash is offered (10f).
         return offered.contains { $0.name == AgentTools.bash.name } ? offered + BackgroundJobs.specs : offered
+    }
+
+    /// Whether the `plan` tool belongs in this conversation now (user 2026-09-17).
+    nonisolated static func keepsPlan(_ conversation: Conversation) -> Bool {
+        conversation.planMode || conversation.plan.contains(where: \.isOpen)
     }
 
     /// The Agent's own tools (7f): loading its Skills, writing a new one, memory, its MCP tools.
@@ -829,9 +845,11 @@ final class ChatRunner {
         var written: [String] = []
         var reviewed = false
         var toolTurns = 0
-        var planNudged = false
         /// Times this run was sent back to its plan's open steps (user 2026-09-14).
         var planContinues = 0
+        /// The user's message arrived mid-run and its answer is next (user 2026-09-17): whether to go on with the
+        /// plan is the Agent's call there, not the loop's. Working on — a turn with calls — clears it.
+        var steered = false
         /// An `ask` waits for the user: the run ends on it (D6).
         var asked = false
         /// The model refused native tools in this run: they go as text from here on (D8).
@@ -982,13 +1000,13 @@ final class ChatRunner {
                     }
                     if steering[id]?.isEmpty == false {
                         conversations.append(reply, to: id)
-                        deliverSteering(id)
+                        if deliverSteering(id, runID: runID) { state.steered = true }
                         continue
                     }
                     // The plan's open steps (user 2026-09-14; omp's todo reminder): a reply that stops with steps still open
                     // is sent back to them, at most three times a run. Not in plan mode (the plan is for the user), not a
                     // hand-off; a question is a call, so it never comes here.
-                    if state.planContinues < Self.planContinueLimit, !conversation.planMode,
+                    if state.planContinues < Self.planContinueLimit, !conversation.planMode, !state.steered,
                        let open = conversations.conversation(id)?.plan.filter(\.isOpen), !open.isEmpty,
                        trailingHandoff(reply.text, conversationID: id, agent: agent).handoff == nil {
                         state.planContinues += 1
@@ -1022,6 +1040,7 @@ final class ChatRunner {
                 }
                 conversations.append(reply, to: id)
                 state.toolTurns += 1
+                state.steered = false
                 await execute(reply, conversationID: id, runID: runID, agent: agent, state: &state)
                 guard isCurrent(runID, id) else { return }
                 if let reason = state.stopRequested { return stopByHook(id, runID: runID, reason: reason) }
@@ -1036,14 +1055,7 @@ final class ChatRunner {
                     await advise(id, runID: runID, agent: agent, final: false)
                     guard isCurrent(runID, id) else { return }
                 }
-                deliverSteering(id)
-                // Plan-and-Execute, the program's side (D4): three tool turns deep without a plan, it is asked once
-                // to make one — not while it reviews what it already delivered (D7).
-                if state.sendsTools, !state.planNudged, !state.reviewed, state.toolTurns >= 3,
-                   conversations.conversation(id)?.plan.isEmpty == true {
-                    state.planNudged = true
-                    nudge(id, runID: runID, "这件事步骤不少。先用 plan 把步骤列出来（和下一步的工具一起调用），再接着做。")
-                }
+                if deliverSteering(id, runID: runID) { state.steered = true }
             }
         }
     }
@@ -1421,6 +1433,10 @@ final class ChatRunner {
         case .cleared(let outcome): pre = outcome
         }
         if call.name == PlanTool.spec.name {
+            // Written from habit, or from an old turn of the history: there is no list to keep (user 2026-09-17).
+            guard conversations.conversation(id).map(Self.keepsPlan) == true else {
+                return .failed("现在没有开计划模式，也没有进行中的计划：不用列计划，直接做事。")
+            }
             let outcome = PlanTool.apply(call.arguments, to: conversations.conversation(id)?.plan ?? [])
             conversations.setPlan(outcome.plan, in: id)
             return outcome.result
@@ -1457,9 +1473,24 @@ final class ChatRunner {
         let root = conversations.conversation(id).flatMap { workRoot(for: $0) }
         // 子代理读文件给结构摘要（user 2026-09-16）：干净上下文里只要结论，省 token；主 Agent 仍读整篇。
         let summarizeReads = conversations.conversation(id)?.parent?.subagent != nil
+        // A command steps aside for the user's message (user 2026-09-17) — one that waits already counts.
+        var aside: Shell.Aside?
+        if call.name == AgentTools.bash.name {
+            let waiting = Shell.Aside(grace: asideGrace)
+            if steering[id]?.contains(where: Self.isSpoken) == true { waiting.request() }
+            asides[id] = waiting
+            aside = waiting
+        }
+        defer { asides[id] = nil }
         var result = await AgentTools.run(call, root: root, search: state.searchTarget, readRoots: readRoots(agent),
                                           writeRoots: createdSkillFolders[id] ?? [], history: fileHistoryFolder,
-                                          summarizeReads: summarizeReads)
+                                          summarizeReads: summarizeReads, aside: aside)
+        // It stepped aside: the conversation's background job from here on (10f).
+        if let aside, aside.pid > 0, let root {
+            let command = (ToolArguments.parse(call.arguments)?["command"] as? String) ?? ""
+            let job = jobs.adopt(aside, command: command.trimmingCharacters(in: .whitespacesAndNewlines), in: id, cwd: root)
+            result = .done(BashTool.asideNote(job: job, printed: result.output))
+        }
         result.output += Self.feedback(HookOutcome(context: pre.context))
         return result
     }
@@ -1549,11 +1580,34 @@ final class ChatRunner {
         conversations.append(Message(role: .user, text: text, runID: runID, isHidden: true), to: id)
     }
 
+    /// × on the plan strip (user 2026-09-17): the open steps are dropped, and the model — whose history still holds the
+    /// list — is told not to go on with them. Not under a run: 停止 comes first. `false` when nothing was closed.
     @discardableResult
-    func deliverSteering(_ id: UUID) -> Bool {
-        guard let messages = steering.removeValue(forKey: id), !messages.isEmpty else { return false }
-        for message in messages { conversations.append(message, to: id) }
+    func closePlan(_ id: UUID) -> Bool {
+        guard !isRunning(id), let plan = conversations.conversation(id)?.plan, plan.contains(where: \.isOpen) else { return false }
+        conversations.setPlan(plan.map { item in
+            var item = item
+            if item.isOpen { item.status = .dropped }
+            return item
+        }, in: id)
+        conversations.append(Message(role: .user, text: "用户关闭了这份计划：剩下没做的步骤不要再做，也不要再提。接下来按用户说的办。", isHidden: true), to: id)
         return true
+    }
+
+    /// The user's own words, as against what the program steers in: a background command's end, 旁审's note.
+    nonisolated static func isSpoken(_ message: Message) -> Bool { message.role == .user && !message.isHidden && message.event == nil }
+
+    /// What waited goes into the thread. Under a run that goes on (`runID`), the user's own message is led by the
+    /// unseen 先处理 note (user 2026-09-17). `true` when the user's own words were among it.
+    @discardableResult
+    func deliverSteering(_ id: UUID, runID: UUID? = nil) -> Bool {
+        guard let messages = steering.removeValue(forKey: id), !messages.isEmpty else { return false }
+        let spoken = messages.contains(where: Self.isSpoken)
+        // The user's words last, right under the note: they are what the model reads before it answers.
+        for message in messages where !Self.isSpoken(message) { conversations.append(message, to: id) }
+        if spoken, let runID { nudge(id, runID: runID, Self.steeringNote) }
+        for message in messages where Self.isSpoken(message) { conversations.append(message, to: id) }
+        return spoken
     }
 
     /// What a reply is signed as: the Agent's name, or the subagent's when the conversation is its run (user 2026-09-15).
@@ -1590,7 +1644,10 @@ final class ChatRunner {
         } else if let last {
             notifyUnseen(id, last)
         }
-        deliverSteering(id)
+        let spoken = deliverSteering(id)
+        // Whatever ends the run below, a message that arrived while it was ending is answered, not left in the
+        // thread (user 2026-09-17) — a direct chat's; a group's `@`-ed members are in the queue already.
+        defer { if spoken, message?.failure == nil, handoff == nil { reply(to: id) } }
         if last?.failure == nil, let model = last?.model { nameTask(id, with: model) }
         compactAfterRun(id, agentID: last?.agentID)
         if settleSubtask(id) { return }

@@ -95,9 +95,10 @@ enum SystemPrompt {
         if environment.tools.contains("delegate") {
             rules.append("一件事能拆成几块并行做（比如分头查几个竞品），或者会翻出大量中间材料，可以用 delegate 委派给同事或你自己的分身；帮手看不到这段对话，交待要自包含。一两步能做完的事自己做。")
         }
-        // Plan-and-Execute (7d, D4): when a list of steps is worth it.
-        if environment.tools.contains("plan") {
-            rules.append("三步以上的任务，先用 plan 列出步骤，做完一步就标一步；用户给了清单，就每一项列成一步。一问一答的事不用列。计划没做完不要停下来汇报进度，一口气做完；确实要用户决定的事才用 ask 停下来问。")
+        // Plan-and-Execute (7d, D4). The tool is only here in plan mode, or while a plan has open steps (user
+        // 2026-09-17): outside plan mode the list is followed, not made.
+        if environment.tools.contains("plan"), !environment.planMode {
+            rules.append("这条对话有一份进行中的计划：照着计划做，做完一步就用 plan 标一步；用户没要求，不要另起一份。计划没做完不要停下来汇报进度，一口气做完；确实要用户决定的事才用 ask 停下来问。")
         }
         // Computer use (7j, C4; omp `computer.md`): look before acting, refs before pixels, the screen is not the user.
         if environment.tools.contains(ComputerTool.name) {

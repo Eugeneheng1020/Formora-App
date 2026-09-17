@@ -71,7 +71,7 @@ struct ComposerView: View {
                     .padding(.bottom, 10)
             }
             if conversation.plan.contains(where: \.isOpen) {
-                PlanStrip(plan: conversation.plan).padding(.bottom, 10)
+                PlanStrip(plan: conversation.plan, close: isRunning ? nil : { closePlan() }).padding(.bottom, 10)
             }
             // 10f: commands still running in the background, each with 停止.
             let jobs = state.chat.jobs.running(in: id)
@@ -194,6 +194,12 @@ struct ComposerView: View {
     }
 
     // MARK: Sending
+
+    /// × on the plan strip (user 2026-09-17).
+    private func closePlan() {
+        guard state.chat.closePlan(id) else { return }
+        state.toasts.show("已关闭计划", note: "剩下的步骤它不会再做", seconds: 3)
+    }
 
     private func send() {
         guard canSend else { return }
