@@ -5,6 +5,15 @@
     <description>Formora 的更新</description>
     <language>zh-Hans</language>
     <item>
+      <title>1.0.20</title>
+      <pubDate>Fri, 18 Sep 2026 02:52:31 +0800</pubDate>
+      <sparkle:version>36</sparkle:version>
+      <sparkle:shortVersionString>1.0.20</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[<p>真实模型测试后的修正：缓存命中从 6% 提到 95% 左右；Command Code 这类混合协议平台按模型自动选协议；旁审次数减半、不再发过期提醒</p>]]></description>
+      <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.20/Formora-1.0.20.dmg" type="application/octet-stream" sparkle:edSignature="V/nHhpRBofbPGgqsoG+Xo2CcBF61S2nGzsbSrLE/pDabYDsBCb+NCADjZjIrWLdF1pXoakPHBglLikPV2R1dDw==" length="13023911"/>
+    </item>
+    <item>
       <title>1.0.19</title>
       <pubDate>Fri, 18 Sep 2026 01:18:44 +0800</pubDate>
       <sparkle:version>35</sparkle:version>
@@ -84,15 +93,6 @@
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
       <description><![CDATA[<p>子代理：/agent 改成直接创建（只写目的、模型按隐藏的撰写指南写好并直接保存），新增「设置 → 子代理」管理页</p>]]></description>
       <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.11/Formora-1.0.11.dmg" type="application/octet-stream" sparkle:edSignature="QtdckEmSezdrmiW56SWsmTB6XqSkQCrlqHzPXhB9CRVWTfr3sk+z5AQO44aZa8SsoQjBIRKAVl65BzPnyCxdDg==" length="12996115"/>
-    </item>
-    <item>
-      <title>1.0.10</title>
-      <pubDate>Wed, 16 Sep 2026 02:03:03 +0800</pubDate>
-      <sparkle:version>26</sparkle:version>
-      <sparkle:shortVersionString>1.0.10</sparkle:shortVersionString>
-      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <description><![CDATA[<p>更新内置模型目录（DeepSeek 增加 V4.1 Flash、V4 Flash 支持读图），对照 omp 最新数据核对；界面全量回归测试通过</p>]]></description>
-      <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.10/Formora-1.0.10.dmg" type="application/octet-stream" sparkle:edSignature="CUknOYGa931a3JugWKcqUThZQcOCWMDjWKe5rrYi42135O1IP2/3UZ2DNTNlg6r4mxwDaNjQMJw2CRpI3XojCQ==" length="12941990"/>
     </item>
   </channel>
 </rss>
