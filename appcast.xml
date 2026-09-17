@@ -5,6 +5,15 @@
     <description>Formora 的更新</description>
     <language>zh-Hans</language>
     <item>
+      <title>1.0.19</title>
+      <pubDate>Fri, 18 Sep 2026 01:18:44 +0800</pubDate>
+      <sparkle:version>35</sparkle:version>
+      <sparkle:shortVersionString>1.0.19</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[<p>提示词瘦身：重复的规则合并、岗位段只留立场和交付标准、记忆规则缩成一句，每次调用少约 1000 token；单聊里顺手的小事不再推给别的岗位</p>]]></description>
+      <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.19/Formora-1.0.19.dmg" type="application/octet-stream" sparkle:edSignature="xpSj73F6U/8CBg90PyBP6TeJ7dXxMsJRTso4sZXMha0LPsRGP2/2vPtJWDLF69FcCNJrFfJa/vh881sHuyo0BA==" length="13004662"/>
+    </item>
+    <item>
       <title>1.0.18</title>
       <pubDate>Fri, 18 Sep 2026 00:06:23 +0800</pubDate>
       <sparkle:version>34</sparkle:version>
@@ -84,15 +93,6 @@
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
       <description><![CDATA[<p>更新内置模型目录（DeepSeek 增加 V4.1 Flash、V4 Flash 支持读图），对照 omp 最新数据核对；界面全量回归测试通过</p>]]></description>
       <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.10/Formora-1.0.10.dmg" type="application/octet-stream" sparkle:edSignature="CUknOYGa931a3JugWKcqUThZQcOCWMDjWKe5rrYi42135O1IP2/3UZ2DNTNlg6r4mxwDaNjQMJw2CRpI3XojCQ==" length="12941990"/>
-    </item>
-    <item>
-      <title>1.0.9</title>
-      <pubDate>Wed, 16 Sep 2026 01:41:01 +0800</pubDate>
-      <sparkle:version>25</sparkle:version>
-      <sparkle:shortVersionString>1.0.9</sparkle:shortVersionString>
-      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <description><![CDATA[<p>分阶段模型配置更顺手：点标题旁的配置图标，计划/旁审/读图/省事四个的服务商和模型就地一次配好；服务商和模型都选了才算配置</p>]]></description>
-      <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.9/Formora-1.0.9.dmg" type="application/octet-stream" sparkle:edSignature="zjiSX2mZ1wZikybJSsIC8X4VACCFd4+roqNFdSq88Iwnq4fnrMJyah4kS1XlUdOz72tPDEZGB/agUJbgB+seAQ==" length="12942315"/>
     </item>
   </channel>
 </rss>
