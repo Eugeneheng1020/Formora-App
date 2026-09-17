@@ -70,13 +70,7 @@ enum BobTools {
 
     /// `remember` as Bob is offered it (user 2026-09-17): what holds for the user everywhere, or his own layer — he
     /// belongs to no project and is no role. The same checks as an Agent's.
-    static let remember = ToolSpec(
-        name: MemoryTools.remember.name,
-        description: MemoryTools.remember.description
-            .replacingOccurrences(of: "scope (global: true in every project — who the user is, how they want to be worked with, their red lines; project: this project's decisions and conventions, read by every Agent in it, and its lessons; agent: what the user wants from your role's work, in every project)",
-                                  with: "scope (global: true in every project and for every Agent — who the user is, how they want to be worked with, their red lines; bob: what the user asks of you, and your lessons about running Formora — never a project's facts)"),
-        parameters: MemoryTools.remember.parameters.replacingOccurrences(of: "For add: global | project | agent", with: "For add: global | bob"),
-        tier: .read)
+    static let remember = MemoryTools.rememberSpec(scopes: MemoryTools.bobScopes, names: "global | bob")
 
     /// Everything Bob is offered — and every enabled MCP server's tools, added per request (D95).
     static let all: [ToolSpec] = [help, state, AgentTools.read, AgentTools.glob, AgentTools.grep, AgentTools.webSearch, AgentTools.fetch,

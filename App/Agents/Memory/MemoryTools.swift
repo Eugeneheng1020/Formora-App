@@ -37,11 +37,20 @@ enum MemoryTools {
     /// Fewer characters than this isn't a quote, it is a word.
     static let evidenceMinimum = 4
 
-    static let remember = ToolSpec(
-        name: "remember",
-        description: "Keep one note for later conversations — rarely. Only when the user told you to remember something, corrected you, or settled a choice (kind profile | preference | decision), or when something failed first and you then found what works (kind lesson). op add: scope (global: true in every project — who the user is, how they want to be worked with, their red lines; project: this project's decisions and conventions, read by every Agent in it, and its lessons; agent: what the user wants from your role's work, in every project), kind, summary (one self-contained sentence, the only part always in sight), body (optional: the reason, the rejected alternative — only what a later reader needs), evidence. evidence: for profile / preference / decision, the user's own words copied exactly from one of their messages in this conversation (or their pick on an option card) — what they did not say is not remembered; when they settled a choice in a word (「B」, 「好」), quote that whole reply; for a lesson, what failed and what fixed it. op update: id, the new summary and/or body, evidence. op forget: id — when the user asks, or a note is wrong. Not for: progress on the task, what the files already say, your own suggestions the user did not adopt, guesses, numbers that change.",
-        parameters: #"{"type":"object","properties":{"op":{"type":"string","enum":["add","update","forget"]},"scope":{"type":"string","description":"For add: global | project | agent"},"kind":{"type":"string","enum":["profile","preference","decision","lesson"]},"summary":{"type":"string","description":"One self-contained sentence"},"body":{"type":"string","description":"Optional detail, read on demand"},"evidence":{"type":"string","description":"The user's exact words; for a lesson, what failed and what fixed it"},"id":{"type":"string","description":"For update and forget: the note's number, like p4"}},"required":["op"]}"#,
-        tier: .read)
+    /// What an Agent's `remember` says of the layers, and Bob's.
+    static let agentScopes = "global (true in every project: who the user is, how to work with them, red lines) | project (its decisions, conventions, lessons — shared by its Agents) | agent (what the user wants from your role)"
+    static let bobScopes = "global (about the user, true everywhere) | bob (what the user asks of you, your lessons running Formora — never a project's facts)"
+
+    /// 2026-09-18: said once, and briefly — this was the longest tool there is, and the prompt said it all again.
+    static func rememberSpec(scopes: String, names: String) -> ToolSpec {
+        ToolSpec(
+            name: "remember",
+            description: "Keep one note for later conversations — rarely: only when the user told you to remember it, corrected you, or settled a choice (kind profile | preference | decision), or something failed first and you then found what works (kind lesson — a project's). Only what changes what you do next time, outlives this task and isn't in the files; never progress, your unadopted suggestions, guesses or changing numbers. op add: scope — \\(scopes); kind; summary (one self-contained sentence, always in sight); body (optional: the reason); evidence — the user's exact words from this conversation (an option-card pick counts; quote a one-word go-ahead whole), or for a lesson what failed and what fixed it; what they did not say is refused. op update: id, new summary and/or body, evidence. op forget: id — when the user asks, or a note is wrong.",
+            parameters: #"{"type":"object","properties":{"op":{"type":"string","enum":["add","update","forget"]},"scope":{"type":"string","description":"For add: \#(names)"},"kind":{"type":"string","enum":["profile","preference","decision","lesson"]},"summary":{"type":"string"},"body":{"type":"string"},"evidence":{"type":"string","description":"The user's exact words"},"id":{"type":"string","description":"For update and forget: like p4"}},"required":["op"]}"#,
+            tier: .read)
+    }
+
+    static let remember = rememberSpec(scopes: agentScopes, names: "global | project | agent")
 
     static let recall = ToolSpec(
         name: "recall",
@@ -49,7 +58,11 @@ enum MemoryTools {
         parameters: #"{"type":"object","properties":{"ids":{"type":"array","items":{"type":"string"},"description":"Numbers from the directory, like [\"p4\",\"g1\"]"}},"required":["ids"]}"#,
         tier: .read)
 
-    /// The prompt's rule wherever `remember` is offered.
+    /// The prompt's rule wherever `remember` is offered (2026-09-18: a sentence — the tool's own words carry the rest,
+    /// and what may be kept is the program's to check, not the prompt's to repeat).
+    static let promptRule = "记忆要少而准：只有用户让你记住、纠正了你、拍了板，或一件事先失败后解决时，才用 remember 记一条，evidence 逐字引用用户的话；用户让你忘掉什么用 forget。"
+
+    /// The bar in full, for the look back over a quiet conversation (`MemoryUpkeep`), which has no tool to read it from.
     static let rules = "记忆要少而准。只在四种时候用 remember 记一条：用户明确要你记住；用户纠正了你；用户在几个方案里拍了板；一件事先失败、后来你找到了正确做法。三条都满足才记：下次会改变你的默认做法；不是只对这一次有用；项目文件里、对话里查不到。不记：任务进度、这次改了什么、你自己提的而用户没采纳的方案、猜测、会变的数值。放哪一层：任何项目都适用的（用户是谁、怎么沟通、红线）放 global；这个项目的决定、约定和踩过的坑放 project；用户对你这个岗位产出的要求放 agent。evidence 要逐字引用用户说过的话（或他在选项卡片上选的那一项），用户没说过的不记；他只回了「B」「好」这样一个词来拍板，就引用那整条回复。用户让你忘掉什么，用 forget。"
 
     // MARK: remember
