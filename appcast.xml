@@ -5,6 +5,15 @@
     <description>Formora 的更新</description>
     <language>zh-Hans</language>
     <item>
+      <title>1.0.21</title>
+      <pubDate>Fri, 18 Sep 2026 22:36:04 +0800</pubDate>
+      <sparkle:version>37</sparkle:version>
+      <sparkle:shortVersionString>1.0.21</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[<p>消息里一次运行底部四组折叠（思考 / 旁审 / 工具 / 文件）；推理强度按模型只列真有的档、按 omp 的表发参数、被拒的档记住不再切备用模型；/model 在输入框弹层里直接切换主模型</p>]]></description>
+      <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.21/Formora-1.0.21.dmg" type="application/octet-stream" sparkle:edSignature="X24NtRPQtZavmmWOeBn+8eA5s3iw7zR4eziHXN/G732otT/w1cNdYXhIf/OJnK6lppxNhJPqDGE5PrWDC9QkDA==" length="13132733"/>
+    </item>
+    <item>
       <title>1.0.20</title>
       <pubDate>Fri, 18 Sep 2026 02:52:31 +0800</pubDate>
       <sparkle:version>36</sparkle:version>
@@ -84,15 +93,6 @@
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
       <description><![CDATA[<p>放宽运行限制：去掉 Agent 50 轮上限、子代理和委派子任务不再有 token 上限、操作电脑重试 3 改 2；设置页名改用 SubAgent；旁审默认关</p>]]></description>
       <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.12/Formora-1.0.12.dmg" type="application/octet-stream" sparkle:edSignature="Q9nvInOH29oh6OnxcNrXalbkSqgaZmtdWFuWx+eoqbg2FIdU6EpbaT3stottH+3WP2pWbyn5XrcLc99uWMDTDA==" length="12643318"/>
-    </item>
-    <item>
-      <title>1.0.11</title>
-      <pubDate>Wed, 16 Sep 2026 08:16:01 +0800</pubDate>
-      <sparkle:version>27</sparkle:version>
-      <sparkle:shortVersionString>1.0.11</sparkle:shortVersionString>
-      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <description><![CDATA[<p>子代理：/agent 改成直接创建（只写目的、模型按隐藏的撰写指南写好并直接保存），新增「设置 → 子代理」管理页</p>]]></description>
-      <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.11/Formora-1.0.11.dmg" type="application/octet-stream" sparkle:edSignature="QtdckEmSezdrmiW56SWsmTB6XqSkQCrlqHzPXhB9CRVWTfr3sk+z5AQO44aZa8SsoQjBIRKAVl65BzPnyCxdDg==" length="12996115"/>
     </item>
   </channel>
 </rss>
