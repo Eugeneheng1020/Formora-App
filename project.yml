@@ -45,6 +45,9 @@ targets:
       - path: Resources/Skills
         type: folder
         buildPhase: resources
+      - path: Resources/Models
+        type: folder
+        buildPhase: resources
     # Keys Xcode's generated Info.plist can't carry: merged into it at build time.
     info:
       path: App/Info.plist
