@@ -5,6 +5,15 @@
     <description>Formora 的更新</description>
     <language>zh-Hans</language>
     <item>
+      <title>1.0.23</title>
+      <pubDate>Sat, 19 Sep 2026 01:20:20 +0800</pubDate>
+      <sparkle:version>39</sparkle:version>
+      <sparkle:shortVersionString>1.0.23</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[<p>需要回传思考的模型保留更早几次运行的思考，下一句话不再让缓存断开；发版前必须通过真实模型的缓存命中测试</p>]]></description>
+      <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.23/Formora-1.0.23.dmg" type="application/octet-stream" sparkle:edSignature="nf8Y/KdIQqzG5hls3H3pCO6+EAIUEdLzv6F4PQuaCx8jDCVEfJDQWvj9u01lcFPsHHe6HSOR3PWLCHpyifcgCw==" length="13249428"/>
+    </item>
+    <item>
       <title>1.0.22</title>
       <pubDate>Sat, 19 Sep 2026 00:24:32 +0800</pubDate>
       <sparkle:version>38</sparkle:version>
@@ -84,15 +93,6 @@
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
       <description><![CDATA[<p>工作中发的消息优先处理（长命令转后台让路）；计划条加关闭按钮，关了就不再按计划做；没开计划模式不再自动列计划</p>]]></description>
       <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.14/Formora-1.0.14.dmg" type="application/octet-stream" sparkle:edSignature="J2kwHQwCy44wRAB2COPoEzRoofMJkDbbz+zjhvuYUbPrSAa+hNXjVEmd9qkLPyiQ3W8Qb9DKwS3AOAGKdjmlDw==" length="12681461"/>
-    </item>
-    <item>
-      <title>1.0.13</title>
-      <pubDate>Wed, 16 Sep 2026 21:03:55 +0800</pubDate>
-      <sparkle:version>29</sparkle:version>
-      <sparkle:shortVersionString>1.0.13</sparkle:shortVersionString>
-      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <description><![CDATA[<p>省 token：给 Anthropic 加提示词缓存（其余服务商本就服务端自动缓存）；子代理读长文件只给结构摘要</p>]]></description>
-      <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.13/Formora-1.0.13.dmg" type="application/octet-stream" sparkle:edSignature="nTIeY7FReCQ0J8zmsO3PBOPYxpI5F3TLjsVuQptomhNG1UKlHRZfAh7TDuIco41cZwckesJovyGFKjSvSMIKDQ==" length="12657155"/>
     </item>
   </channel>
 </rss>
