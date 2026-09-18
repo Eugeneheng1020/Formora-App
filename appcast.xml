@@ -5,6 +5,15 @@
     <description>Formora 的更新</description>
     <language>zh-Hans</language>
     <item>
+      <title>1.0.22</title>
+      <pubDate>Sat, 19 Sep 2026 00:24:32 +0800</pubDate>
+      <sparkle:version>38</sparkle:version>
+      <sparkle:shortVersionString>1.0.22</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[<p>模型数据改由 omp 的目录驱动：名字、窗口、单价、推理、兼容开关按模型来，列表是目录和实时的并集；ChatGPT 订阅请求补齐客户端版本和会话</p>]]></description>
+      <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.22/Formora-1.0.22.dmg" type="application/octet-stream" sparkle:edSignature="o8sD/arIO9R32j8ZzVx4fzCZXU5/z8+3e36wfihnl6NkebfKBtAEsWdTDQJTQQScYnd6FnP1ofOzO18QFC4XBw==" length="13248233"/>
+    </item>
+    <item>
       <title>1.0.21</title>
       <pubDate>Fri, 18 Sep 2026 22:36:04 +0800</pubDate>
       <sparkle:version>37</sparkle:version>
@@ -84,15 +93,6 @@
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
       <description><![CDATA[<p>省 token：给 Anthropic 加提示词缓存（其余服务商本就服务端自动缓存）；子代理读长文件只给结构摘要</p>]]></description>
       <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.13/Formora-1.0.13.dmg" type="application/octet-stream" sparkle:edSignature="nTIeY7FReCQ0J8zmsO3PBOPYxpI5F3TLjsVuQptomhNG1UKlHRZfAh7TDuIco41cZwckesJovyGFKjSvSMIKDQ==" length="12657155"/>
-    </item>
-    <item>
-      <title>1.0.12</title>
-      <pubDate>Wed, 16 Sep 2026 20:26:45 +0800</pubDate>
-      <sparkle:version>28</sparkle:version>
-      <sparkle:shortVersionString>1.0.12</sparkle:shortVersionString>
-      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <description><![CDATA[<p>放宽运行限制：去掉 Agent 50 轮上限、子代理和委派子任务不再有 token 上限、操作电脑重试 3 改 2；设置页名改用 SubAgent；旁审默认关</p>]]></description>
-      <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.12/Formora-1.0.12.dmg" type="application/octet-stream" sparkle:edSignature="Q9nvInOH29oh6OnxcNrXalbkSqgaZmtdWFuWx+eoqbg2FIdU6EpbaT3stottH+3WP2pWbyn5XrcLc99uWMDTDA==" length="12643318"/>
     </item>
   </channel>
 </rss>
