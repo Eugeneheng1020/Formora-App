@@ -260,6 +260,10 @@ enum VerificationHooks {
     static let seedUsageKey = "FormoraSeedUsage"
     /// `-FormoraReasoningMenu YES`: the reasoning menu opens on the selected conversation.
     static let reasoningMenuKey = "FormoraReasoningMenu"
+    /// `-FormoraFreshModel deepseek/deepseek-v4-pro` (real-model test 2026-09-18): the fresh chat's Agent gets that main
+    /// model, as `/model` would; `-FormoraReasoning max`: the fresh chat's level.
+    static let freshModelKey = "FormoraFreshModel"
+    static let reasoningKey = "FormoraReasoning"
 
     static func applyMessages(to state: AppState, currentProject: ProjectRecord?, profile: AppProfile,
                               settings: UserDefaults = .standard) {
@@ -282,6 +286,10 @@ enum VerificationHooks {
            let agent = state.agents.agents.first(where: { $0.roleID == role }),
            let fresh = try? store.startDirect(agentID: agent.id, projectID: project.id, blockReason: nil) {
             state.selectedConversationID = fresh.id
+            if let spec = settings.string(forKey: freshModelKey), let slash = spec.firstIndex(of: "/") {
+                _ = state.switchModel(ModelReference(providerID: String(spec[..<slash]), modelID: String(spec[spec.index(after: slash)...])), in: fresh)
+            }
+            if let level = settings.string(forKey: reasoningKey).flatMap(ReasoningLevel.init(rawValue:)) { store.setReasoning(fresh.id, level) }
         }
         // Group names are unique in a project, so each one gets a short tail.
         if let name = settings.string(forKey: freshGroupKey), let project = currentProject,
@@ -487,12 +495,15 @@ enum VerificationHooks {
             let runID = UUID()
             let path = "PRD/会员等级体系_v1.md"
             store.append(Message(role: .user, text: "把保级规则写进 PRD，然后跑一下测试"), to: id)
-            store.append(Message(role: .agent, agentID: agentID, speakerName: name, text: "先看现有的约定 AGENTS.md 和 https://example.com/prd 的写法。", toolCalls: [
+            // Two turns that thought, a 旁审 提醒 between them (user 2026-09-18): the thinking and advice groups under the words.
+            store.append(Message(role: .agent, agentID: agentID, speakerName: name, text: "先看现有的约定 AGENTS.md 和 https://example.com/prd 的写法。",
+                                 thinking: "先确认 PRD 里保级的现有写法，再决定改哪一段。", thinkingSeconds: 6, toolCalls: [
                 ToolCall(id: "qa-step-1", name: "read", arguments: #"{"path":"\#(path)"}"#, result: .done("（读到了 88 行）")),
                 ToolCall(id: "qa-step-2", name: "grep", arguments: #"{"pattern":"保级"}"#, result: .done("\(path):41：保级")),
             ], runID: runID), to: id)
+            store.append(Advisor.message(Advisor.Note(severity: .nit, text: "缓冲期的天数用户没说，别自己定死。"), agentID: agentID, runID: runID), to: id)
             store.append(Message(role: .agent, agentID: agentID, speakerName: name, text: "保级规则写进去了；测试有一条没过，是旧用例还按 60 天算。",
-                                 toolCalls: [
+                                 thinking: "用例按 60 天算是旧规则，先改 PRD，测试留给用户定。", thinkingSeconds: 17, toolCalls: [
                                      ToolCall(id: "qa-step-3", name: "edit",
                                               arguments: #"{"path":"\#(path)","old_text":"保级","new_text":"保级：30 天缓冲"}"#,
                                               result: ToolResult(status: .done, output: "已修改 \(path)：替换了 1 处", savedPath: path, isNewFile: false)),

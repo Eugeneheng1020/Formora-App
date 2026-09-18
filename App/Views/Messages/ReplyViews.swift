@@ -1,46 +1,8 @@
 import SwiftUI
 
-/// 「思考中…」 while the model thinks, 「思考了 N 秒」 after; folded by default, one click shows the thinking
-/// (old app 2026-09-06: the wait isn't a black box, and the answer stays the main thing).
-struct ThinkingFold: View {
-    let text: String
-    let seconds: Double?
-    let isThinking: Bool
-
-    @State private var isOpen = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Button { isOpen.toggle() } label: {
-                HStack(spacing: 5) {
-                    IconView(Icons.bulb, size: 12)
-                    Text(isThinking ? "思考中…" : "思考了 \(Self.duration(seconds))").font(FormoraFont.ui(11.5))
-                    if !text.isEmpty {
-                        IconView(Icons.chevronRight, size: 10).rotationEffect(.degrees(isOpen ? 90 : 0))
-                    }
-                }
-                .foregroundStyle(Palette.inkFaint.color)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(text.isEmpty)
-            .accessibilityLabel(isThinking ? "思考中" : "思考过程")
-            .accessibilityIdentifier("reply.thinking")
-            if isOpen, !text.isEmpty {
-                Text(text)
-                    .font(FormoraFont.ui(12))
-                    .foregroundStyle(Palette.inkMuted.color)
-                    .lineSpacing(3)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.leading, 11)
-                    .overlay(alignment: .leading) { Rectangle().fill(Palette.lineStrong.color).frame(width: 2) }
-                    .accessibilityIdentifier("reply.thinking.text")
-            }
-        }
-        .padding(.horizontal, 3)
-    }
-
+/// 「思考了 N 秒」 in the product's words. The per-turn fold of 2026-09-06 became the run's thinking group
+/// (`ThinkingFoldView`, user 2026-09-18); the wording of the seconds is still read from here.
+enum ThinkingFold {
     static func duration(_ seconds: Double?) -> String {
         let value = max(1, Int((seconds ?? 0).rounded()))
         return value < 60 ? "\(value) 秒" : "\(value / 60) 分 \(value % 60) 秒"

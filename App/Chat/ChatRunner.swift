@@ -965,6 +965,8 @@ final class ChatRunner {
     /// What one run keeps between its model calls.
     struct RunState {
         var sendsReasoning: Bool
+        /// Levels the host refused in this run (user 2026-09-18): one retry on the next level, then none at all.
+        var refusedLevels: [ReasoningLevel] = []
         var calls = 0
         var model = 0
         var sendsTools = true
@@ -1228,8 +1230,11 @@ final class ChatRunner {
                 && (state.textTools || providers.usesTextTools(providerID: reference.providerID, modelID: reference.modelID))
             var system = systemPrompt(agent: agent, conversation: conversation, tools: offered)
             if textTools { system += "\n\n" + TextToolProtocol.prompt(offered) }
+            // 推理强度按模型 (user 2026-09-18): the conversation's level brought onto this model's own ladder, the
+            // levels its host refused before left out.
+            let level = reasoningLevel(conversation.reasoning, for: target)
             guard let request = ChatWire.request(target, system: system, history: textTools ? TextToolProtocol.encode(history) : history,
-                                                 reasoning: conversation.reasoning, sendsReasoning: state.sendsReasoning,
+                                                 reasoning: level, sendsReasoning: state.sendsReasoning,
                                                  tools: textTools ? [] : offered) else {
                 lastFailure = .provider("「\(reference.providerID)」的 Base URL 无效")
                 state.model += 1
@@ -1275,9 +1280,23 @@ final class ChatRunner {
                     }
                     guard isCurrent(runID, id) else { return .failed(ChatFailure.cancelled.message) }
                 }
+                // The host refused the level (user 2026-09-18): remembered, so the menu stops listing it; the same model
+                // is asked once more on the next level below, and after a second refusal without the fields — never
+                // the fallback model for this.
                 if state.sendsReasoning, failure.rejectsReasoning, !arrived {
-                    state.sendsReasoning = false
-                    state.note = "这个模型不接受推理强度参数，这次按它的默认方式回答"
+                    if level != .auto {
+                        providers.rememberRejectedReasoning(providerID: reference.providerID, modelID: reference.modelID, level: level)
+                        state.refusedLevels.append(level)
+                    }
+                    let next = reasoningLevel(conversation.reasoning, for: target)
+                    let refused = state.refusedLevels.map { "「\(label($0, for: target))」" }
+                    if state.refusedLevels.count == 1, next != .auto, next != level {
+                        state.note = "这个模型不接受推理强度\(refused[0])，这次改按「\(label(next, for: target))」，以后不再列它"
+                    } else {
+                        state.sendsReasoning = false
+                        state.note = refused.isEmpty ? "这个模型不接受推理强度参数，这次按它的默认方式回答"
+                            : "这个模型不接受推理强度\(refused.joined(separator: "和"))，这次按它的默认方式回答，以后不再列\(refused.count > 1 ? "它们" : "它")"
+                    }
                     continue
                 }
                 // 自动: a model that refuses native tools gets them as text, and keeps them so (D8).
@@ -1914,6 +1933,21 @@ final class ChatRunner {
     }
 
     /// A ChatGPT sign-in is refreshed here first when it is about to lapse (7i, U2).
+    /// 推理强度按模型 (user 2026-09-18): the level a request to `target` carries — the conversation's, brought onto the
+    /// model's own ladder, the levels its host refused before left out.
+    private func reasoningLevel(_ level: ReasoningLevel, for target: ChatTarget) -> ReasoningLevel {
+        let rejected = providers.rejectedReasoning(providerID: target.providerID, modelID: target.modelID)
+        let options = ModelThinking.options(providerID: target.providerID, modelID: target.modelID, apiProtocol: target.endpoint.apiProtocol,
+                                            rejected: rejected)
+        return ModelThinking.clamp(level, to: options.map(\.level))
+    }
+
+    /// The level's name on this model — 开启 where the host only has a switch.
+    private func label(_ level: ReasoningLevel, for target: ChatTarget) -> String {
+        ModelThinking.options(providerID: target.providerID, modelID: target.modelID, apiProtocol: target.endpoint.apiProtocol)
+            .first { $0.level == level }?.label ?? level.label
+    }
+
     private func target(for reference: ModelReference) async -> ChatTarget? {
         guard !reference.modelID.isEmpty, let authorization = await providers.authorization(reference.providerID),
               let endpoint = await providers.endpoint(for: reference.providerID, model: reference.modelID) else { return nil }

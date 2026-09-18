@@ -22,7 +22,7 @@ struct ToolFoldView: View {
         let summary = ToolFold.summary(steps, isRunning: isRunning, approval: approval)
         if !summary.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
-                Button {
+                FoldHeader(icon: Icons.chip, summary: summary, isOpen: isOpen, identifier: "tools.fold.toggle") {
                     isOpen.toggle()
                     if isOpen {
                         let anchor = anchor
@@ -31,24 +31,7 @@ struct ToolFoldView: View {
                             reveal(anchor)
                         }
                     }
-                } label: {
-                    HStack(spacing: 7) {
-                        IconView(Icons.chip, size: 12).foregroundStyle(Palette.inkFaint.color)
-                        Text(summary)
-                            .font(FormoraFont.mono(11))
-                            .foregroundStyle(Palette.inkMuted.color)
-                            .lineLimit(1)
-                        IconView(Icons.chevronRight, size: 10)
-                            .rotationEffect(.degrees(isOpen ? 90 : 0))
-                            .foregroundStyle(Palette.inkFaint.color)
-                    }
-                    .padding(.vertical, 4)
-                    .padding(.horizontal, 3)
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(summary)
-                .accessibilityIdentifier("tools.fold.toggle")
                 if isOpen {
                     ForEach(steps) { step in ToolCallCard(call: step.call, phase: phase(step), onCopy: onCopy) }
                 } else if let live = ToolFold.live(steps, executing: executing, approval: approval) {

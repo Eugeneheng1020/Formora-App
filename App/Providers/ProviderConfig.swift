@@ -43,11 +43,13 @@ struct ProviderConfig: Codable, Equatable, Sendable {
     var toolModes: [String: ToolCallMode] = [:]
     /// `provider/model` pairs that refused native tools under 自动 and now use the text protocol.
     var textToolModels: Set<String> = []
+    /// `provider/model#level` — a reasoning level the host refused (user 2026-09-18): the menu stops listing it.
+    var rejectedReasoning: Set<String> = []
 
     init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case custom, chosenHosts, withKey, toolModes, textToolModels
+        case custom, chosenHosts, withKey, toolModes, textToolModels, rejectedReasoning
     }
 
     /// Fields added later are optional on disk: an older file still opens with its custom providers.
@@ -58,6 +60,7 @@ struct ProviderConfig: Codable, Equatable, Sendable {
         withKey = try values.decodeIfPresent(Set<String>.self, forKey: .withKey) ?? []
         toolModes = try values.decodeIfPresent([String: ToolCallMode].self, forKey: .toolModes) ?? [:]
         textToolModels = try values.decodeIfPresent(Set<String>.self, forKey: .textToolModels) ?? []
+        rejectedReasoning = try values.decodeIfPresent(Set<String>.self, forKey: .rejectedReasoning) ?? []
     }
 
     static func load(from url: URL?) -> ProviderConfig {

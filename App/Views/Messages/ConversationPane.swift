@@ -584,12 +584,25 @@ private struct AgentRunRow: View {
                     turn(message).id(message.id)
                 }
                 if let draft {
-                    DraftContent(state: state, conversation: conversation, draft: draft, follow: follow).id(ThreadView.draftAnchor)
+                    DraftContent(state: state, conversation: conversation, draft: draft, showsThinking: false, follow: follow)
+                        .id(ThreadView.draftAnchor)
                 }
-                // 工具执行折叠 (user 2026-09-15): the run's steps under its words, the one in hand in view while it runs.
+                // 一次运行底部的四组折叠 (user 2026-09-15, 2026-09-18): the run's thinking, the 旁审 notes, its steps (the one
+                // in hand in view while it runs) and the files it changed, each a line under its words.
+                ThinkingFoldView(thoughts: RunFolds.thoughts(in: messages) + (draft.flatMap(Self.thought) ?? []),
+                                 isThinking: draft.map { $0.thinkingStartedAt != nil && $0.text.isEmpty } ?? false, reveal: reveal)
+                AdviceFoldView(notes: RunFolds.advice(in: messages), reveal: reveal)
                 ToolFoldView(steps: ToolFold.steps(in: messages), isRunning: isRunning, executing: state.chat.executing[conversation.id],
                              approval: state.chat.approvals[conversation.id]?.callID, phase: { phase($0.call, in: $0.messageID) }, reveal: reveal,
                              onCopy: { CopyButton.copy($0, state: state) })
+                ChangesFoldView(changes: RunFolds.changes(in: messages),
+                                undo: { file in
+                                    if let callID = file.callID { state.undoChange(conversation.id, message: file.messageID, call: callID) }
+                                },
+                                open: { file in
+                                    state.select(.files)
+                                    Task { await state.files?.reveal(relativePath: file.path) }
+                                }, reveal: reveal)
                 if draft == nil, let last = messages.last {
                     HStack(spacing: 10) {
                         HStack(spacing: 6) {
@@ -612,13 +625,20 @@ private struct AgentRunRow: View {
         .accessibilityIdentifier("message.agent")
     }
 
+    /// The model's turn being written, as a segment of the run's thinking group.
+    private static func thought(_ draft: ChatRunner.Draft) -> [RunFolds.Thought] {
+        guard draft.thinkingStartedAt != nil else { return [] }
+        return [RunFolds.Thought(messageID: draft.runID, text: draft.thinking, seconds: draft.thinkingSeconds)]
+    }
+
     @ViewBuilder private func turn(_ message: Message) -> some View {
         if let marker = message.marker {
-            // 10h: a 旁审 note; 10g: where a watched rule stopped the reply; 7d: an older self-review's line.
+            // 10h: a 旁审 note — 必须停 here, 提醒 and 担心 in the run's group (user 2026-09-18); 10g: where a watched rule
+            // stopped the reply; 7d: an older self-review's line.
             if let review = message.review {
                 ReviewCard(review: review)
             } else if let advice = message.advice {
-                AdviceCard(severity: advice, text: marker)
+                if advice == .blocker { AdviceCard(severity: advice, text: marker) }
             } else if message.rule != nil {
                 RuleMarker(text: marker)
             } else {
@@ -631,9 +651,6 @@ private struct AgentRunRow: View {
 
     @ViewBuilder private func answer(_ message: Message) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let thinking = message.thinking {
-                ThinkingFold(text: thinking, seconds: message.thinkingSeconds, isThinking: false)
-            }
             if let failure = message.failure {
                 FailedReply(reason: failure)
             } else if !message.text.isEmpty {
@@ -646,14 +663,6 @@ private struct AgentRunRow: View {
                     AskCard(call: call, isWaiting: call.result == nil && !isRunning)
                 } else {
                     DelegateCard(state: state, call: call, phase: phase(call, in: message.id))
-                }
-            }
-            ForEach(Self.saved(message), id: \.path) { file in
-                let last = Self.lastChange(to: file.path, in: message)
-                SaveCard(path: file.path, isNewFile: file.isNew, change: last?.change,
-                         undo: last.map { found in { state.undoChange(conversation.id, message: message.id, call: found.callID) } }) {
-                    state.select(.files)
-                    Task { await state.files?.reveal(relativePath: file.path) }
                 }
             }
             if let note = message.note {
@@ -708,26 +717,6 @@ private struct AgentRunRow: View {
         return isRunning ? .queued : .finished(ToolResult(status: .stopped, output: "没有执行。"))
     }
 
-    /// The files a turn wrote, once each — the last write to a path decides, a new file stays new.
-    /// 10d: the last write or edit of `path` in the message — its change and its call, for the card's diff and 撤销.
-    static func lastChange(to path: String, in message: Message) -> (change: FileChange, callID: String)? {
-        guard let call = message.toolCalls.last(where: { $0.result?.status == .done && $0.result?.savedPath == path && $0.result?.change != nil }),
-              let change = call.result?.change else { return nil }
-        return (change, call.id)
-    }
-
-    static func saved(_ message: Message) -> [(path: String, isNew: Bool)] {
-        var files: [(path: String, isNew: Bool)] = []
-        for call in message.toolCalls {
-            guard let result = call.result, result.status == .done, let path = result.savedPath else { continue }
-            if let index = files.firstIndex(where: { $0.path == path }) {
-                files[index].isNew = files[index].isNew || result.isNewFile == true
-            } else {
-                files.append((path, result.isNewFile == true))
-            }
-        }
-        return files
-    }
 }
 
 private struct AgentFrameAvatar: View {
@@ -767,12 +756,14 @@ private struct DraftRow: View {
     }
 }
 
-/// The model's turn being written: the thinking fold, three dots until the first word, then the text with a cursor;
-/// a retry or fallback note under it; in a group, who is next.
+/// The model's turn being written: the thinking fold (when the turn starts its own frame — in a run's frame the run's
+/// group has it), three dots until the first word, then the text with a cursor; a retry or fallback note under it;
+/// in a group, who is next.
 private struct DraftContent: View {
     let state: AppState
     let conversation: Conversation
     let draft: ChatRunner.Draft
+    var showsThinking = true
     var follow: () -> Void = {}
 
     var body: some View {
@@ -780,8 +771,9 @@ private struct DraftContent: View {
         let shape = UnevenRoundedRectangle(topLeadingRadius: 4, bottomLeadingRadius: 12, bottomTrailingRadius: 12, topTrailingRadius: 12,
                                            style: .continuous)
         VStack(alignment: .leading, spacing: 4) {
-            if draft.thinkingStartedAt != nil {
-                ThinkingFold(text: draft.thinking, seconds: draft.thinkingSeconds, isThinking: draft.text.isEmpty)
+            if showsThinking, draft.thinkingStartedAt != nil {
+                ThinkingFoldView(thoughts: [RunFolds.Thought(messageID: draft.runID, text: draft.thinking, seconds: draft.thinkingSeconds)],
+                                 isThinking: draft.text.isEmpty)
             }
             if draft.text.isEmpty {
                 TypingDots()

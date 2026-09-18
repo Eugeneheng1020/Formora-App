@@ -75,6 +75,8 @@ enum ReasoningDialect: Equatable, Sendable {
 enum ChatWire {
     /// The longest silence allowed between two pieces of a streamed reply.
     static let idleTimeout: TimeInterval = 90
+    /// The beta that unlocks `output_config.effort` on Anthropic's API (omp `effortBeta`).
+    static let anthropicEffortBeta = "effort-2025-11-24"
 
     /// omp `ANTHROPIC_THINKING`.
     static func anthropicBudget(_ level: ReasoningLevel) -> Int? {
@@ -150,15 +152,18 @@ enum ChatWire {
         // time, so the same request read differently on every call — and a provider's cache, automatic or asked for,
         // matches the beginning of a request byte for byte. The tools come first; with their keys shuffled, nothing
         // after them was ever read from the cache (DeepSeek, three calls of one run: 6%).
+        let object = body(target, system: system, history: shielded.history, reasoning: reasoning, sendsReasoning: sendsReasoning, tools: tools)
         guard var request = target.endpoint.request(path, key: target.key),
-              let body = try? JSONSerialization.data(withJSONObject: body(target, system: system, history: shielded.history, reasoning: reasoning,
-                                                                           sendsReasoning: sendsReasoning, tools: tools),
-                                                     options: [.sortedKeys]) else { return nil }
+              let body = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else { return nil }
         if let folder = requestDumpFolder { dump(body, to: folder) }
         request.httpMethod = "POST"
         request.timeoutInterval = idleTimeout
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        // Anthropic's effort field (Claude 4.6+ / 5, user 2026-09-18) is behind a beta header.
+        if apiProtocol == .anthropicMessages, object["output_config"] != nil {
+            request.setValue(anthropicEffortBeta, forHTTPHeaderField: "anthropic-beta")
+        }
         for (name, value) in target.headers { request.setValue(value, forHTTPHeaderField: name) }
         if isChatGPT { ChatGPTAuth.addHeaders(&request) }
         request.httpBody = body
@@ -211,9 +216,21 @@ enum ChatWire {
             && URL(string: target.endpoint.baseURL.trimmingCharacters(in: .whitespacesAndNewlines))?.host?.lowercased().hasSuffix("openrouter.ai") == true
     }
 
+    /// The level a request to `target` carries (user 2026-09-18): the conversation's, brought onto the model's own
+    /// ladder — omp's row when there is one, the encoder's levels otherwise. `nil` row = nothing known of the model.
+    static func resolve(_ reasoning: ReasoningLevel, for target: ChatTarget) -> (level: ReasoningLevel, profile: ModelThinking.Profile?) {
+        let apiProtocol = target.endpoint.apiProtocol
+        let profile = ModelThinking.profile(providerID: target.providerID, modelID: target.modelID, apiProtocol: apiProtocol)
+        let levels = ModelThinking.levels(providerID: target.providerID, modelID: target.modelID, apiProtocol: apiProtocol)
+        return (ModelThinking.clamp(reasoning, to: levels), profile)
+    }
+
     static func body(_ target: ChatTarget, system: String? = nil, history: [ChatTurn], reasoning: ReasoningLevel,
                      sendsReasoning: Bool, tools: [ToolSpec] = []) -> [String: Any] {
-        let level: ReasoningLevel = sendsReasoning ? reasoning : .auto
+        let resolved = resolve(sendsReasoning ? reasoning : .auto, for: target)
+        let level = resolved.level
+        // The row's transport applies only when it was recorded on the protocol this request speaks.
+        let profile = resolved.profile.flatMap { $0.matchesWire ? $0 : nil }
         let dialect = ReasoningDialect.of(providerID: target.providerID, apiProtocol: target.endpoint.apiProtocol)
         let system = system.flatMap { $0.isEmpty ? nil : $0 }
         switch target.endpoint.apiProtocol {
@@ -231,7 +248,7 @@ enum ChatWire {
             if !tools.isEmpty {
                 body["tools"] = tools.map { ["type": "function", "function": ["name": $0.name, "description": $0.description, "parameters": $0.schema]] }
             }
-            applyCompletionsReasoning(&body, dialect: dialect, level: level)
+            applyCompletionsReasoning(&body, dialect: dialect, level: level, profile: profile)
             // 提示词缓存 (user 2026-09-17)：OpenAI、DeepSeek、Gemini 在服务端自动缓存，但 OpenRouter 上的 Claude 不会——要在请求
             // 顶层写 cache_control，OpenRouter 才替它在最后一个可缓存的块上打断点、随对话往前挪（它的文档：automatic caching，
             // Anthropic / Vertex / Bedrock / Azure 各路由都支持）。没有这一行，每一步都按全价重发整段历史。
@@ -259,7 +276,8 @@ enum ChatWire {
             if !tools.isEmpty {
                 body["tools"] = tools.map { ["type": "function", "name": $0.name, "description": $0.description, "parameters": $0.schema] }
             }
-            if let effort = responsesEffort(level) {
+            let effort: String? = if let profile { level == .off ? "none" : rowEffort(level, profile) } else { responsesEffort(level) }
+            if let effort {
                 body["reasoning"] = effort == "none" ? ["effort": effort] : ["effort": effort, "summary": "auto"]
             }
             return body
@@ -285,11 +303,29 @@ enum ChatWire {
                 if system == nil, !toolList.isEmpty { toolList[toolList.count - 1]["cache_control"] = ["type": "ephemeral"] }
                 body["tools"] = toolList
             }
-            if let budget = anthropicBudget(level) {
+            // Claude 4.6+ / 5 (omp's `anthropic-adaptive`, user 2026-09-18): adaptive thinking steered by an effort, no
+            // token budget; Fable/Mythos 5 return no thinking unless `display` asks for it. These models reject
+            // `thinking: disabled` — 关闭 leaves the field out and pins the effort low (omp's way). The effort field
+            // needs the `effort-2025-11-24` beta, which `request` adds when `output_config` is here.
+            if let profile, profile.mode == .anthropicAdaptive {
+                if level == .off {
+                    body["output_config"] = ["effort": "low"]
+                } else if let effort = rowEffort(level, profile) {
+                    var adaptive = ["type": "adaptive"]
+                    if profile.supportsDisplay { adaptive["display"] = "summarized" }
+                    body["thinking"] = adaptive
+                    body["output_config"] = ["effort": effort]
+                }
+                body["max_tokens"] = min(limit, 32_000)
+            } else if let budget = anthropicBudget(level) {
                 // The budget has to fit under max_tokens with room left for the answer.
                 let fitted = max(1024, min(budget, limit - 4096))
                 body["thinking"] = ["type": "enabled", "budget_tokens": fitted]
                 body["max_tokens"] = min(limit, fitted + 16_000)
+                // omp's `anthropic-budget-effort` (GLM on an Anthropic-style endpoint): the budget and the effort both.
+                if let profile, profile.mode == .anthropicBudgetEffort, let effort = rowEffort(level, profile) {
+                    body["output_config"] = ["effort": effort]
+                }
             } else {
                 body["max_tokens"] = min(limit, 32_000)
             }
@@ -301,9 +337,17 @@ enum ChatWire {
             if !tools.isEmpty {
                 body["tools"] = [["functionDeclarations": tools.map { ["name": $0.name, "description": $0.description, "parameters": $0.schema] }]]
             }
-            if sendsReasoning {
-                var config: [String: Any] = ["includeThoughts": reasoning != .off]
-                if let budget = googleBudget(reasoning) { config["thinkingBudget"] = budget }
+            // Gemini 3 (omp's `google-level`, user 2026-09-18): a named level, not a budget; most can't be turned off
+            // (the level was brought onto the row's ladder above). Older Gemini keeps the budget, 关闭 a budget of zero.
+            if let profile, profile.mode == .googleLevel {
+                if level == .off {
+                    body["generationConfig"] = ["thinkingConfig": ["includeThoughts": false, "thinkingLevel": "MINIMAL"]]
+                } else if let effort = rowEffort(level, profile) {
+                    body["generationConfig"] = ["thinkingConfig": ["includeThoughts": true, "thinkingLevel": googleLevel(effort)]]
+                }
+            } else if sendsReasoning, level != .auto {
+                var config: [String: Any] = ["includeThoughts": level != .off]
+                if let budget = googleBudget(level) { config["thinkingBudget"] = budget }
                 body["generationConfig"] = ["thinkingConfig": config]
             }
             return body
@@ -508,25 +552,47 @@ enum ChatWire {
         return history[start...].contains { $0.role == .assistant && !$0.toolCalls.isEmpty && ($0.thinking ?? "").isEmpty }
     }
 
-    private static func applyCompletionsReasoning(_ body: inout [String: Any], dialect: ReasoningDialect, level: ReasoningLevel) {
+    /// With omp's row for the model (`profile`, mode `effort`), the level goes as the row has it — DeepSeek V4 and Kimi K3
+    /// take `max`, Kimi K2.6 `minimal`; the host's own switch field stays. Without a row, the old collapse.
+    private static func applyCompletionsReasoning(_ body: inout [String: Any], dialect: ReasoningDialect, level: ReasoningLevel,
+                                                  profile: ModelThinking.Profile?) {
         guard level != .auto else { return }
         let on = level != .off
+        let effort: String? = if let profile, profile.mode == .effort { rowEffort(level, profile) } else { completionsEffort(level) }
         switch dialect {
         case .deepSeek:
             body["thinking"] = ["type": on ? "enabled" : "disabled"]
-            if let effort = completionsEffort(level) { body["reasoning_effort"] = effort == "minimal" ? "low" : effort }
+            if let effort { body["reasoning_effort"] = profile == nil && effort == "minimal" ? "low" : effort }
         case .qwen:
             body["enable_thinking"] = on
         case .zai:
             body["thinking"] = ["type": on ? "enabled" : "disabled"]
+            if profile != nil, let effort { body["reasoning_effort"] = effort }
         case .openRouter:
-            if let effort = completionsEffort(level) {
+            if let effort {
                 body["reasoning"] = ["effort": effort]
             } else {
                 body["reasoning"] = ["enabled": false]
             }
         case .openAIEffort, .responses, .anthropic, .google:
-            if let effort = completionsEffort(level) { body["reasoning_effort"] = effort }
+            if let effort { body["reasoning_effort"] = effort }
+        }
+    }
+
+    /// The row's own word for the level: `nil` for 自动 and 关闭 (each protocol says those its own way) and for a level
+    /// the row lacks — which `resolve` has already brought onto the ladder.
+    static func rowEffort(_ level: ReasoningLevel, _ profile: ModelThinking.Profile) -> String? {
+        guard level != .auto, level != .off, profile.efforts.contains(level) else { return nil }
+        return level.rawValue
+    }
+
+    /// Gemini 3's `thinkingLevel` for a level (omp `mapEffortToGoogleThinkingLevel`): xhigh and max are HIGH.
+    static func googleLevel(_ effort: String) -> String {
+        switch effort {
+        case "minimal": "MINIMAL"
+        case "low": "LOW"
+        case "medium": "MEDIUM"
+        default: "HIGH"
         }
     }
 }

@@ -10,6 +10,28 @@ extension AppState {
         return Set([agents.agent(conversation.agentID)?.roleID].compactMap { $0 })
     }
 
+    /// 推理强度按模型 (user 2026-09-18): the menu of a conversation — the levels its Agent's main model has (a group:
+    /// every member's, together), the ones a host refused left out.
+    func reasoningOptions(_ id: UUID) -> [ModelThinking.Option] {
+        guard let conversation = conversations.conversation(id) else { return ModelThinking.options(for: [.auto]) }
+        let members = conversation.isGroup ? ConversationReadiness.members(of: conversation, agents: agents)
+            : [agents.agent(conversation.agentID)].compactMap { $0 }
+        let lists = members.compactMap { agent -> [ReasoningLevel]? in
+            guard let model = agent.primaryModel,
+                  let endpoint = providers.knownEndpoint(for: model.providerID, model: model.modelID) else { return nil }
+            return ModelThinking.options(providerID: model.providerID, modelID: model.modelID, apiProtocol: endpoint.apiProtocol,
+                                         rejected: providers.rejectedReasoning(providerID: model.providerID, modelID: model.modelID)).map(\.level)
+        }
+        return ModelThinking.options(for: ModelThinking.union(lists))
+    }
+
+    /// The pill's word: where the conversation's level lands on that menu.
+    func reasoningLabel(_ id: UUID) -> String {
+        let options = reasoningOptions(id)
+        let level = ModelThinking.clamp(conversations.conversation(id)?.reasoning ?? .auto, to: options.map(\.level))
+        return options.first { $0.level == level }?.label ?? level.label
+    }
+
     /// The Agent a command is about: the direct chat's; in a group whoever answered last, else the first member.
     func commandAgent(_ conversation: Conversation) -> AgentRecord? {
         guard conversation.isGroup else { return agents.agent(conversation.agentID) }
@@ -58,6 +80,13 @@ extension AppState {
             commandCards[id] = CommandCard(kicker: "git", title: "仓库状态", body: .mono(Self.gitText(result)))
         case .go(let destination):
             go(destination, agent: commandAgent(conversation))
+        case .model:
+            // The list is the popover's while typing; a line sent as is must name one model outright.
+            let matches = modelChoices(for: conversation, query: argument).flatMap(\.items)
+            guard matches.count == 1, let choice = matches.first else {
+                return matches.isEmpty ? "没有匹配「\(argument)」的模型，输入 /model 从列表里选" : "有 \(matches.count) 个模型匹配，输入 /model 从列表里选"
+            }
+            return switchModel(choice.reference, in: conversation)
         case .subagent:
             let purpose = argument.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !purpose.isEmpty else { return "写上它的目的：/agent 它要替你做什么" }
@@ -123,13 +152,9 @@ extension AppState {
     /// The jumps: an explicit destination, so the composer's draft isn't guarded (spec §9.8, §8.6).
     private func go(_ destination: ComposerCommand.Destination, agent: AgentRecord?) {
         switch destination {
-        case .model, .skills, .mcp:
+        case .skills, .mcp:
             if let agent { selectedAgentID = agent.id }
-            agentTab = switch destination {
-            case .model: .model
-            case .skills: .skills
-            default: .mcp
-            }
+            agentTab = destination == .skills ? .skills : .mcp
             select(.agents)
         case .files:
             select(.files)
@@ -140,6 +165,67 @@ extension AppState {
             settingsCategory = .hooks
             select(.settings)
         }
+    }
+}
+
+// MARK: /model (user 2026-09-18)
+
+/// One line of the `/model` list.
+struct ModelChoice: Identifiable, Equatable, Sendable {
+    let reference: ModelReference
+    let providerName: String
+    let name: String?
+    let isCurrent: Bool
+
+    var id: String { reference.providerID + "/" + reference.modelID }
+}
+
+struct ModelChoiceGroup: Equatable, Sendable {
+    let title: String
+    let items: [ModelChoice]
+}
+
+extension AppState {
+    /// `/model` (user 2026-09-18: 「不跳转 agent 设置界面，而是浮窗切换，多个可在消息中输入联想筛选」): every model of every
+    /// provider with a key — its list once read, its 常用模型 before that — grouped by provider in the catalog's order, the
+    /// Agent's current provider first and its current model first in that group, marked; a typed id the list lacks
+    /// still offered. `query` narrows it by provider name, model id or model name.
+    func modelChoices(for conversation: Conversation, query: String) -> [ModelChoiceGroup] {
+        let current = commandAgent(conversation)?.primaryModel
+        let needle = FileSearch.normalize(query)
+        let entries = providers.entries.filter { providers.hasKey($0.id) }
+            .sorted { ($0.id == current?.providerID ? 0 : 1) < ($1.id == current?.providerID ? 0 : 1) }
+        return entries.compactMap { entry in
+            var models: [ModelInfo]
+            if case .loaded(let list) = providers.modelLists[entry.id] { models = list } else { models = entry.commonModels }
+            if let current, current.providerID == entry.id, !models.contains(where: { $0.id == current.modelID }) {
+                models.insert(ModelInfo(id: current.modelID), at: 0)
+            }
+            let items = models.map { model in
+                ModelChoice(reference: ModelReference(providerID: entry.id, modelID: model.id), providerName: entry.name, name: model.name,
+                            isCurrent: current == ModelReference(providerID: entry.id, modelID: model.id))
+            }
+            .filter { needle.isEmpty || FileSearch.normalize("\($0.providerName) \($0.reference.modelID) \($0.name ?? "")").contains(needle) }
+            .sorted { $0.isCurrent && !$1.isCurrent }
+            return items.isEmpty ? nil : ModelChoiceGroup(title: entry.name, items: items)
+        }
+    }
+
+    /// Makes `reference` the main model of the Agent a command is about — what the 模型与权限 tab's save does for the
+    /// main model alone; fallback and phase models stay. `nil` when done; otherwise why not.
+    func switchModel(_ reference: ModelReference, in conversation: Conversation) -> String? {
+        guard let agent = commandAgent(conversation) else { return "这条对话里没有 Agent" }
+        var draft = AgentModelDraft(agent: agent, knownModels: [reference.modelID])
+        draft.providerID = reference.providerID
+        draft.modelID = reference.modelID
+        draft.source = .list
+        do {
+            try agents.saveModel(agent, draft, isConfigured: { providers.hasKey($0) })
+        } catch {
+            return (error as? AgentProblem)?.message ?? error.localizedDescription
+        }
+        toasts.show("已切换主模型：\(reference.modelID)", note: "\(agent.displayName) 以后的对话都用它", seconds: 3)
+        return nil
     }
 }
 

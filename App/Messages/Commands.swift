@@ -8,11 +8,13 @@ struct ComposerCommand: Identifiable, Equatable, Sendable {
         case clear, cost, plan, compact, todo, memory, review, side, export, dump, help, git, loop, goal
         /// `/agent 目的` (user 2026-09-15): a subagent from its purpose.
         case subagent
+        /// `/model 关键词` (user 2026-09-18): the Agent's main model, picked from a list in the composer's popover.
+        case model
         case go(Destination)
     }
 
     enum Destination: Equatable, Sendable {
-        case model, skills, mcp, files, settings, hooks
+        case skills, mcp, files, settings, hooks
     }
 
     /// With its slash — what the popover inserts (spec §9.8: a name without it would be sent as a message).
@@ -43,7 +45,7 @@ enum Commands {
         ComposerCommand(name: "/dump", note: "复制整段对话到剪贴板", action: .dump),
         ComposerCommand(name: "/help", note: "列出全部可用指令", action: .help),
         ComposerCommand(name: "/git", note: "查看仓库状态和最近的提交", roles: ["dev"], action: .git),
-        ComposerCommand(name: "/model", note: "去「模型与权限」", action: .go(.model)),
+        ComposerCommand(name: "/model", note: "切换这个 Agent 的主模型：/model 关键词 只看匹配的", takesArgument: true, action: .model),
         ComposerCommand(name: "/skills", note: "去「Skills」", action: .go(.skills)),
         ComposerCommand(name: "/mcp", note: "去「MCP」", action: .go(.mcp)),
         ComposerCommand(name: "/agent", note: "创建一个子代理：/agent 写清它的目的，名字、提示词由模型起草", takesArgument: true, action: .subagent),

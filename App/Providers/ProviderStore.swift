@@ -168,6 +168,8 @@ final class ProviderStore {
         keyCache[id] = key
         config.withKey.insert(id)
         config.chosenHosts[id] = nil // a new key finds its host again
+        // A new key may be a new plan: the levels its host refused start over.
+        config.rejectedReasoning = config.rejectedReasoning.filter { !$0.hasPrefix(id + "/") }
         forgetRuntimeState(id)
         persist()
     }
@@ -212,6 +214,20 @@ final class ProviderStore {
     /// The models of a provider that 自动 moved to text.
     func textToolModels(_ id: String) -> [String] {
         config.textToolModels.filter { $0.hasPrefix(id + "/") }.map { String($0.dropFirst(id.count + 1)) }.sorted()
+    }
+
+    // MARK: Reasoning levels (user 2026-09-18)
+
+    /// The levels this model's host refused: left out of the menu, never sent again.
+    func rejectedReasoning(providerID: String, modelID: String) -> Set<ReasoningLevel> {
+        let prefix = providerID + "/" + modelID + "#"
+        return Set(config.rejectedReasoning.filter { $0.hasPrefix(prefix) }.compactMap { ReasoningLevel(rawValue: String($0.dropFirst(prefix.count))) })
+    }
+
+    /// The host refused a request with this level: remembered, so the same model isn't asked it again.
+    func rememberRejectedReasoning(providerID: String, modelID: String, level: ReasoningLevel) {
+        guard config.rejectedReasoning.insert(providerID + "/" + modelID + "#" + level.rawValue).inserted else { return }
+        persist()
     }
 
     // MARK: Custom providers
@@ -422,10 +438,15 @@ final class ProviderStore {
     /// (`ProviderEndpoint.serving`). Only a platform the user added can be mixed; its list is read here when it hasn't
     /// been this run — once, not per request.
     func endpoint(for id: String, model: String) async -> ProviderEndpoint? {
+        guard entry(id)?.isCustom == true, modelLists[id] == nil else { return knownEndpoint(for: id, model: model) }
+        await loadModels(id)
+        return knownEndpoint(for: id, model: model)
+    }
+
+    /// The same from what is already known — for the menu, which can't wait for a list.
+    func knownEndpoint(for id: String, model: String) -> ProviderEndpoint? {
         guard let endpoint = endpoints(for: id).first else { return nil }
-        guard entry(id)?.isCustom == true else { return endpoint }
-        if modelLists[id] == nil { await loadModels(id) }
-        guard case .loaded(let models) = modelLists[id] else { return endpoint }
+        guard entry(id)?.isCustom == true, case .loaded(let models) = modelLists[id] else { return endpoint }
         return endpoint.serving(models.first { $0.id == model })
     }
 

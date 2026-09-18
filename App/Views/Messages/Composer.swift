@@ -164,7 +164,15 @@ struct ComposerView: View {
         .padding(.bottom, onBoard ? 0 : 18)
         .overlay(alignment: .top) { if !onBoard { Rectangle().fill(Palette.line.color).frame(height: 1) } }
         .onChange(of: token) { cursor = 0 }
-        .onChange(of: token?.kind) { if token?.kind == .at { loadFiles() } }
+        .onChange(of: token?.kind) {
+            if token?.kind == .at { loadFiles() }
+            // `/model`: the providers' real lists, read once — the 常用模型 stand in until they arrive.
+            if token?.kind == .model {
+                for entry in state.providers.entries where state.providers.hasKey(entry.id) {
+                    Task { await state.providers.loadModels(entry.id) }
+                }
+            }
+        }
     }
 
     /// Names who will read it; with a question waiting, writing is answering (spec §9.8b).
@@ -305,6 +313,11 @@ struct ComposerView: View {
             return [PopoverSection(title: "指令", items: commands.map { .command($0) }),
                     PopoverSection(title: "子代理", items: subagents.map { .subagent($0) }),
                     PopoverSection(title: "Skills", items: skills.map { .skill(id: $0.id, name: $0.name) })]
+        case .model:
+            // `/model` (user 2026-09-18): the models on offer, by provider, narrowed by what follows.
+            return state.modelChoices(for: conversation, query: token.query).map { group in
+                PopoverSection(title: group.title, items: group.items.map { .model($0) })
+            }
         case .at:
             let needle = FileSearch.normalize(token.query)
             var result: [PopoverSection] = []
@@ -332,6 +345,8 @@ struct ComposerView: View {
         switch token.kind {
         case .slash:
             return filtered ? "没有匹配的指令" : "还没有指令"
+        case .model:
+            return filtered ? "没有匹配的模型" : "还没有可选的模型：先在「设置 → 模型」配一个"
         case .at:
             if conversation.isGroup || onBoard { return filtered ? "没有匹配的角色或文件" : "还没有角色或项目文件" }
             if session.accessibleRoot == nil { return "项目文件夹现在打不开" }
@@ -382,6 +397,12 @@ struct ComposerView: View {
             controller.replaceToken(with: definition.command + " ")
         case .file(let path):
             controller.replaceToken(with: FileMentions.token(for: path) + " ")
+        case .model(let choice):
+            // The line was `/model …`: it goes, the pick takes effect at once.
+            state.composerDrafts[id, default: AppState.ComposerDraft()].text = ""
+            if let reason = state.switchModel(choice.reference, in: conversation) {
+                state.toasts.show("/model 没有执行", note: reason, isError: true)
+            }
         }
         token = nil
     }
@@ -466,7 +487,7 @@ struct MentionItem: Identifiable {
     var id: UUID { agent.id }
 }
 
-/// What the popover lists (spec §9.8): commands, members, project files.
+/// What the popover lists (spec §9.8): commands, members, project files — and, after `/model`, models.
 enum PopoverItem: Identifiable {
     case command(ComposerCommand)
     case skill(id: String, name: String)
@@ -474,6 +495,8 @@ enum PopoverItem: Identifiable {
     case subagent(SubagentDefinition)
     case member(MentionItem)
     case file(String)
+    /// A model to switch to (user 2026-09-18).
+    case model(ModelChoice)
 
     var id: String {
         switch self {
@@ -482,6 +505,7 @@ enum PopoverItem: Identifiable {
         case .subagent(let definition): "subagent:" + definition.name
         case .member(let member): "member:" + member.id.uuidString
         case .file(let path): "file:" + path
+        case .model(let choice): "model:" + choice.id
         }
     }
 }
@@ -555,7 +579,48 @@ private struct ComposerPopover: View {
             CommandRow(command: ComposerCommand(name: definition.command, note: definition.description, takesArgument: true, action: .help), isOn: isOn) { pick(item) }
         case .member(let member): MentionRow(state: state, item: member, isOn: isOn) { pick(item) }
         case .file(let path): FileRow(path: path, isOn: isOn) { pick(item) }
+        case .model(let choice): ModelRow(choice: choice, isOn: isOn) { pick(item) }
         }
+    }
+}
+
+/// One model of the `/model` list (user 2026-09-18): its id, its name when the list has one, a check on the current.
+private struct ModelRow: View {
+    let choice: ModelChoice
+    let isOn: Bool
+    let action: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(choice.reference.modelID)
+                    .font(FormoraFont.mono(12))
+                    .foregroundStyle(choice.isCurrent ? Palette.accent.color : Palette.ink.color)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if let name = choice.name, name != choice.reference.modelID {
+                    Text(name)
+                        .font(FormoraFont.ui(11.5))
+                        .foregroundStyle(Palette.inkFaint.color)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                if choice.isCurrent { IconView(Icons.check, size: 13).foregroundStyle(Palette.accent.color) }
+            }
+            .padding(.vertical, 7)
+            .padding(.horizontal, 10)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(isOn || isHovering ? Palette.surfaceRaised2.color : .clear))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .accessibilityLabel(choice.reference.modelID)
+        // The button merges its children's identifiers: the check is read from the row's value.
+        .accessibilityValue(choice.isCurrent ? "当前" : "")
+        .accessibilityIdentifier("popover.model")
     }
 }
 
@@ -703,7 +768,7 @@ private struct ReasoningPill: View {
         Button { state.reasoningMenuFor = isOpen ? nil : conversation.id } label: {
             HStack(spacing: 5) {
                 IconView(Icons.bulb, size: 13)
-                Text(conversation.reasoning.label).font(FormoraFont.ui(11.5))
+                Text(state.reasoningLabel(conversation.id)).font(FormoraFont.ui(11.5))
             }
             .foregroundStyle(lit ? Palette.ink.color : Palette.inkMuted.color)
             .padding(.horizontal, 11)
@@ -722,7 +787,7 @@ private struct ReasoningPill: View {
                     .onChange(of: proxy.frame(in: .global)) { _, frame in report(frame) }
             }
         }
-        .accessibilityLabel("推理强度：\(conversation.reasoning.label)")
+        .accessibilityLabel("推理强度：\(state.reasoningLabel(conversation.id))")
         .accessibilityIdentifier("composer.reasoning")
     }
 
@@ -731,13 +796,15 @@ private struct ReasoningPill: View {
     }
 }
 
-/// `.reasoning-menu` (C14): omp's eight levels, each with what it means; the current one checked.
+/// `.reasoning-menu` (C14): the levels the conversation's model has (user 2026-09-18: omp's table, not all eight),
+/// each with what it means; the one the stored level lands on checked.
 struct ReasoningMenu: View {
     let state: AppState
     let conversationID: UUID
 
     var body: some View {
-        let current = state.conversations.conversation(conversationID)?.reasoning ?? .auto
+        let options = state.reasoningOptions(conversationID)
+        let current = ModelThinking.clamp(state.conversations.conversation(conversationID)?.reasoning ?? .auto, to: options.map(\.level))
         VStack(alignment: .leading, spacing: 0) {
             Text("推理强度")
                 .font(FormoraFont.ui(12.5, weight: 600))
@@ -745,8 +812,8 @@ struct ReasoningMenu: View {
                 .padding(.horizontal, 10)
                 .padding(.top, 8)
                 .padding(.bottom, 4)
-            ForEach(ReasoningLevel.allCases, id: \.self) { level in
-                ReasoningItem(level: level, isOn: level == current) { choose(level) }
+            ForEach(options, id: \.level) { option in
+                ReasoningItem(option: option, isOn: option.level == current) { choose(option) }
             }
         }
         .padding(6)
@@ -762,15 +829,15 @@ struct ReasoningMenu: View {
     }
 
     /// Takes effect at once and only here (spec §9.9); the toast says so.
-    private func choose(_ level: ReasoningLevel) {
-        state.conversations.setReasoning(conversationID, level)
+    private func choose(_ option: ModelThinking.Option) {
+        state.conversations.setReasoning(conversationID, option.level)
         state.reasoningMenuFor = nil
-        state.toasts.show("推理强度：\(level.label)", note: "只影响这个对话", seconds: 2)
+        state.toasts.show("推理强度：\(option.label)", note: "只影响这个对话", seconds: 2)
     }
 }
 
 private struct ReasoningItem: View {
-    let level: ReasoningLevel
+    let option: ModelThinking.Option
     let isOn: Bool
     let action: () -> Void
 
@@ -780,10 +847,10 @@ private struct ReasoningItem: View {
         Button(action: action) {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(level.label)
+                    Text(option.label)
                         .font(FormoraFont.ui(12.5, weight: isOn ? 600 : 400))
                         .foregroundStyle(isOn ? Palette.accent.color : Palette.ink.color)
-                    Text(level.note).font(FormoraFont.ui(11)).foregroundStyle(Palette.inkFaint.color)
+                    Text(option.note).font(FormoraFont.ui(11)).foregroundStyle(Palette.inkFaint.color)
                 }
                 Spacer(minLength: 0)
                 IconView(Icons.check, size: 14).foregroundStyle(Palette.accent.color).opacity(isOn ? 1 : 0).frame(width: 14)
@@ -796,7 +863,7 @@ private struct ReasoningItem: View {
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
         .accessibilityAddTraits(isOn ? .isSelected : [])
-        .accessibilityIdentifier("reasoning.\(level.rawValue)")
+        .accessibilityIdentifier("reasoning.\(option.level.rawValue)")
     }
 }
 
@@ -805,10 +872,11 @@ enum MentionKey {
     case up, down, accept, cancel
 }
 
-/// What is being typed right before the caret: a `/command` at the very start, or an `@mention` anywhere.
+/// What is being typed right before the caret: a `/command` at the very start, or an `@mention` anywhere — or the whole
+/// line after `/model` (user 2026-09-18), which the model list filters by.
 struct ComposerToken: Equatable {
     enum Kind: Equatable {
-        case slash, at
+        case slash, at, model
     }
 
     let kind: Kind
@@ -819,6 +887,15 @@ struct ComposerToken: Equatable {
         if text.hasPrefix("@") { return ComposerToken(kind: .at, query: String(text.dropFirst())) }
         if text.hasPrefix("/"), location == 0 { return ComposerToken(kind: .slash, query: String(text.dropFirst())) }
         return nil
+    }
+
+    /// `/model` and whatever follows on that one line: the words the list is filtered by. Spaces don't end it — a model's
+    /// name may be typed in pieces (`claude son`).
+    static func model(in text: String) -> ComposerToken? {
+        guard !text.contains("\n"), text.count >= 6, text.prefix(6).lowercased() == "/model" else { return nil }
+        let rest = text.dropFirst(6)
+        guard rest.isEmpty || rest.first?.isWhitespace == true else { return nil }
+        return ComposerToken(kind: .model, query: rest.trimmingCharacters(in: .whitespaces))
     }
 }
 
@@ -1033,7 +1110,8 @@ struct ComposerTextView: NSViewRepresentable {
         }
 
         func reportToken(_ view: NSTextView) {
-            let token = ComposerTextView.tokenBeforeCaret(in: view).flatMap { ComposerToken.from($0.text, at: $0.range.location) }
+            let token = ComposerToken.model(in: view.string)
+                ?? ComposerTextView.tokenBeforeCaret(in: view).flatMap { ComposerToken.from($0.text, at: $0.range.location) }
             DispatchQueue.main.async { self.parent.onToken(token) }
         }
 
