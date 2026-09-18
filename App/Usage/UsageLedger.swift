@@ -90,9 +90,10 @@ enum UsageLedger {
         return entries.filter { $0.date >= since }
     }
 
-    /// Input and output at their prices; cache reads count as input.
+    /// Input, cache reads and output at their prices; a price without a cache-read rate counts them as input.
     static func cost(_ usage: TokenUsage, at price: ModelPrice) -> Double {
-        (Double(usage.input ?? 0) * price.input + Double(usage.output ?? 0) * price.output) / 1_000_000
+        let input = Double(usage.input ?? 0), cached = min(Double(usage.cached ?? 0), input), output = Double(usage.output ?? 0)
+        return ((input - cached) * price.input + cached * (price.cacheRead ?? price.input) + output * price.output) / 1_000_000
     }
 
     static func totals(_ entries: [Entry], price: (ModelReference) -> ModelPrice?) -> Totals {

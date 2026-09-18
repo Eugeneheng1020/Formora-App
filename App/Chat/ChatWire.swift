@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// One turn of what is sent to the model.
@@ -31,6 +32,9 @@ struct ChatTarget: Sendable {
     var maxOutput: Int?
     /// Headers of the account behind the key: ChatGPT's account (7i, U3).
     var headers: [String: String] = [:]
+    /// The conversation a request belongs to — the ChatGPT backend caches per session (omp's Codex wire); `nil` for a
+    /// one-off request.
+    var session: String?
 }
 
 /// How a provider wants the reasoning level said — omp's `thinkingFormat` for OpenAI-compatible hosts, and
@@ -157,7 +161,7 @@ enum ChatWire {
               let body = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else { return nil }
         if let folder = requestDumpFolder { dump(body, to: folder) }
         request.httpMethod = "POST"
-        request.timeoutInterval = idleTimeout
+        request.timeoutInterval = idle(for: target)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         // Anthropic's effort field (Claude 4.6+ / 5, user 2026-09-18) is behind a beta header.
@@ -165,7 +169,7 @@ enum ChatWire {
             request.setValue(anthropicEffortBeta, forHTTPHeaderField: "anthropic-beta")
         }
         for (name, value) in target.headers { request.setValue(value, forHTTPHeaderField: name) }
-        if isChatGPT { ChatGPTAuth.addHeaders(&request) }
+        if isChatGPT { ChatGPTAuth.addHeaders(&request, session: target.session, model: target.modelID) }
         request.httpBody = body
         return request
     }
@@ -220,8 +224,9 @@ enum ChatWire {
     /// ladder — omp's row when there is one, the encoder's levels otherwise. `nil` row = nothing known of the model.
     static func resolve(_ reasoning: ReasoningLevel, for target: ChatTarget) -> (level: ReasoningLevel, profile: ModelThinking.Profile?) {
         let apiProtocol = target.endpoint.apiProtocol
-        let profile = ModelThinking.profile(providerID: target.providerID, modelID: target.modelID, apiProtocol: apiProtocol)
-        let levels = ModelThinking.levels(providerID: target.providerID, modelID: target.modelID, apiProtocol: apiProtocol)
+        let base = target.endpoint.baseURL
+        let profile = ModelThinking.profile(providerID: target.providerID, modelID: target.modelID, apiProtocol: apiProtocol, baseURL: base)
+        let levels = ModelThinking.levels(providerID: target.providerID, modelID: target.modelID, apiProtocol: apiProtocol, baseURL: base)
         return (ModelThinking.clamp(reasoning, to: levels), profile)
     }
 
@@ -231,14 +236,21 @@ enum ChatWire {
         let level = resolved.level
         // The row's transport applies only when it was recorded on the protocol this request speaks.
         let profile = resolved.profile.flatMap { $0.matchesWire ? $0 : nil }
-        let dialect = ReasoningDialect.of(providerID: target.providerID, apiProtocol: target.endpoint.apiProtocol)
+        // omp's compat flags for this model (user 2026-09-18: 「兼容开关参照 omp 来」), when its row is this wire.
+        let row = row(for: target)
+        let dialect = effectiveDialect(ReasoningDialect.of(providerID: target.providerID, apiProtocol: target.endpoint.apiProtocol), row: row)
         let system = system.flatMap { $0.isEmpty ? nil : $0 }
         switch target.endpoint.apiProtocol {
         case .openAICompletions:
             var messages: [[String: Any]] = system.map { [["role": "system", "content": $0]] } ?? []
-            // DeepSeek 思考着的请求：上次用户开口以来没带思考的工具轮次，补一个空的 reasoning_content（见下）。
-            let fillsThinking = dialect == .deepSeek && level != .off
-            messages += completionsMessages(history, returnsThinking: dialect == .deepSeek || dialect == .zai, fillsThinking: fillsThinking)
+            // Thinking back on the tool rounds since the user spoke: DeepSeek and Z.ai always did (L7); the table adds every
+            // model that needs it (Kimi K3, OpenRouter's reasoning models). A round without any gets an empty one where
+            // the model takes that (DeepSeek, measured; the table's `allowsSynthetic…`) — Z.ai's way is below.
+            let returnsThinking = dialect == .deepSeek || dialect == .zai || row?.compat.bool("requiresReasoningContentForToolCalls") == true
+            let fillsThinking = level != .off && dialect != .zai
+                && (dialect == .deepSeek || row?.compat.bool("allowsSyntheticReasoningContentForToolCalls") == true)
+            messages += completionsMessages(history, returnsThinking: returnsThinking, fillsThinking: fillsThinking,
+                                            assistantContent: row?.compat.bool("requiresAssistantContentForToolCalls") == true)
             var body: [String: Any] = [
                 "model": target.modelID,
                 "stream": true,
@@ -248,7 +260,11 @@ enum ChatWire {
             if !tools.isEmpty {
                 body["tools"] = tools.map { ["type": "function", "function": ["name": $0.name, "description": $0.description, "parameters": $0.schema]] }
             }
-            applyCompletionsReasoning(&body, dialect: dialect, level: level, profile: profile)
+            // A host that cuts replies short without a limit (Kimi K3): the model's own output limit, in the field it reads.
+            if row?.compat.bool("alwaysSendMaxTokens") == true, let limit = row?.maxOutput ?? target.maxOutput {
+                body[row?.compat.string("maxTokensField") ?? "max_tokens"] = limit
+            }
+            applyCompletionsReasoning(&body, dialect: dialect, level: level, profile: profile, row: row)
             // 提示词缓存 (user 2026-09-17)：OpenAI、DeepSeek、Gemini 在服务端自动缓存，但 OpenRouter 上的 Claude 不会——要在请求
             // 顶层写 cache_control，OpenRouter 才替它在最后一个可缓存的块上打断点、随对话往前挪（它的文档：automatic caching，
             // Anthropic / Vertex / Bedrock / Azure 各路由都支持）。没有这一行，每一步都按全价重发整段历史。
@@ -270,15 +286,17 @@ enum ChatWire {
                 "model": target.modelID,
                 "stream": true,
                 "store": false,
-                "input": responsesInput(history),
+                "input": responsesInput(history, shortIDs: row?.compat.bool("usesOpenAIToolCallIdLimit") == true),
             ]
             if let system { body["instructions"] = system }
             if !tools.isEmpty {
                 body["tools"] = tools.map { ["type": "function", "name": $0.name, "description": $0.description, "parameters": $0.schema] }
             }
             let effort: String? = if let profile { level == .off ? "none" : rowEffort(level, profile) } else { responsesEffort(level) }
-            if let effort {
-                body["reasoning"] = effort == "none" ? ["effort": effort] : ["effort": effort, "summary": "auto"]
+            if let effort = effort.map({ mapped($0, row) }) {
+                // Grok's Responses has no reasoning summary (the table's `supportsReasoningSummary`).
+                let summary = effort != "none" && row?.compat.bool("supportsReasoningSummary") != false
+                body["reasoning"] = summary ? ["effort": effort, "summary": "auto"] : ["effort": effort]
             }
             return body
 
@@ -368,7 +386,8 @@ enum ChatWire {
     static let resultImagesNote = "上面工具结果里的图片："
 
     /// A tool message takes only text here, so a batch's pictures follow the results as a user message (V3).
-    private static func completionsMessages(_ history: [ChatTurn], returnsThinking: Bool, fillsThinking: Bool = false) -> [[String: Any]] {
+    private static func completionsMessages(_ history: [ChatTurn], returnsThinking: Bool, fillsThinking: Bool = false,
+                                            assistantContent: Bool = false) -> [[String: Any]] {
         // Rounds since the last user turn are the ones whose thinking goes back.
         let current = (history.lastIndex { $0.role == .user } ?? -1) + 1
         func image(_ picture: ChatImage) -> [String: Any] { ["type": "image_url", "image_url": ["url": picture.dataURL]] }
@@ -395,7 +414,8 @@ enum ChatWire {
             case .assistant:
                 var message: [String: Any] = ["role": "assistant", "content": turn.text]
                 if !turn.toolCalls.isEmpty {
-                    if turn.text.isEmpty { message["content"] = NSNull() }
+                    // Some hosts refuse a null content beside the calls (the table's `requiresAssistantContentForToolCalls`).
+                    if turn.text.isEmpty { message["content"] = assistantContent ? "" : NSNull() }
                     message["tool_calls"] = turn.toolCalls.map { call -> [String: Any] in
                         ["id": call.id, "type": "function", "function": ["name": call.name, "arguments": arguments(call)]]
                     }
@@ -410,7 +430,8 @@ enum ChatWire {
         return messages
     }
 
-    private static func responsesInput(_ history: [ChatTurn]) -> [[String: Any]] {
+    private static func responsesInput(_ history: [ChatTurn], shortIDs: Bool = false) -> [[String: Any]] {
+        func id(_ raw: String) -> String { shortIDs ? shortID(raw) : raw }
         func image(_ picture: ChatImage) -> [String: Any] { ["type": "input_image", "image_url": picture.dataURL] }
         var input: [[String: Any]] = []
         var pending: [ChatImage] = []
@@ -430,12 +451,12 @@ enum ChatWire {
                     input.append(["role": "user", "content": words + turn.images.map(image)])
                 }
             case .tool:
-                input.append(["type": "function_call_output", "call_id": turn.callID ?? "", "output": turn.text])
+                input.append(["type": "function_call_output", "call_id": id(turn.callID ?? ""), "output": turn.text])
                 pending += turn.images
             case .assistant:
                 if !turn.text.isEmpty { input.append(["role": "assistant", "content": turn.text]) }
                 for call in turn.toolCalls {
-                    input.append(["type": "function_call", "call_id": call.id, "name": call.name, "arguments": arguments(call)])
+                    input.append(["type": "function_call", "call_id": id(call.id), "name": call.name, "arguments": arguments(call)])
                 }
             }
         }
@@ -555,10 +576,11 @@ enum ChatWire {
     /// With omp's row for the model (`profile`, mode `effort`), the level goes as the row has it — DeepSeek V4 and Kimi K3
     /// take `max`, Kimi K2.6 `minimal`; the host's own switch field stays. Without a row, the old collapse.
     private static func applyCompletionsReasoning(_ body: inout [String: Any], dialect: ReasoningDialect, level: ReasoningLevel,
-                                                  profile: ModelThinking.Profile?) {
+                                                  profile: ModelThinking.Profile?, row: ModelCatalog.Model? = nil) {
         guard level != .auto else { return }
         let on = level != .off
-        let effort: String? = if let profile, profile.mode == .effort { rowEffort(level, profile) } else { completionsEffort(level) }
+        let word: String? = if let profile, profile.mode == .effort { rowEffort(level, profile) } else { completionsEffort(level) }
+        let effort = word.map { mapped($0, row) }
         switch dialect {
         case .deepSeek:
             body["thinking"] = ["type": on ? "enabled" : "disabled"]
@@ -577,6 +599,43 @@ enum ChatWire {
         case .openAIEffort, .responses, .anthropic, .google:
             if let effort { body["reasoning_effort"] = effort }
         }
+    }
+
+    /// omp's row for the model a request goes to, when it was recorded on the protocol the request speaks — only then do
+    /// its compat flags apply (1.0.21's rule).
+    static func row(for target: ChatTarget) -> ModelCatalog.Model? {
+        guard let row = ModelCatalog.model(providerID: target.providerID, modelID: target.modelID, baseURL: target.endpoint.baseURL),
+              row.matches(target.endpoint.apiProtocol) else { return nil }
+        return row
+    }
+
+    /// The longest silence this model's stream may keep (the table's `streamIdleTimeoutMs`: DeepSeek 5 minutes; 0 = none,
+    /// ten minutes here); 90 seconds otherwise.
+    static func idle(for target: ChatTarget) -> TimeInterval {
+        guard let ms = row(for: target)?.compat.int("streamIdleTimeoutMs") else { return idleTimeout }
+        return ms == 0 ? 600 : TimeInterval(ms) / 1000
+    }
+
+    /// A host Formora has no dialect of its own for (a custom platform, MiniMax) speaks the one its model's row names
+    /// (`thinkingFormat`): a platform's Qwen wants `enable_thinking`. The built-in dialects stay — they are verified.
+    static func effectiveDialect(_ dialect: ReasoningDialect, row: ModelCatalog.Model?) -> ReasoningDialect {
+        guard dialect == .openAIEffort else { return dialect }
+        switch row?.compat.string("thinkingFormat") {
+        case "qwen": return .qwen
+        case "zai": return .zai
+        case "openrouter": return .openRouter
+        default: return dialect
+        }
+    }
+
+    /// The row's own word for an effort (`reasoningEffortMap`: Grok's minimal is low, Kimi K3's medium is high).
+    static func mapped(_ effort: String, _ row: ModelCatalog.Model?) -> String { row?.compat.map("reasoningEffortMap")[effort] ?? effort }
+
+    /// A call id OpenAI takes (at most 40 characters, `usesOpenAIToolCallIdLimit`): a longer one — another provider's —
+    /// becomes a short stable one, the same for the call and its result.
+    static func shortID(_ id: String) -> String {
+        guard id.count > 40 else { return id }
+        return "call_" + SHA256.hash(data: Data(id.utf8)).prefix(16).map { String(format: "%02x", $0) }.joined()
     }
 
     /// The row's own word for the level: `nil` for 自动 and 关闭 (each protocol says those its own way) and for a level

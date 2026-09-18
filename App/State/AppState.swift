@@ -225,6 +225,8 @@ final class AppState {
         self.account = account
         self.subagents = subagents
         self.prices = prices
+        // A custom platform's model is priced by its host's rows in omp's catalog (Command Code, 2026-09-18).
+        prices.baseURL = { [providers] in providers.entry($0)?.baseURL }
         self.approvalRules = approvalRules
         self.hooks = hooks
         self.providers = providers

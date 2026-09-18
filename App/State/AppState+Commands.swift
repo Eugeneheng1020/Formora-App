@@ -20,6 +20,7 @@ extension AppState {
             guard let model = agent.primaryModel,
                   let endpoint = providers.knownEndpoint(for: model.providerID, model: model.modelID) else { return nil }
             return ModelThinking.options(providerID: model.providerID, modelID: model.modelID, apiProtocol: endpoint.apiProtocol,
+                                         baseURL: endpoint.baseURL,
                                          rejected: providers.rejectedReasoning(providerID: model.providerID, modelID: model.modelID)).map(\.level)
         }
         return ModelThinking.options(for: ModelThinking.union(lists))

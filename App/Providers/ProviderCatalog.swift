@@ -31,6 +31,17 @@ struct ModelInfo: Equatable, Hashable, Sendable, Identifiable {
     /// The endpoints the platform serves this model on, when its list says (`supported_endpoints`: Command Code's
     /// Claude models only on `/messages`, the rest only on `/chat/completions`). `nil` = the list doesn't say.
     var endpoints: [String]?
+    /// Per million tokens, in dollars — omp's catalog (user 2026-09-18); `nil` = not known.
+    var cost: ModelCatalog.Cost?
+    var reasoning: Bool?
+}
+
+extension ModelInfo {
+    /// A catalog row as the lists hold it: omp's data; images only when omp doesn't strip them for this model.
+    static func from(_ row: ModelCatalog.Model) -> ModelInfo {
+        ModelInfo(id: row.id, name: row.name, contextWindow: row.contextWindow, maxOutput: row.maxOutput,
+                  acceptsImages: row.images && row.compat.bool("stripImageInput") != true, cost: row.cost(), reasoning: row.reasoning)
+    }
 }
 
 struct ProviderHost: Equatable, Sendable {
@@ -53,8 +64,10 @@ struct BuiltInProvider: Identifiable, Sendable {
     /// The host authenticates before routing, so a 404 after that means the key was accepted and there is
     /// simply no list endpoint.
     var notFoundMeansAuthorized = false
-    /// 「常用模型」 shown before a key is bound (todo #4).
+    /// 「常用模型」 shown before a key is bound (todo #4): the featured few, their data from omp's catalog.
     let commonModels: [ModelInfo]
+    /// Every model omp's catalog has for this provider, the featured first (user 2026-09-18: 目录 ∪ 实时).
+    var catalogModels: [ModelInfo] = []
     /// A key, or a subscription sign-in (7i).
     var access: ProviderAccess = .key
     /// A mark after the name: 「订阅登录 · 非官方接入」 (7i).
@@ -68,47 +81,42 @@ struct BuiltInProvider: Identifiable, Sendable {
 /// This order and the common models follow the market and need periodic review. 7i adds the ChatGPT plan after
 /// OpenAI (deviation D57; the coding plans came out again the same day — none has a sign-in a third-party app may use).
 enum ProviderCatalog {
-    static let builtIns: [BuiltInProvider] = [
+    static let builtIns: [BuiltInProvider] = listed.map(withCatalog)
+
+    /// Each featured id with its catalog row's data (a bare id where omp has none).
+    private static func featured(_ ids: [String], provider: String) -> [ModelInfo] {
+        ids.map { id in ModelCatalog.model(providerID: provider, modelID: id).map(ModelInfo.from) ?? ModelInfo(id: id) }
+    }
+
+    /// The provider with every catalog row after its featured ones — the rest newest-looking first (omp lists them by id,
+    /// so the later names are the newer ones). 通义 has no rows: its hand-written three are the whole catalog.
+    private static func withCatalog(_ provider: BuiltInProvider) -> BuiltInProvider {
+        var provider = provider
+        let featured = Set(provider.commonModels.map(\.id))
+        let rest = ModelCatalog.models(providerID: provider.id).filter { !featured.contains($0.id) }.reversed().map(ModelInfo.from)
+        provider.catalogModels = provider.commonModels + rest
+        return provider
+    }
+
+    private static let listed: [BuiltInProvider] = [
         BuiltInProvider(id: "openai", name: "OpenAI", logo: "openai", mark: "OA", apiProtocol: .openAIResponses,
                         hosts: [ProviderHost(label: "", baseURL: "https://api.openai.com/v1")],
-                        commonModels: [
-                            ModelInfo(id: "gpt-5.6-sol", name: "GPT-5.6 Sol", contextWindow: 1_050_000, maxOutput: 128_000, acceptsImages: true),
-                            ModelInfo(id: "gpt-5.6-terra", name: "GPT-5.6 Terra", contextWindow: 1_050_000, maxOutput: 128_000, acceptsImages: true),
-                            ModelInfo(id: "gpt-5.4-mini", name: "GPT-5.4 mini", contextWindow: 400_000, maxOutput: 128_000, acceptsImages: true),
-                        ]),
+                        commonModels: featured(["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.4-mini"], provider: "openai")),
         // 7i, U1: a ChatGPT Plus / Pro plan, signed in with the browser instead of a key.
         BuiltInProvider(id: ChatGPTAuth.providerID, name: "ChatGPT 订阅", logo: "openai", mark: "GP", apiProtocol: .openAIResponses,
                         hosts: [ProviderHost(label: "", baseURL: ChatGPTAuth.baseURL)],
-                        commonModels: [
-                            ModelInfo(id: "gpt-5.6-sol", name: "GPT-5.6 Sol", acceptsImages: true),
-                            ModelInfo(id: "gpt-5.6-luna", name: "GPT-5.6 Luna", acceptsImages: true),
-                            ModelInfo(id: "gpt-5.5", name: "GPT-5.5", acceptsImages: true),
-                            ModelInfo(id: "gpt-5.4", name: "GPT-5.4", acceptsImages: true),
-                            ModelInfo(id: "gpt-5.4-mini", name: "GPT-5.4 mini", acceptsImages: true),
-                            ModelInfo(id: "gpt-5.3-codex-spark", name: "GPT-5.3 Codex Spark"),
-                        ], access: .chatGPT, tag: "订阅登录 · 非官方接入"),
+                        commonModels: featured(["gpt-5.6-sol", "gpt-5.6-luna", "gpt-5.6-terra", "gpt-6-astra", "gpt-5.5", "gpt-5.4",
+                                                "gpt-5.4-mini", "gpt-5.3-codex-spark"], provider: ChatGPTAuth.providerID),
+                        access: .chatGPT, tag: "订阅登录 · 非官方接入"),
         BuiltInProvider(id: "anthropic", name: "Anthropic", logo: "anthropic", mark: "A", apiProtocol: .anthropicMessages,
                         hosts: [ProviderHost(label: "", baseURL: "https://api.anthropic.com")],
-                        commonModels: [
-                            ModelInfo(id: "claude-opus-5", name: "Claude Opus 5", contextWindow: 1_000_000, maxOutput: 128_000, acceptsImages: true),
-                            ModelInfo(id: "claude-sonnet-5", name: "Claude Sonnet 5", contextWindow: 1_000_000, maxOutput: 128_000, acceptsImages: true),
-                            ModelInfo(id: "claude-haiku-4-5", name: "Claude Haiku 4.5", contextWindow: 200_000, maxOutput: 64_000, acceptsImages: true),
-                        ]),
+                        commonModels: featured(["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"], provider: "anthropic")),
         BuiltInProvider(id: "google", name: "Google Gemini", logo: "googlegemini", mark: "G", apiProtocol: .googleGenerativeAI,
                         hosts: [ProviderHost(label: "", baseURL: "https://generativelanguage.googleapis.com/v1beta")],
-                        commonModels: [
-                            ModelInfo(id: "gemini-3.1-pro-preview", name: "Gemini 3.1 Pro Preview", contextWindow: 1_048_576, maxOutput: 65_536, acceptsImages: true),
-                            ModelInfo(id: "gemini-3.8-flash", name: "Gemini 3.8 Flash", contextWindow: 1_048_576, maxOutput: 65_536, acceptsImages: true),
-                            ModelInfo(id: "gemini-flash-lite-latest", name: "Gemini Flash-Lite Latest", contextWindow: 1_048_576, maxOutput: 65_536, acceptsImages: true),
-                        ]),
+                        commonModels: featured(["gemini-3.1-pro-preview", "gemini-3.8-flash", "gemini-flash-lite-latest"], provider: "google")),
         BuiltInProvider(id: "deepseek", name: "DeepSeek", logo: "deepseek", mark: "DS", apiProtocol: .openAICompletions,
                         hosts: [ProviderHost(label: "", baseURL: "https://api.deepseek.com")],
-                        commonModels: [
-                            ModelInfo(id: "deepseek-flash", name: "DeepSeek V4.1 Flash", contextWindow: 1_000_000, maxOutput: 384_000, acceptsImages: true),
-                            ModelInfo(id: "deepseek-v4-pro", name: "DeepSeek V4 Pro", contextWindow: 1_000_000, maxOutput: 384_000, acceptsImages: false),
-                            ModelInfo(id: "deepseek-v4-flash", name: "DeepSeek V4 Flash", contextWindow: 1_000_000, maxOutput: 384_000, acceptsImages: true),
-                            ModelInfo(id: "deepseek-v4-flash-vision-exp", name: "DeepSeek V4 Flash Vision Exp", contextWindow: 1_000_000, maxOutput: 384_000, acceptsImages: true),
-                        ]),
+                        commonModels: featured(["deepseek-flash", "deepseek-v4-pro", "deepseek-v4-flash", "deepseek-v4-flash-vision-exp"], provider: "deepseek")),
         BuiltInProvider(id: "qwen", name: "Qwen", logo: "qwen", mark: "QW", apiProtocol: .openAICompletions,
                         hosts: [ProviderHost(label: "中国大陆", baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1"),
                                 ProviderHost(label: "国际", baseURL: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1")],
@@ -120,45 +128,25 @@ enum ProviderCatalog {
         BuiltInProvider(id: "moonshot", name: "Moonshot", logo: "moonshotai", mark: "K", apiProtocol: .openAICompletions,
                         hosts: [ProviderHost(label: "中国大陆", baseURL: "https://api.moonshot.cn/v1"),
                                 ProviderHost(label: "国际", baseURL: "https://api.moonshot.ai/v1")],
-                        commonModels: [
-                            ModelInfo(id: "kimi-k3", name: "Kimi K3", contextWindow: 1_048_576, maxOutput: 131_072, acceptsImages: true),
-                            ModelInfo(id: "kimi-k2.6", name: "Kimi K2.6", contextWindow: 262_144, maxOutput: 262_144, acceptsImages: true),
-                            ModelInfo(id: "kimi-k2.7-code", name: "Kimi K2.7 Code", contextWindow: 262_144, maxOutput: 262_144, acceptsImages: true),
-                        ]),
+                        commonModels: featured(["kimi-k3", "kimi-k2.6", "kimi-k2.7-code"], provider: "moonshot")),
         // simple-icons has no Z.AI mark; borrowing another brand's logo would be worse than its letter.
         BuiltInProvider(id: "zai", name: "Z.AI", logo: nil, mark: "Z", apiProtocol: .openAICompletions,
                         hosts: [ProviderHost(label: "", baseURL: "https://api.z.ai/api/paas/v4")],
-                        commonModels: [
-                            ModelInfo(id: "glm-5.3", name: "GLM-5.3", contextWindow: 1_000_000, maxOutput: 131_072, acceptsImages: false),
-                            ModelInfo(id: "glm-5.3-flash", name: "GLM-5.3-Flash", contextWindow: 1_000_000, maxOutput: 131_072, acceptsImages: true),
-                            ModelInfo(id: "glm-5v-turbo", name: "GLM-5V-Turbo", contextWindow: 200_000, maxOutput: 131_072, acceptsImages: true),
-                        ]),
+                        commonModels: featured(["glm-5.3", "glm-5.3-flash", "glm-5v-turbo"], provider: "zai")),
         BuiltInProvider(id: "xai", name: "xAI", logo: "x", mark: "x", apiProtocol: .openAIResponses,
                         hosts: [ProviderHost(label: "", baseURL: "https://api.x.ai/v1")],
-                        commonModels: [
-                            ModelInfo(id: "grok-4.6", name: "Grok 4.6", contextWindow: 500_000, maxOutput: 500_000, acceptsImages: true),
-                            ModelInfo(id: "grok-4-1-fast", name: "Grok 4.1 Fast", contextWindow: 2_000_000, maxOutput: 30_000, acceptsImages: true),
-                            ModelInfo(id: "grok-code-fast-1", name: "Grok Code Fast 1", contextWindow: 256_000, maxOutput: 10_000, acceptsImages: false),
-                        ]),
+                        commonModels: featured(["grok-4.6", "grok-4-1-fast", "grok-code-fast-1"], provider: "xai")),
         // Not yet verified with a real key: MiniMax authenticates before routing (a fake key gets 401 on any
         // path), so a 404 with a real key means the key passed and there is no list endpoint.
         BuiltInProvider(id: "minimax", name: "MiniMax", logo: "minimax", mark: "MM", apiProtocol: .openAICompletions,
                         hosts: [ProviderHost(label: "中国大陆", baseURL: "https://api.minimaxi.com/v1"),
                                 ProviderHost(label: "国际", baseURL: "https://api.minimax.io/v1")],
                         notFoundMeansAuthorized: true,
-                        commonModels: [
-                            ModelInfo(id: "MiniMax-M3", name: "MiniMax-M3", contextWindow: 1_000_000, maxOutput: 128_000, acceptsImages: true),
-                            ModelInfo(id: "MiniMax-M2.7", name: "MiniMax-M2.7", contextWindow: 204_800, maxOutput: 131_072, acceptsImages: false),
-                            ModelInfo(id: "MiniMax-M2.7-highspeed", name: "MiniMax-M2.7-highspeed", contextWindow: 204_800, maxOutput: 131_072, acceptsImages: false),
-                        ]),
+                        commonModels: featured(["MiniMax-M3", "MiniMax-M2.7", "MiniMax-M2.7-highspeed"], provider: "minimax")),
         BuiltInProvider(id: "openrouter", name: "OpenRouter", logo: "openrouter", mark: "OR", apiProtocol: .openAICompletions,
                         hosts: [ProviderHost(label: "", baseURL: "https://openrouter.ai/api/v1")],
                         keyCheckPath: "/auth/key",
-                        commonModels: [
-                            ModelInfo(id: "~anthropic/claude-sonnet-latest", name: "Claude Sonnet Latest", contextWindow: 1_000_000, maxOutput: 128_000, acceptsImages: true),
-                            ModelInfo(id: "~openai/gpt-latest", name: "GPT Latest", contextWindow: 1_050_000, maxOutput: 128_000, acceptsImages: true),
-                            ModelInfo(id: "~google/gemini-pro-latest", name: "Gemini Pro Latest", contextWindow: 1_048_576, maxOutput: 65_536, acceptsImages: true),
-                        ]),
+                        commonModels: featured(["~anthropic/claude-sonnet-latest", "~openai/gpt-latest", "~google/gemini-pro-latest"], provider: "openrouter")),
     ]
 
     static func builtIn(_ id: String) -> BuiltInProvider? { builtIns.first { $0.id == id } }

@@ -190,6 +190,9 @@ struct ModelMetaStrip: View {
             cell("最大输出", info?.maxOutput.map(Self.tokens) ?? "由 Provider 提供")
             Rectangle().fill(Palette.line.color).frame(width: 1)
             cell("识图", info?.acceptsImages.map { $0 ? "支持" : "不支持" } ?? "未知")
+            Rectangle().fill(Palette.line.color).frame(width: 1)
+            // omp's catalog (user 2026-09-18): input / output per million tokens.
+            cell("单价（每百万）", info?.cost.map(Self.price) ?? "未知")
         }
         .fixedSize(horizontal: false, vertical: true)
         .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Palette.line.color, lineWidth: 1))
@@ -206,6 +209,11 @@ struct ModelMetaStrip: View {
         .padding(.horizontal, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
+
+    /// 「$3 / $15」: input and output per million tokens, as the catalog has them.
+    static func price(_ cost: ModelCatalog.Cost) -> String { "$\(number(cost.input)) / $\(number(cost.output))" }
+
+    static func number(_ value: Double) -> String { value.formatted(.number.precision(.fractionLength(0...3))) }
 
     static func tokens(_ count: Int) -> String {
         if count >= 1_000_000 { return "\(Int((Double(count) / 1_000_000).rounded()))M tokens" }

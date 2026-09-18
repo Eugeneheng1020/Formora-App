@@ -59,7 +59,7 @@ enum ChatFailure: Error, Equatable, Sendable {
             }
         case .provider(let message): return message
         case .network(let message): return "连不上服务商：\(message)"
-        case .timedOut: return "等了 \(Int(ChatWire.idleTimeout)) 秒没有收到新内容"
+        case .timedOut: return "等了很久没有收到新内容"
         case .cancelled: return "已停止"
         case .empty: return "模型没有返回任何内容"
         }
@@ -537,7 +537,8 @@ struct ChatClient: Sendable {
 
     private static let session: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = ChatWire.idleTimeout
+        // Each request sets its own silence limit (`ChatWire.idle`, per model); this is only the ceiling.
+        configuration.timeoutIntervalForRequest = 600
         configuration.timeoutIntervalForResource = 15 * 60
         return URLSession(configuration: configuration)
     }()

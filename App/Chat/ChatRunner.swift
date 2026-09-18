@@ -1216,11 +1216,13 @@ final class ChatRunner {
         while state.model < candidates.count {
             guard isCurrent(runID, id) else { return .failed(ChatFailure.cancelled.message) }
             let reference = candidates[state.model]
-            guard let target = await target(for: reference) else {
+            guard var target = await target(for: reference) else {
                 lastFailure = .provider("「\(providers.entry(reference.providerID)?.name ?? reference.providerID)」没有配置 API Key")
                 state.model += 1
                 continue
             }
+            // One session per conversation: the ChatGPT backend caches by it (omp's Codex wire, 2026-09-18).
+            target.session = id.uuidString.lowercased()
             // Per model: a fallback may see images the primary can't, or the other way round (7j, V2).
             let history = ChatText.history(conversation.messages, as: conversation.isGroup ? agent.id : nil, root: root,
                                            seesImages: await seesImages(reference, in: conversation))
@@ -1938,13 +1940,14 @@ final class ChatRunner {
     private func reasoningLevel(_ level: ReasoningLevel, for target: ChatTarget) -> ReasoningLevel {
         let rejected = providers.rejectedReasoning(providerID: target.providerID, modelID: target.modelID)
         let options = ModelThinking.options(providerID: target.providerID, modelID: target.modelID, apiProtocol: target.endpoint.apiProtocol,
-                                            rejected: rejected)
+                                            baseURL: target.endpoint.baseURL, rejected: rejected)
         return ModelThinking.clamp(level, to: options.map(\.level))
     }
 
     /// The level's name on this model — 开启 where the host only has a switch.
     private func label(_ level: ReasoningLevel, for target: ChatTarget) -> String {
-        ModelThinking.options(providerID: target.providerID, modelID: target.modelID, apiProtocol: target.endpoint.apiProtocol)
+        ModelThinking.options(providerID: target.providerID, modelID: target.modelID, apiProtocol: target.endpoint.apiProtocol,
+                              baseURL: target.endpoint.baseURL)
             .first { $0.level == level }?.label ?? level.label
     }
 

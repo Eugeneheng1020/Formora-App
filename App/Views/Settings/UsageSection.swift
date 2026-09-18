@@ -197,7 +197,8 @@ private struct PriceRow: View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 1) {
                 Text(model.modelID).font(FormoraFont.ui(12)).foregroundStyle(Palette.ink.color).lineLimit(1)
-                Text(model.providerID).font(FormoraFont.mono(10)).foregroundStyle(Palette.inkFaint.color)
+                Text(model.providerID + (current?.price.cacheRead.map { " · 缓存读 \(currency.symbol)\(Self.number($0))" } ?? ""))
+                    .font(FormoraFont.mono(10)).foregroundStyle(Palette.inkFaint.color).lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             tag
@@ -252,7 +253,9 @@ private struct PriceRow: View {
     private func save() {
         guard let inputValue = Double(input.trimmingCharacters(in: .whitespaces)),
               let outputValue = Double(output.trimmingCharacters(in: .whitespaces)), inputValue >= 0, outputValue >= 0 else { return }
-        let price = ModelPrice(input: inputValue, output: outputValue, currency: currency)
+        // The cache-read rate stays with an edit in the same currency (it is omp's, per model).
+        let price = ModelPrice(input: inputValue, output: outputValue, currency: currency,
+                               cacheRead: currency == current?.price.currency ? current?.price.cacheRead : nil)
         if price != current?.price || current == nil { prices.set(price, for: model) }
     }
 }

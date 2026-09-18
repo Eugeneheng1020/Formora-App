@@ -45,6 +45,8 @@ final class BobSession {
     }
 
     private(set) var entries: [Entry] = []
+    /// One session per talk with Bob — the ChatGPT backend caches by it (omp's Codex wire, 2026-09-18); `/clear` starts a new one.
+    @ObservationIgnored private var session = UUID().uuidString.lowercased()
     private(set) var isBusy = false
     /// His words as they stream in.
     private(set) var draft = ""
@@ -300,6 +302,7 @@ final class BobSession {
 
     func clear() {
         guard !isBusy else { return }
+        session = UUID().uuidString.lowercased()
         entries = []
         history = []
         attached = [:]
@@ -416,10 +419,11 @@ final class BobSession {
     // MARK: The loop
 
     private func run() async {
-        guard let reference = model.current(providers), let target = await target(reference) else {
+        guard let reference = model.current(providers), var target = await target(reference) else {
             entries.append(Entry(role: .bob, text: "", failure: Self.noModel))
             return
         }
+        target.session = session
         var sendsTools = true
         var note: String?
         var attempts = 0

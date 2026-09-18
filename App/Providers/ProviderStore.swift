@@ -63,6 +63,8 @@ struct ProviderEntry: Identifiable, Equatable, Sendable {
     let apiProtocol: APIProtocol
     let hosts: [ProviderHost]
     let commonModels: [ModelInfo]
+    /// omp's catalog for this provider, the featured first; empty for a custom platform (user 2026-09-18).
+    var catalogModels: [ModelInfo] = []
     var keyCheckPath: String?
     var notFoundMeansAuthorized = false
     var access: ProviderAccess = .key
@@ -103,6 +105,9 @@ final class ProviderStore {
     private(set) var config: ProviderConfig
     private(set) var statuses: [String: ProviderStatus] = [:]
     private(set) var modelLists: [String: ModelListState] = [:]
+    /// Providers whose host gives no list: their list is omp's catalog alone (user 2026-09-18), so 测试连接 can't
+    /// confirm a model with the host.
+    private(set) var catalogOnly: Set<String> = []
     /// Subscription sign-ins under way (7i, U1).
     private(set) var signIns: [String: SignInProgress] = [:]
     /// Opens the browser for a sign-in; tests hand in their own.
@@ -130,7 +135,7 @@ final class ProviderStore {
     var entries: [ProviderEntry] {
         ProviderCatalog.builtIns.map { p in
             ProviderEntry(id: p.id, name: p.name, mark: p.mark, logo: p.logo, isCustom: false, apiProtocol: p.apiProtocol,
-                          hosts: p.hosts, commonModels: p.commonModels, keyCheckPath: p.keyCheckPath,
+                          hosts: p.hosts, commonModels: p.commonModels, catalogModels: p.catalogModels, keyCheckPath: p.keyCheckPath,
                           notFoundMeansAuthorized: p.notFoundMeansAuthorized, access: p.access, tag: p.tag)
         } + config.custom.map { c in
             ProviderEntry(id: c.id, name: c.name, mark: Self.mark(for: c.name), logo: nil, isCustom: true,
@@ -315,7 +320,7 @@ final class ProviderStore {
         persist()
         // The row's subtitle already says who is signed in.
         statuses[id] = .connected(note: nil)
-        modelLists[id] = .loaded(entry(id)?.commonModels ?? [])
+        modelLists[id] = .loaded(entry(id)?.catalogModels ?? [])
     }
 
     /// Like clearing a key: refused while Agents use it.
@@ -494,7 +499,7 @@ final class ProviderStore {
     func loadModels(_ id: String, refresh: Bool = false) async {
         // The ChatGPT backend's list is version-gated: the catalog's models instead (7i, U3).
         if entry(id)?.access == .chatGPT {
-            modelLists[id] = hasKey(id) ? .loaded(entry(id)?.commonModels ?? []) : nil
+            modelLists[id] = hasKey(id) ? .loaded(entry(id)?.catalogModels ?? []) : nil
             return
         }
         if !refresh, case .loaded = modelLists[id] { return }
@@ -512,26 +517,53 @@ final class ProviderStore {
         }
         let result = await client.models(endpoint, key: key)
         guard hasKey(id) else { return }
+        // 目录 ∪ 实时 (user 2026-09-18): the catalog's rows first; a host without a list has the catalog as its list.
+        let catalog = entry(id)?.catalogModels ?? []
         switch result {
-        case .models(let models): modelLists[id] = .loaded(models)
-        case .unsupported: modelLists[id] = .unsupported
+        case .models(let models): modelLists[id] = .loaded(Self.merge(catalog: catalog, live: models))
+        case .unsupported:
+            modelLists[id] = catalog.isEmpty ? .unsupported : .loaded(catalog)
+            catalogOnly.insert(id)
         case .failed(let outcome):
             let status = ProviderStatus(outcome)
             modelLists[id] = .failed(status.detail ?? status.label)
         }
     }
 
-    /// What is known about a model: the fetched list's entry, filled in from the catalog's metadata.
+    /// What is known about a model: the list's entry, every gap filled from omp's catalog — a custom platform's model by
+    /// its host, then by its bare id (user 2026-09-18).
     func modelInfo(_ providerID: String?, _ modelID: String) -> ModelInfo? {
         guard let providerID, !modelID.isEmpty else { return nil }
-        let common = entry(providerID)?.commonModels.first { $0.id == modelID }
+        let catalog = ModelCatalog.model(providerID: providerID, modelID: modelID, baseURL: entry(providerID)?.baseURL).map(ModelInfo.from)
+            ?? entry(providerID)?.catalogModels.first { $0.id == modelID }
         var listed: ModelInfo?
         if case .loaded(let models) = modelLists[providerID] { listed = models.first { $0.id == modelID } }
-        guard var info = listed ?? common else { return nil }
-        info.contextWindow = info.contextWindow ?? common?.contextWindow
-        info.maxOutput = info.maxOutput ?? common?.maxOutput
-        info.acceptsImages = info.acceptsImages ?? common?.acceptsImages
+        guard var info = listed ?? catalog else { return nil }
+        info.name = info.name ?? catalog?.name
+        info.contextWindow = info.contextWindow ?? catalog?.contextWindow
+        info.maxOutput = info.maxOutput ?? catalog?.maxOutput
+        info.acceptsImages = info.acceptsImages ?? catalog?.acceptsImages
+        info.cost = info.cost ?? catalog?.cost
+        info.reasoning = info.reasoning ?? catalog?.reasoning
         return info
+    }
+
+    /// 目录 ∪ 实时 (user 2026-09-18): the catalog's rows in its order with their data — a gap filled from the live list,
+    /// the live list's endpoints kept — then what only the live list has, in its order.
+    nonisolated static func merge(catalog: [ModelInfo], live: [ModelInfo]) -> [ModelInfo] {
+        let liveByID = Dictionary(live.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let known = Set(catalog.map(\.id))
+        let rows = catalog.map { row -> ModelInfo in
+            guard let listed = liveByID[row.id] else { return row }
+            var merged = row
+            merged.name = row.name ?? listed.name
+            merged.contextWindow = row.contextWindow ?? listed.contextWindow
+            merged.maxOutput = row.maxOutput ?? listed.maxOutput
+            merged.acceptsImages = row.acceptsImages ?? listed.acceptsImages
+            merged.endpoints = listed.endpoints
+            return merged
+        }
+        return rows + live.filter { !known.contains($0.id) }
     }
 
     /// Whether a model is known to see images (7j, V2) — unknown counts as no.
@@ -552,6 +584,9 @@ final class ProviderStore {
         case .unconfigured, .configured, .testing: return .failed("没能完成连接测试")
         }
         switch modelLists[providerID] {
+        case .loaded(let models) where catalogOnly.contains(providerID):
+            return .connected(note: models.contains { $0.id == modelID } ? "这家服务商不提供模型列表，这个 Model ID 在 omp 的目录里"
+                                                                    : "这家服务商不提供模型列表，没法核对 Model ID")
         case .loaded(let models):
             if models.contains(where: { $0.id == modelID }) { return .connected(note: nil) }
             return .failed("\(entry(providerID)?.name ?? providerID) 的模型列表里没有「\(modelID)」")
@@ -598,6 +633,7 @@ final class ProviderStore {
     private func forgetRuntimeState(_ id: String) {
         statuses[id] = nil
         modelLists[id] = nil
+        catalogOnly.remove(id)
     }
 
     private func persist() {

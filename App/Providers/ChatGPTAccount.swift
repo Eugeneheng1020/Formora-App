@@ -75,11 +75,20 @@ enum ChatGPTAuth {
         return components.url!
     }
 
-    /// A request's own headers (U3): the Responses beta, who is calling, a session for the backend's cache.
-    static func addHeaders(_ request: inout URLRequest) {
+    /// The Codex CLI version the backend gates models on (omp `CODEX_CLIENT_VERSION`): an older one hides newer models.
+    static let clientVersion = "0.153.0"
+
+    /// A request's own headers (U3; omp's Codex wire, 2026-09-18): the Responses beta, who is calling, the client version,
+    /// one session per conversation for the backend's cache, and the model it is for.
+    static func addHeaders(_ request: inout URLRequest, session: String?, model: String) {
+        let session = session ?? UUID().uuidString.lowercased()
         request.setValue("responses=experimental", forHTTPHeaderField: "OpenAI-Beta")
         request.setValue(originator, forHTTPHeaderField: "originator")
-        request.setValue(UUID().uuidString.lowercased(), forHTTPHeaderField: "session_id")
+        request.setValue(clientVersion, forHTTPHeaderField: "version")
+        request.setValue(session, forHTTPHeaderField: "session_id")
+        request.setValue(session, forHTTPHeaderField: "conversation_id")
+        request.setValue(session, forHTTPHeaderField: "x-client-request-id")
+        request.setValue("model=\(model)", forHTTPHeaderField: "x-codex-routing-hint")
     }
 
     // MARK: Tokens

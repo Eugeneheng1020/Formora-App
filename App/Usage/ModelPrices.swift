@@ -1,11 +1,13 @@
 import Foundation
 import Observation
 
-/// What a million tokens cost, in the provider's currency.
+/// What a million tokens cost, in the provider's currency. `cacheRead`: a cache read's own rate (omp's catalog,
+/// 2026-09-18); without one, cache reads count as input.
 struct ModelPrice: Codable, Equatable, Sendable {
     var input: Double
     var output: Double
     var currency: Currency
+    var cacheRead: Double? = nil
 }
 
 enum Currency: String, Codable, CaseIterable, Identifiable, Sendable {
@@ -21,10 +23,9 @@ struct UsageBudget: Codable, Equatable, Sendable {
     var currency: Currency
 }
 
-/// 单价 (user 2026-09-14: built-in defaults the user can change, over blanks): reference prices for the models the
-/// catalog knows, matched by provider and the model's name — the official prices move, so every one can be edited in
-/// 设置 → 用量 and the user's own are kept in `prices.json`. Cache reads count as plain input: the discount differs per
-/// provider and the ledger stays simple.
+/// 单价 (user 2026-09-14: built-in defaults the user can change, over blanks; 2026-09-18: the defaults are omp's catalog):
+/// the price in force for each model, cache reads at their own rate — every one can be edited in 设置 → 用量 and the
+/// user's own are kept in `prices.json`.
 @MainActor
 @Observable
 final class ModelPriceStore {
@@ -53,10 +54,13 @@ final class ModelPriceStore {
 
     nonisolated static func key(_ reference: ModelReference) -> String { reference.providerID + "/" + reference.modelID }
 
-    /// The price in force and whether it is the built-in one; `nil` when neither exists (a custom provider's model).
+    /// A provider's base URL, so a custom platform's model is priced by its host's rows (Command Code); set at launch.
+    @ObservationIgnored var baseURL: (String) -> String? = { _ in nil }
+
+    /// The price in force and whether it is the built-in one; `nil` when neither exists (a model omp doesn't know).
     func price(for reference: ModelReference) -> (price: ModelPrice, isDefault: Bool)? {
         if let own = custom[Self.key(reference)] { return (own, false) }
-        return Self.defaultPrice(reference).map { ($0, true) }
+        return Self.defaultPrice(reference, baseURL: baseURL(reference.providerID)).map { ($0, true) }
     }
 
     /// Sets the user's price; `nil` goes back to the default.
@@ -88,59 +92,22 @@ final class ModelPriceStore {
 
     // MARK: Defaults
 
-    /// The reference price by provider and name (an OpenRouter model routes by its vendor prefix). Per million tokens.
-    static func defaultPrice(_ reference: ModelReference) -> ModelPrice? {
-        var provider = reference.providerID
-        var model = reference.modelID.lowercased()
-        if model.hasPrefix("~") { model.removeFirst() }
-        if provider == "openrouter", let slash = model.firstIndex(of: "/") {
-            provider = String(model[..<slash])
-            model = String(model[model.index(after: slash)...])
-        }
-        func usd(_ input: Double, _ output: Double) -> ModelPrice { ModelPrice(input: input, output: output, currency: .usd) }
+    /// The reference price (user 2026-09-18: omp's catalog replaces the hand-written ones): the price in force for the
+    /// model's catalog row, in dollars per million; 通义 isn't in omp's catalog and keeps its hand-written yuan.
+    static func defaultPrice(_ reference: ModelReference, baseURL: String? = nil, at date: Date = .now) -> ModelPrice? {
+        if reference.providerID == "qwen" { return qwenPrice(reference.modelID.lowercased()) }
+        guard let cost = ModelCatalog.model(providerID: reference.providerID, modelID: reference.modelID, baseURL: baseURL)?.cost(at: date)
+        else { return nil }
+        return ModelPrice(input: cost.input, output: cost.output, currency: .usd, cacheRead: cost.cacheRead)
+    }
+
+    /// 通义 (DashScope), in yuan per million — omp has no DashScope rows.
+    private static func qwenPrice(_ model: String) -> ModelPrice? {
         func cny(_ input: Double, _ output: Double) -> ModelPrice { ModelPrice(input: input, output: output, currency: .cny) }
-        switch provider {
-        case "openai":
-            if model.contains("nano") { return usd(0.1, 0.4) }
-            if model.contains("mini") { return usd(0.4, 1.6) }
-            if model.hasPrefix("o3") || model.hasPrefix("o4") { return usd(2, 8) }
-            if model.contains("gpt-4o") { return usd(2.5, 10) }
-            if model.contains("gpt-4.1") { return usd(2, 8) }
-            return usd(1.25, 10)
-        case "anthropic":
-            if model.contains("opus") { return usd(15, 75) }
-            if model.contains("haiku") { return usd(1, 5) }
-            if model.contains("sonnet") { return usd(3, 15) }
-            return nil
-        case "google", "gemini":
-            if model.contains("flash-lite") || model.contains("flash_lite") { return usd(0.1, 0.4) }
-            if model.contains("flash") { return usd(0.3, 2.5) }
-            if model.contains("pro") { return usd(1.25, 10) }
-            return nil
-        case "deepseek":
-            if model.contains("reasoner") || model.contains("r1") || model.contains("pro") { return cny(4, 16) }
-            if model.contains("flash") { return cny(1, 4) }
-            return cny(2, 8)
-        case "qwen", "alibaba":
-            if model.contains("max") { return cny(2.4, 9.6) }
-            if model.contains("coder") { return cny(4, 16) }
-            if model.contains("turbo") || model.contains("flash") { return cny(0.3, 0.6) }
-            if model.contains("plus") { return cny(0.8, 2) }
-            return nil
-        case "moonshot", "moonshotai":
-            return cny(4, 16)
-        case "zai", "z-ai", "zhipu":
-            if model.contains("flash") { return cny(0.5, 2) }
-            if model.contains("turbo") { return cny(1, 4) }
-            return cny(2, 8)
-        case "xai", "x-ai":
-            if model.contains("code-fast") { return usd(0.2, 1.5) }
-            if model.contains("fast") { return usd(0.2, 0.5) }
-            return usd(3, 15)
-        case "minimax":
-            return usd(0.3, 1.2)
-        default:
-            return nil
-        }
+        if model.contains("max") { return cny(2.4, 9.6) }
+        if model.contains("coder") { return cny(4, 16) }
+        if model.contains("turbo") || model.contains("flash") { return cny(0.3, 0.6) }
+        if model.contains("plus") { return cny(0.8, 2) }
+        return nil
     }
 }
