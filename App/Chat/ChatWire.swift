@@ -207,6 +207,15 @@ enum ChatWire {
     nonisolated(unsafe) static var requestDumpFolder: URL?
     nonisolated(unsafe) private static var dumped = 0
 
+    /// QA (`-FormoraDumpRequests`, cache test 2026-09-19): each raw `usage` object as the host sent it, beside the
+    /// requests — so a cache hit the decoder doesn't read shows up as a field it doesn't know, not as a miss.
+    static func dumpUsage(_ usage: [String: Any]) {
+        guard let folder = requestDumpFolder,
+              let data = try? JSONSerialization.data(withJSONObject: usage, options: [.sortedKeys]) else { return }
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try? data.write(to: folder.appendingPathComponent("usage-\(String(format: "%04d", dumped))-\(UUID().uuidString.prefix(4)).json"))
+    }
+
     private static func dump(_ body: Data, to folder: URL) {
         dumped += 1
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -250,6 +259,7 @@ enum ChatWire {
             let fillsThinking = level != .off && dialect != .zai
                 && (dialect == .deepSeek || row?.compat.bool("allowsSyntheticReasoningContentForToolCalls") == true)
             messages += completionsMessages(history, returnsThinking: returnsThinking, fillsThinking: fillsThinking,
+                                            keepsEarlier: keepsEarlierThinking(target),
                                             assistantContent: row?.compat.bool("requiresAssistantContentForToolCalls") == true)
             var body: [String: Any] = [
                 "model": target.modelID,
@@ -387,7 +397,7 @@ enum ChatWire {
 
     /// A tool message takes only text here, so a batch's pictures follow the results as a user message (V3).
     private static func completionsMessages(_ history: [ChatTurn], returnsThinking: Bool, fillsThinking: Bool = false,
-                                            assistantContent: Bool = false) -> [[String: Any]] {
+                                            keepsEarlier: Bool = false, assistantContent: Bool = false) -> [[String: Any]] {
         // Rounds since the last user turn are the ones whose thinking goes back.
         let current = (history.lastIndex { $0.role == .user } ?? -1) + 1
         func image(_ picture: ChatImage) -> [String: Any] { ["type": "image_url", "image_url": ["url": picture.dataURL]] }
@@ -419,7 +429,8 @@ enum ChatWire {
                     message["tool_calls"] = turn.toolCalls.map { call -> [String: Any] in
                         ["id": call.id, "type": "function", "function": ["name": call.name, "arguments": arguments(call)]]
                     }
-                    if returnsThinking, let thinking = turn.thinking ?? (fillsThinking && index >= current ? "" : nil) {
+                    // Kept: an earlier round without thinking goes with the empty one it had in its own run.
+                    if returnsThinking, let thinking = turn.thinking ?? (fillsThinking && (keepsEarlier || index >= current) ? "" : nil) {
                         message["reasoning_content"] = thinking
                     }
                 }
@@ -609,6 +620,16 @@ enum ChatWire {
         return row
     }
 
+    /// Earlier runs' thinking stays in the history (user 2026-09-19, option A of the cache test): for the models that
+    /// want their thinking back on the chat-completions wire — DeepSeek, and every row the table marks
+    /// (`requiresReasoningContentForToolCalls`: Kimi K3, OpenRouter's reasoning models). Z.AI direct isn't verified.
+    static func keepsEarlierThinking(_ target: ChatTarget) -> Bool {
+        guard target.endpoint.apiProtocol == .openAICompletions else { return false }
+        let row = row(for: target)
+        let dialect = effectiveDialect(ReasoningDialect.of(providerID: target.providerID, apiProtocol: target.endpoint.apiProtocol), row: row)
+        return dialect == .deepSeek || row?.compat.bool("requiresReasoningContentForToolCalls") == true
+    }
+
     /// The longest silence this model's stream may keep (the table's `streamIdleTimeoutMs`: DeepSeek 5 minutes; 0 = none,
     /// ten minutes here); 90 seconds otherwise.
     static func idle(for target: ChatTarget) -> TimeInterval {
@@ -672,7 +693,11 @@ enum ChatText {
     /// Thinking goes back only on tool-call turns since the user last spoke (7b, L7). Pictures — a message's image
     /// attachments under `root`, a result's images — go along when the model can see them, and are a line saying
     /// so when it can't (7j, V1–V2).
-    static func history(_ messages: [Message], as agentID: UUID? = nil, root: URL? = nil, seesImages: Bool = false) -> [ChatTurn] {
+    /// `keepsEarlierThinking` (user 2026-09-19, cache test): earlier runs' tool rounds keep their thinking too — for a
+    /// model that wants its thinking back, dropping it at the user's next message changed the request right after the
+    /// first message and the rest was read again at full price (DeepSeek 99% → 92%, Kimi K3 91% → 67%).
+    static func history(_ messages: [Message], as agentID: UUID? = nil, root: URL? = nil, seesImages: Bool = false,
+                        keepsEarlierThinking: Bool = false) -> [ChatTurn] {
         // A compaction (7e, E3): its summary first, then the messages from its boundary on.
         let effective = Compaction.effective(messages)
         let messages = effective.messages
@@ -719,7 +744,7 @@ enum ChatText {
                     continue
                 }
                 guard !message.text.isEmpty || !message.toolCalls.isEmpty else { continue }
-                let returnsThinking = index > lastSpoken && !message.toolCalls.isEmpty
+                let returnsThinking = (keepsEarlierThinking || index > lastSpoken) && !message.toolCalls.isEmpty
                 // A file written in an earlier run isn't carried along (user 2026-09-17); the run that wrote it still
                 // sees what it wrote (2026-09-18) — the history changes here anyway, where the thinking stops going back.
                 let settled = index < lastSpoken

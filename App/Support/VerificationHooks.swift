@@ -263,6 +263,9 @@ enum VerificationHooks {
     /// `-FormoraFreshModel deepseek/deepseek-v4-pro` (real-model test 2026-09-18): the fresh chat's Agent gets that main
     /// model, as `/model` would; `-FormoraReasoning max`: the fresh chat's level.
     static let freshModelKey = "FormoraFreshModel"
+    /// `-FormoraSwitchModel 服务商id/模型id` (cache test 2026-09-19): the selected conversation's Agent switches to that
+    /// main model, as `/model` would — for a conversation carried on with `-FormoraConversation 0`.
+    static let switchModelKey = "FormoraSwitchModel"
     static let reasoningKey = "FormoraReasoning"
 
     static func applyMessages(to state: AppState, currentProject: ProjectRecord?, profile: AppProfile,
@@ -290,6 +293,11 @@ enum VerificationHooks {
                 _ = state.switchModel(ModelReference(providerID: String(spec[..<slash]), modelID: String(spec[spec.index(after: slash)...])), in: fresh)
             }
             if let level = settings.string(forKey: reasoningKey).flatMap(ReasoningLevel.init(rawValue:)) { store.setReasoning(fresh.id, level) }
+        }
+        if let spec = settings.string(forKey: switchModelKey), let slash = spec.firstIndex(of: "/"), let id = state.selectedConversationID,
+           let conversation = store.conversation(id) {
+            _ = state.switchModel(ModelReference(providerID: String(spec[..<slash]), modelID: String(spec[spec.index(after: slash)...])),
+                                  in: conversation)
         }
         // Group names are unique in a project, so each one gets a short tail.
         if let name = settings.string(forKey: freshGroupKey), let project = currentProject,

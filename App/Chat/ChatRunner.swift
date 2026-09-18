@@ -1225,7 +1225,8 @@ final class ChatRunner {
             target.session = id.uuidString.lowercased()
             // Per model: a fallback may see images the primary can't, or the other way round (7j, V2).
             let history = ChatText.history(conversation.messages, as: conversation.isGroup ? agent.id : nil, root: root,
-                                           seesImages: await seesImages(reference, in: conversation))
+                                           seesImages: await seesImages(reference, in: conversation),
+                                           keepsEarlierThinking: ChatWire.keepsEarlierThinking(target))
             let offered = state.sendsTools ? offeredTools(conversation, agent: agent) : []
             // 兼容模式 (7d, D8): the tools in the prompt, calls and results as text, nothing in `tools`.
             let textTools = !offered.isEmpty

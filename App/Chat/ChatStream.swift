@@ -278,6 +278,7 @@ struct ChatStreamDecoder {
     /// OpenAI-compatible: cache hits as OpenAI (`prompt_tokens_details.cached_tokens`) or DeepSeek
     /// (`prompt_cache_hit_tokens`) report them; reasoning under `completion_tokens_details`.
     static func completionsUsage(_ usage: [String: Any]) -> ChatEvent {
+        ChatWire.dumpUsage(usage)
         let cached = ((usage["prompt_tokens_details"] as? [String: Any])?["cached_tokens"] as? Int)
             ?? (usage["prompt_cache_hit_tokens"] as? Int)
         let reasoning = (usage["completion_tokens_details"] as? [String: Any])?["reasoning_tokens"] as? Int
