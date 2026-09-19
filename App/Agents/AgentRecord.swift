@@ -55,8 +55,8 @@ final class AgentRecord {
     var isActive: Bool
     var providerID: String?
     var modelID: String
-    /// The shared fallback, tried when any model above is unavailable (user 2026-09-16: one 兜底, was up to 3). An
-    /// array on disk so older Agents with several still run; the editor writes at most one from now on.
+    /// No longer used (user 2026-09-19: 舍弃备用模型): kept on disk so older stores open without a migration, never
+    /// read by a run, emptied by the next save.
     var fallbacks: [ModelReference]
     /// Per-phase model overrides (user 2026-09-16). Default empty: a light migration.
     var phaseModels: [PhaseModel] = []

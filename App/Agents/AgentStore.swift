@@ -155,7 +155,7 @@ final class AgentStore {
         if let problem = draft.problem(isConfigured: isConfigured) { throw AgentProblem.model(problem) }
         agent.providerID = draft.providerID
         agent.modelID = draft.trimmedModelID
-        agent.fallbacks = draft.fallbacks
+        agent.fallbacks = [] // an older version's fallback goes with the first save (user 2026-09-19: 舍弃备用模型)
         agent.phaseModels = draft.phaseEntries
         try context.save()
     }
@@ -194,10 +194,10 @@ final class AgentStore {
     /// Agents that enable this Skill — uninstalling waits until it's 0.
     func usage(ofSkill id: String) -> Int { agents.filter { $0.enabledSkills.contains(id) }.count }
 
-    /// Agents whose primary or fallback model uses this provider (spec §7.4, §8.7 rule 2).
+    /// Agents whose primary or phase models use this provider (spec §7.4, §8.7 rule 2). An old fallback doesn't count:
+    /// it isn't used any more.
     func usage(ofProvider id: String) -> Int {
-        agents.filter { $0.providerID == id || $0.fallbacks.contains { $0.providerID == id }
-            || $0.phaseModels.contains { $0.model.providerID == id } }.count
+        agents.filter { $0.providerID == id || $0.phaseModels.contains { $0.model.providerID == id } }.count
     }
 
     // MARK: Avatars

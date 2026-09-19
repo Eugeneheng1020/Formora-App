@@ -72,7 +72,7 @@ extension ChatRunner {
         let fallback = lastSpeaker.map { ($0, "接着它刚才的活") } ?? (able.first { isIdle($0.id) } ?? first, "它现在空闲")
         var candidates: [ModelReference] = []
         for agent in (lastSpeaker.map { [$0] } ?? []) + able.filter({ $0.id != lastSpeaker?.id }) {
-            for model in [agent.primaryModel].compactMap({ $0 }) + agent.fallbacks where !candidates.contains(model) {
+            for model in [agent.primaryModel].compactMap({ $0 }) where !candidates.contains(model) {
                 candidates.append(model)
             }
         }

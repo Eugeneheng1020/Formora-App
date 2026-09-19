@@ -13,16 +13,14 @@ struct AgentModelDraft: Equatable, Sendable {
     var providerID: String?
     var source: Source
     var modelID: String
-    var fallbacks: [ModelReference]
-    /// Per-phase model overrides (user 2026-09-16), each set or absent.
+    /// Per-phase model overrides (user 2026-09-16), each set or absent. There is no fallback model any more (user
+    /// 2026-09-19: 舍弃备用模型) — a phase model falls back to the primary, the primary to nothing.
     var phase: [ModelPhase: ModelReference]
 
-    init(providerID: String? = nil, source: Source = .list, modelID: String = "", fallbacks: [ModelReference] = [],
-         phase: [ModelPhase: ModelReference] = [:]) {
+    init(providerID: String? = nil, source: Source = .list, modelID: String = "", phase: [ModelPhase: ModelReference] = [:]) {
         self.providerID = providerID
         self.source = source
         self.modelID = modelID
-        self.fallbacks = fallbacks
         self.phase = phase
     }
 
@@ -31,9 +29,7 @@ struct AgentModelDraft: Equatable, Sendable {
         let inList = agent.modelID.isEmpty || knownModels.contains(agent.modelID)
         var phase: [ModelPhase: ModelReference] = [:]
         for entry in agent.phaseModels { if let p = ModelPhase(rawValue: entry.phase) { phase[p] = entry.model } }
-        // Only the first fallback is kept (user 2026-09-16: one 兜底); older Agents' extras run until re-saved.
-        self.init(providerID: agent.providerID, source: inList ? .list : .custom, modelID: agent.modelID,
-                  fallbacks: Array(agent.fallbacks.prefix(1)), phase: phase)
+        self.init(providerID: agent.providerID, source: inList ? .list : .custom, modelID: agent.modelID, phase: phase)
     }
 
     var trimmedModelID: String { modelID.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -41,8 +37,7 @@ struct AgentModelDraft: Equatable, Sendable {
     /// Same settings as the saved Agent (the source toggle alone is not a change).
     @MainActor
     func matches(_ agent: AgentRecord) -> Bool {
-        providerID == agent.providerID && trimmedModelID == agent.modelID && fallbacks == Array(agent.fallbacks.prefix(1))
-            && phaseEntries == agent.phaseModels
+        providerID == agent.providerID && trimmedModelID == agent.modelID && phaseEntries == agent.phaseModels
     }
 
     /// The phase overrides as they'd be stored, in a stable order.
@@ -62,19 +57,11 @@ struct AgentModelDraft: Equatable, Sendable {
         }
     }
 
-    /// Why this can't be saved, or `nil`. Fallbacks follow the same rule as the primary: their provider must
-    /// have a key (spec §8.5 — the one v3 missed).
+    /// Why this can't be saved, or `nil`. A phase model follows the primary's rule: its provider must have a key.
     func problem(isConfigured: (String) -> Bool) -> String? {
         guard let providerID else { return "请选择服务商" }
         if !isConfigured(providerID) { return "服务商未配置，先在「设置 → 模型」填写 API Key" }
         if trimmedModelID.isEmpty { return "Model ID 不能为空" }
-        if fallbacks.count > 1 { return "只保留一个备用模型" }
-        for fallback in fallbacks {
-            if fallback.modelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "备用模型还没有选择模型" }
-            if !isConfigured(fallback.providerID) { return "备用模型的服务商未配置" }
-        }
-        let primary = ModelReference(providerID: providerID, modelID: trimmedModelID)
-        if fallbacks.contains(primary) { return "备用模型不能与主模型重复" }
         // A half-filled phase is dropped (没选就当没配置); a fully-set one's provider must have a key.
         for p in ModelPhase.allCases {
             guard let model = phase[p], Self.isConfigured(model) else { continue }

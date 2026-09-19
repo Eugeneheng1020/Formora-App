@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 模型与权限 (spec §8.5): the model and fallbacks are a draft with an explicit save; project access saves as
+/// 模型与权限 (spec §8.5): the model and phase models are a draft with an explicit save; project access saves as
 /// it changes. The API Key row appears only when the provider has no key (user 2026-09-08). No 测试连接 here
 /// (user 2026-09-12, D62): the model is tested when the Agent is created, and every reply tests it anyway.
 struct AgentModelTab: View {
@@ -23,7 +23,6 @@ struct AgentModelTab: View {
         VStack(alignment: .leading, spacing: 0) {
             modelBlock
             phaseBlock
-            fallbackBlock
             approvalBlock
             projectBlock
         }
@@ -260,54 +259,6 @@ struct AgentModelTab: View {
         return .list
     }
 
-    // MARK: 备用模型
-
-    private var fallbackBlock: some View {
-        DetailBlock(title: "备用模型", note: "上面的模型不可用时，退到它兜底。") {
-            Button("添加备用模型") { addFallback() }
-                .buttonStyle(FormoraButtonStyle())
-                .disabled(draft.fallbacks.count >= 1)
-                .accessibilityIdentifier("agent.addFallback")
-        } content: {
-            if draft.fallbacks.isEmpty {
-                Text("还没有备用模型。").font(FormoraFont.ui(11.5)).foregroundStyle(Palette.inkFaint.color)
-            } else {
-                VStack(spacing: 8) {
-                    ForEach(Array(draft.fallbacks.enumerated()), id: \.offset) { index, fallback in
-                        fallbackRow(index, fallback)
-                    }
-                }
-            }
-        }
-    }
-
-    /// `.fallback-row`: index, provider, model, remove. A provider that lost its key keeps the entry, marked.
-    private func fallbackRow(_ index: Int, _ fallback: ModelReference) -> some View {
-        HStack(spacing: 9) {
-            Text("\(index + 1)").font(FormoraFont.mono(10)).foregroundStyle(Palette.inkFaint.color).frame(width: 24, alignment: .leading)
-            ProviderMenu(providers: providers, selection: fallback.providerID, identifier: "agent.fallback.\(index).provider") { id in
-                update { $0.fallbacks[index] = ModelReference(providerID: id, modelID: "") }
-            }
-            .frame(maxWidth: 240)
-            ModelIDField(providers: providers, providerID: fallback.providerID, source: fallbackSource(fallback),
-                         modelID: Binding(get: { draft.fallbacks.indices.contains(index) ? draft.fallbacks[index].modelID : "" },
-                                          set: { value in update { if $0.fallbacks.indices.contains(index) { $0.fallbacks[index].modelID = value } } }),
-                         identifier: "agent.fallback.\(index).model")
-            if !providers.hasKey(fallback.providerID) {
-                Text("不可用").font(FormoraFont.mono(10)).foregroundStyle(Palette.alert.color)
-            }
-            IconActionButton(icon: Icons.close, label: "移除备用模型", identifier: "agent.fallback.\(index).remove") {
-                update { $0.fallbacks.remove(at: index) }
-            }
-        }
-    }
-
-    /// Fallbacks pick from the real list when the provider has one, otherwise take a typed ID.
-    private func fallbackSource(_ fallback: ModelReference) -> AgentModelDraft.Source {
-        if case .unsupported = providers.modelLists[fallback.providerID] { return .custom }
-        return .list
-    }
-
     // MARK: 项目权限
 
     private var projectBlock: some View {
@@ -361,16 +312,6 @@ struct AgentModelTab: View {
 
     private func binding<Value>(_ keyPath: WritableKeyPath<AgentModelDraft, Value>) -> Binding<Value> {
         Binding(get: { draft[keyPath: keyPath] }, set: { value in update { $0[keyPath: keyPath] = value } })
-    }
-
-    private func addFallback() {
-        let provider = draft.providerID.flatMap { providers.hasKey($0) ? $0 : nil }
-            ?? providers.entries.first { providers.hasKey($0.id) }?.id
-        guard let provider else {
-            state.toasts.show("没有可用的服务商", note: "先在「设置 → 模型」配置一个服务商", isError: true)
-            return
-        }
-        update { $0.fallbacks.append(ModelReference(providerID: provider, modelID: "")) }
     }
 
     private func save() {

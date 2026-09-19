@@ -3,7 +3,7 @@ import Observation
 
 /// Agents at work, one run per conversation (7b). omp's loop: the model answers, the tools it calls run — asking
 /// first when the Agent's 权限模式 says so — their results go back, until it answers without calling one (L1).
-/// Primary model, then the fallbacks; transient failures are retried; stopping keeps what arrived; nothing is lost
+/// The Agent's models in their order (a phase model, then the primary — no fallback, user 2026-09-19); transient failures are retried; stopping keeps what arrived; nothing is lost
 /// on quit. In a group the `@`-ed members work one after another (spec §9.10). Main actor only — the network and
 /// the file system are read off it.
 @MainActor
@@ -557,7 +557,7 @@ final class ChatRunner {
             message.role == .user ? "用户" : message.speakerName ?? agents.agent(message.agentID)?.displayName ?? "Agent"
         }
         // 省事: a cheaper model compacts, when one is set (user 2026-09-16).
-        let compactChain = [agent.model(for: .chore), primary].compactMap { $0 } + agent.fallbacks
+        let compactChain = [agent.model(for: .chore), primary].compactMap { $0 }
         guard let written = await oneShot(system: Compaction.system, prompt: prompt, candidates: compactChain) else {
             return .failed("压缩没有成功：模型没有写出摘要，稍后再试")
         }
@@ -829,7 +829,7 @@ final class ChatRunner {
         conversations.setMemoryPass(now, in: id)
         let prompt = MemoryUpkeep.request(directory: memory.directory(context.readable, now: now), conversation: text,
                                           scopes: context.writable.keys.sorted { $0 > $1 }, now: now)
-        guard let reply = await oneShot(system: MemoryUpkeep.system, prompt: prompt, candidates: [primary] + agent.fallbacks) else { return }
+        guard let reply = await oneShot(system: MemoryUpkeep.system, prompt: prompt, candidates: [primary]) else { return }
         let quiet = conversations.conversation(id)?.updatedAt ?? now
         for operation in MemoryUpkeep.operations(from: reply.summary) {
             if let change = MemoryTools.remember(operation, store: memory, context: context, now: now).change { noteMemory(change, in: id, quietly: true) }
@@ -1038,15 +1038,14 @@ final class ChatRunner {
     }
 
     /// The models a run tries, in order (user 2026-09-16): the plan model when planning, the vision model when the
-    /// conversation carries images, then the primary, then the shared fallback — each phase model falls through to
-    /// the primary. Deduped by the caller.
+    /// conversation carries images, then the primary — each phase model falls through to the primary. No fallback
+    /// after it (user 2026-09-19: 舍弃备用模型); an older version's stored one isn't read.
     nonisolated static func modelChain(for conversation: Conversation, agent: AgentRecord) -> [ModelReference] {
         var chain: [ModelReference] = []
         func add(_ model: ModelReference?) { if let model, !chain.contains(model) { chain.append(model) } }
         if conversation.planMode { add(agent.model(for: .plan)) }
         if hasImages(conversation) { add(agent.model(for: .vision)) }
         add(agent.primaryModel)
-        agent.fallbacks.forEach { add($0) }
         return chain
     }
 
@@ -1202,7 +1201,7 @@ final class ChatRunner {
         }
     }
 
-    /// One model call: primary first, then the fallbacks; transient failures wait and retry on the same model
+    /// One model call: the chain in order (a phase model, then the primary); transient failures wait and retry on the same model
     /// (L3); a host that refuses the reasoning fields or the tools is asked once more without them.
     private func call(_ conversation: Conversation, runID: UUID, agent: AgentRecord, candidates: [ModelReference],
                       state: inout RunState) async -> Outcome {
@@ -1247,7 +1246,9 @@ final class ChatRunner {
             let fired = WatchRules.fired(in: conversation.messages)
             let rules = state.ruleBreaks < RunState.ruleBreakLimit
                 ? (root.map { WatchRules.load(root: $0) } ?? []).filter { !fired.contains($0.name) } : []
-            let fallback = state.model > 0 ? "主模型没有回复，这条由备用模型 \(reference.modelID) 回答" : nil
+            // A phase model didn't answer and a later one in the chain did (the primary, usually): the reply says which.
+            let fallback = state.model > 0
+                ? "\(role(of: candidates[0], for: agent))没有回复，这条由\(role(of: reference, for: agent)) \(reference.modelID) 回答" : nil
             drafts[id] = Draft(startedAt: .now, model: reference, agentID: agent.id, runID: runID, note: notice ?? state.note)
             do {
                 let turn = try await stream(request, apiProtocol: target.endpoint.apiProtocol, conversationID: id, runID: runID,
@@ -1936,6 +1937,14 @@ final class ChatRunner {
     }
 
     /// A ChatGPT sign-in is refreshed here first when it is about to lapse (7i, U2).
+    /// What a model is to this Agent, for the note when a later one in the chain answers (user 2026-09-19).
+    private func role(of model: ModelReference, for agent: AgentRecord) -> String {
+        if model == agent.primaryModel { return "主模型" }
+        if model == agent.model(for: .plan) { return "计划模型" }
+        if model == agent.model(for: .vision) { return "读图模型" }
+        return "指定的模型"
+    }
+
     /// 推理强度按模型 (user 2026-09-18): the level a request to `target` carries — the conversation's, brought onto the
     /// model's own ladder, the levels its host refused before left out.
     private func reasoningLevel(_ level: ReasoningLevel, for target: ChatTarget) -> ReasoningLevel {
