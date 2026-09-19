@@ -5,6 +5,15 @@
     <description>Formora 的更新</description>
     <language>zh-Hans</language>
     <item>
+      <title>1.0.24</title>
+      <pubDate>Sat, 19 Sep 2026 14:48:38 +0800</pubDate>
+      <sparkle:version>40</sparkle:version>
+      <sparkle:shortVersionString>1.0.24</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[<p>舍弃 Agent 备用模型：主模型失败不再有别的模型接手，计划和读图模型失败仍落回主模型</p>]]></description>
+      <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.24/Formora-1.0.24.dmg" type="application/octet-stream" sparkle:edSignature="zYB5riG8LAet2lI1OImB29pjC6ka4aPXTfLm/+ALAqL8zo7GTM9edaUPyCDH+oNJxJ1RJKkQlckm413+2CP4Cg==" length="13227809"/>
+    </item>
+    <item>
       <title>1.0.23</title>
       <pubDate>Sat, 19 Sep 2026 01:20:20 +0800</pubDate>
       <sparkle:version>39</sparkle:version>
@@ -84,15 +93,6 @@
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
       <description><![CDATA[<p>点停止时还在排队的消息不用再发一遍：活停下后它接着回复这条（群聊照常分派）</p>]]></description>
       <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.15/Formora-1.0.15.dmg" type="application/octet-stream" sparkle:edSignature="zkL15YRaT1L6zlKb9+EmC9KtRcNOsOqufwfhnxZn1oxWzeAIpZfNCQgNyrZdOWuO/EzAcVEMEtBUXeKJtyYIDQ==" length="12688817"/>
-    </item>
-    <item>
-      <title>1.0.14</title>
-      <pubDate>Thu, 17 Sep 2026 20:47:16 +0800</pubDate>
-      <sparkle:version>30</sparkle:version>
-      <sparkle:shortVersionString>1.0.14</sparkle:shortVersionString>
-      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <description><![CDATA[<p>工作中发的消息优先处理（长命令转后台让路）；计划条加关闭按钮，关了就不再按计划做；没开计划模式不再自动列计划</p>]]></description>
-      <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.14/Formora-1.0.14.dmg" type="application/octet-stream" sparkle:edSignature="J2kwHQwCy44wRAB2COPoEzRoofMJkDbbz+zjhvuYUbPrSAa+hNXjVEmd9qkLPyiQ3W8Qb9DKwS3AOAGKdjmlDw==" length="12681461"/>
     </item>
   </channel>
 </rss>
