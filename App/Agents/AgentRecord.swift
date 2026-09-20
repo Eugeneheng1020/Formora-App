@@ -16,7 +16,9 @@ enum ModelPhase: String, CaseIterable, Codable, Sendable {
     case advisor
     /// A turn carrying images the primary can't see.
     case vision
-    /// 省事: naming the task, compacting context, extracting memory — a cheaper model does.
+    /// 省事: naming the task and compacting context — a cheaper model does. Not the look back over memory: judging
+    /// what is worth keeping isn't the cheapest model's job, so that one stayed on the primary (1.0.16), and the
+    /// note said otherwise until the user caught it (2026-09-20).
     case chore
 
     var title: String {
@@ -33,7 +35,7 @@ enum ModelPhase: String, CaseIterable, Codable, Sendable {
         case .plan: "计划模式下出方案用；点「按这个计划做」后实施还是用主模型。"
         case .advisor: "旁审和复核用；留空按「设置 → Bob」的模型，再没有就用主模型。"
         case .vision: "一轮里带了图、主模型看不了图时用。"
-        case .chore: "起任务名、压缩上下文、整理记忆这些杂活用，挑个便宜的省钱。"
+        case .chore: "起任务名、压缩上下文用，挑个便宜的省钱；整理记忆要判断什么值得记，一直用主模型。"
         }
     }
 }

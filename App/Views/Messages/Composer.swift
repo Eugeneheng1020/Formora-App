@@ -99,7 +99,7 @@ struct ComposerView: View {
                                  onSubmit: send, onPasteImage: pasteImage, onPasteFiles: add, memberNames: memberNames,
                                  onToken: { token = $0 }, onMentionKey: handleKey, controller: controller,
                                  autofocus: !onBoard, history: { [conversation] in Self.sentTexts(conversation) }, onEscape: escape,
-                                 listOpen: { showsPopover })
+                                 listOpen: { showsPopover }, ghost: ghost, onTab: handleTab)
                     // `.composer-editor`: 22 min + 3 padding above and below, at most 160.
                     .frame(height: min(max(height, 28), 160))
                 HStack(spacing: 6) {
@@ -151,6 +151,13 @@ struct ComposerView: View {
                     .background { if onBoard { Capsule().fill(Palette.ground.color) } }
                     .padding(.top, 8)
                     .accessibilityIdentifier("composer.blockReason")
+            } else if hasSuggestion {
+                // 按 Tab 联想下一句 (user 2026-09-20): what the grey line is for — a note, not a warning.
+                Text("按 Tab 采用这句，Esc 不要")
+                    .font(FormoraFont.ui(11))
+                    .foregroundStyle(Palette.inkFaint.color)
+                    .padding(.top, 8)
+                    .accessibilityIdentifier("composer.suggestHint")
             } else if let contextHint {
                 Text(contextHint)
                     .font(FormoraFont.ui(11))
@@ -190,15 +197,54 @@ struct ComposerView: View {
         conversation.messages.filter { $0.role == .user && !$0.isHidden && $0.event == nil && !$0.text.isEmpty }.map(\.text)
     }
 
-    /// Esc (9b, Q4): a reply under way stops; otherwise the key is the text view's.
+    // MARK: 按 Tab 联想下一句 (user 2026-09-20)
+
+    /// The grey line in an empty composer: what it suggests, or what it is doing. Only a suggestion can be taken.
+    private var ghost: String {
+        guard !isRunning, draft.text.isEmpty, draft.attachments.isEmpty else { return "" }
+        if let line = state.chat.suggestions[id] { return line }
+        if state.chat.suggesting.contains(id) { return "正在想你接下来会说什么…" }
+        if state.chat.suggestFailures.contains(id) { return "这次没想到要补充的，直接说吧" }
+        return ""
+    }
+
+    private var hasSuggestion: Bool { !isRunning && draft.text.isEmpty && state.chat.suggestions[id] != nil }
+
+    /// Tab in an empty composer (user 2026-09-20): the first asks the conversation's own model what the user would
+    /// say next, the second takes the whole line. With the 「/」 or 「@」 list open Tab is the list's, as before.
+    private func handleTab() -> Bool {
+        guard !isBlocked, !showsPopover, draft.text.isEmpty, draft.attachments.isEmpty else { return false }
+        if let line = state.chat.suggestions[id] {
+            state.composerDrafts[id, default: AppState.ComposerDraft()].text = line
+            state.chat.clearSuggestion(id)
+            return true
+        }
+        // Already asking: the key is swallowed, not asked twice.
+        if !state.chat.suggesting.contains(id), state.chat.canSuggest(id) {
+            state.chat.clearSuggestion(id)
+            state.chat.suggestNext(id)
+        }
+        // Tab in an empty composer is this key and nothing else — never a tab character in the message.
+        return true
+    }
+
+    /// Esc (9b, Q4): a line offered goes first, then a reply under way stops; otherwise the key is the text view's.
     private func escape() -> Bool {
+        if ghost.isEmpty == false, !isRunning {
+            state.chat.clearSuggestion(id)
+            return true
+        }
         guard isRunning else { return false }
         state.chat.stop(id)
         return true
     }
 
     private var textBinding: Binding<String> {
-        Binding(get: { draft.text }, set: { state.composerDrafts[id, default: AppState.ComposerDraft()].text = $0 })
+        Binding(get: { draft.text }, set: { typed in
+            // Typed into: what was offered is no longer what the user is writing.
+            if !typed.isEmpty { state.chat.clearSuggestion(id) }
+            state.composerDrafts[id, default: AppState.ComposerDraft()].text = typed
+        })
     }
 
     // MARK: Sending
@@ -941,6 +987,9 @@ struct ComposerTextView: NSViewRepresentable {
     var onEscape: () -> Bool = { false }
     /// The list over it (「/」, 「@」) is open: Return is the list's, even mid-composition.
     var listOpen: () -> Bool = { false }
+    /// 按 Tab 联想下一句 (user 2026-09-20): the grey line in an empty composer, and what Tab does about it.
+    var ghost: String = ""
+    var onTab: () -> Bool = { false }
     /// Bob's smaller panel (D96) sets it lower.
     var fontSize: CGFloat = 13.5
 
@@ -1012,6 +1061,7 @@ struct ComposerTextView: NSViewRepresentable {
         view.isEditable = isEditable
         view.isSelectable = isEditable
         view.placeholder = placeholder
+        view.ghost = ghost
         view.onPasteImage = onPasteImage
         view.onPasteFiles = onPasteFiles
         view.listOpen = listOpen
@@ -1075,6 +1125,9 @@ struct ComposerTextView: NSViewRepresentable {
                 return recall(textView, older: true)
             case #selector(NSResponder.moveDown(_:)):
                 return recall(textView, older: false)
+            case #selector(NSResponder.insertTab(_:)):
+                // No list open: Tab is the composer's own (user 2026-09-20). It never inserts a tab character here.
+                return parent.onTab()
             case #selector(NSResponder.cancelOperation(_:)):
                 return parent.onEscape()
             case #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)):
@@ -1148,19 +1201,29 @@ struct ComposerTextView: NSViewRepresentable {
 /// Draws the placeholder (there is no native one) and turns pasted images and files into attachments.
 final class ComposerNSTextView: NSTextView {
     var placeholder = ""
+    /// 按 Tab 联想下一句 (user 2026-09-20): drawn in the empty composer in place of the placeholder, and it wraps —
+    /// a suggested line is a sentence, not a label.
+    var ghost = ""
     var onPasteImage: ((Data) -> Void)?
     var onPasteFiles: (([URL]) -> Void)?
     var onFocus: ((Bool) -> Void)?
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        guard string.isEmpty, !placeholder.isEmpty else { return }
+        let text = ghost.isEmpty ? placeholder : ghost
+        guard string.isEmpty, !text.isEmpty else { return }
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineSpacing = 4
+        paragraph.lineBreakMode = .byWordWrapping
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font ?? NSFont.systemFont(ofSize: 13.5),
-            .foregroundColor: NSColor(Palette.inkFaint.color),
+            .foregroundColor: NSColor(ghost.isEmpty ? Palette.inkFaint.color : Palette.inkMuted.color),
+            .paragraphStyle: paragraph,
         ]
-        let origin = NSPoint(x: textContainerInset.width + (textContainer?.lineFragmentPadding ?? 0), y: textContainerInset.height)
-        (placeholder as NSString).draw(at: origin, withAttributes: attributes)
+        let inset = textContainerInset.width + (textContainer?.lineFragmentPadding ?? 0)
+        let width = max(0, bounds.width - inset * 2)
+        let box = NSRect(x: inset, y: textContainerInset.height, width: width, height: bounds.height - textContainerInset.height)
+        (text as NSString).draw(in: box, withAttributes: attributes)
     }
 
     override func becomeFirstResponder() -> Bool {

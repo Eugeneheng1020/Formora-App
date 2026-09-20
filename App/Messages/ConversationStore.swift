@@ -326,8 +326,11 @@ final class ConversationStore {
         }
     }
 
-    /// 10e: back to `messageID` — it and everything after it leave the thread for an earlier version, and a line stands
-    /// in their place. Back to the first words, the task may be named again from the new ones. `nil`: no such message.
+    /// 10e: back to `messageID` — it and everything after it leave the thread for an earlier version. Nothing stands
+    /// in their place (user 2026-09-20: 「只需要显示修改后的，无需看之前的版本」): the thread reads as though the edited
+    /// message is what was sent. The version is still kept — `/cost` counts what those calls cost, and a message the
+    /// hook keeps back is put straight back — and the line marking it is hidden, which is what `restore` cuts at.
+    /// Back to the first words, the task may be named again from the new ones. `nil`: no such message.
     @discardableResult
     func rewind(_ id: UUID, from messageID: UUID, now: Date = .now) -> EarlierVersion? {
         guard let current = conversation(id), let index = current.messages.firstIndex(where: { $0.id == messageID }) else { return nil }
@@ -339,7 +342,7 @@ final class ConversationStore {
             if isFirst, $0.titleIsAuto { $0.titleIsModelNamed = false }
         }
         let event = ThreadEvent(kind: .rewind, title: "你改过下面这条消息，重新发送了", versionID: version.id)
-        append(Message(role: .user, text: "", createdAt: now, event: event), to: id)
+        append(Message(role: .user, text: "", createdAt: now, isHidden: true, event: event), to: id)
         return version
     }
 

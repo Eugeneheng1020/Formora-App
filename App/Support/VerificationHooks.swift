@@ -426,8 +426,9 @@ enum VerificationHooks {
                                      toolCalls: [call], runID: UUID()), to: id)
             }
         }
-        // `-FormoraSeedRewind YES` (10e): the selected conversation went back once — its line over the message that
-        // replaced the first try — and that message is open in 修改, a file written after it.
+        // `-FormoraSeedRewind YES` (10e): the selected conversation went back once, and the message that replaced the
+        // first try is open in 修改, a file written after it. Since 2026-09-20 the thread shows no line for it — what
+        // this stages is the state around an edit, not a divider to look at.
         if settings.bool(forKey: seedRewindKey), let project = currentProject, let id = state.selectedConversationID,
            let conversation = store.conversation(id), let agentID = conversation.agentID ?? conversation.members.first?.agentID {
             let root = URL(fileURLWithPath: project.folderPath)

@@ -174,16 +174,26 @@ private struct ThreadView: View {
     @State private var flashing: UUID?
     /// 展开原文 on the compaction divider (7e, E5).
     @State private var showsFolded = false
-    /// Earlier versions opened under their lines (10e).
-    @State private var openVersions: Set<UUID> = []
     /// Just opened: every change of the content's height while the lazy rows settle sends it back to the end.
     @State private var isLanding = false
+    /// Whether the thread is following its end (9a, user 2026-09-20). It stops following the moment the user scrolls
+    /// away from the bottom, and follows again once they are back — a chat app's rule, not an unconditional jump.
+    @State private var atEnd = true
+    /// The content's height and where its top sits, and the window it is read through: growth is told apart from the
+    /// user's own scrolling by which of them changed.
+    @State private var metrics = ThreadMetrics()
+    @State private var viewport: CGFloat = 0
 
-    static let draftAnchor = "draft"
     static let cardAnchor = "commandCard"
     /// The thread's very end: the last run's fold and time under its words (user 2026-09-15), the command card, all of it.
     static let endAnchor = "threadEnd"
     static let dividerAnchor = "compactDivider"
+    /// A message still waiting is its own view, never the thread row of the same message: one `.id` per view in the
+    /// stack, or SwiftUI keeps the one it had — the delivered message stayed dimmed (user 2026-09-20).
+    static func queuedAnchor(_ messageID: UUID) -> String { "queued-" + messageID.uuidString }
+    static let space = "thread"
+    /// Close enough to the bottom to count as being there — a pixel short of it must not stop the thread following.
+    static let endSlack: CGFloat = 40
 
     private var id: UUID { conversation.id }
     /// Not the loop's own words — except a self-review's marker line (7d, D7).
@@ -195,6 +205,7 @@ private struct ThreadView: View {
         let items = ThreadItem.group(fold.kept)
         let draft = state.chat.drafts[id]
         let draftInFrame = draft != nil && items.last.map { !$0.isUser && $0.runID == draft?.runID } == true
+        let waiting: [Message] = (state.chat.steering[id] ?? []).filter { !$0.isHidden }
         ScrollViewReader { proxy in
             ScrollView {
                 if visible.isEmpty, draft == nil, state.commandCards[id] == nil {
@@ -219,53 +230,52 @@ private struct ThreadView: View {
                                 .id(Self.dividerAnchor)
                         }
                         let lastItem = items.last?.id
+                        let lastVisible = visible.last?.id
+                        let following = followDraft(proxy)
+                        let revealing = reveal(proxy)
                         ForEach(items) { item in
-                            itemRow(item, isLast: item.id == lastItem, draft: draftInFrame && item.id == lastItem ? draft : nil,
-                                    lastID: visible.last?.id, follow: followDraft(proxy), reveal: reveal(proxy))
+                            let inFrame: ChatRunner.Draft? = draftInFrame && item.id == lastItem ? draft : nil
+                            itemRow(item, isLast: item.id == lastItem, draft: inFrame, lastID: lastVisible,
+                                    follow: following, reveal: revealing)
                         }
                         if let draft, !draftInFrame {
-                            DraftRow(state: state, conversation: conversation, draft: draft,
-                                     follow: { proxy.scrollTo(Self.draftAnchor, anchor: .bottom) })
-                                .id(Self.draftAnchor)
+                            // No `.id` of its own: the reply being written shows up in two places (its own row here,
+                            // or inside the run's frame), and one identity used by both is what left a delivered
+                            // message dimmed — see `queuedAnchor`. The thread follows `endAnchor`, not the draft.
+                            DraftRow(state: state, conversation: conversation, draft: draft, follow: followDraft(proxy))
                         }
                         // Sent while the Agent works: it reads them after the current step (L4).
-                        ForEach((state.chat.steering[id] ?? []).filter { !$0.isHidden }) { message in
+                        ForEach(waiting) { message in
                             MessageRow(state: state, session: session, conversation: conversation, message: message,
                                        isFlashing: false, isQueued: true)
-                                .id(message.id)
+                                .id(Self.queuedAnchor(message.id))
                         }
                         if let reason = state.chat.compacting[id] {
                             CompactingRow(reason: reason)
                         }
                         // A command's output (D2): one-off, under everything.
-                        if let card = state.commandCards[id] {
-                            CommandCardView(card: card, close: { state.commandCards[id] = nil }) {
-                                switch card.body {
-                                case .usage:
-                                    UsageSummary(report: UsageReport(conversation, subtasks: state.conversations.subtasks(of: conversation.id))) { model in
-                                        "\(state.providers.entry(model.providerID)?.name ?? model.providerID) · \(model.modelID)"
-                                    }
-                                case .memory:
-                                    MemorySummary(groups: MemorySummary.groups(state.chat.memory, conversation: conversation,
-                                                                               agent: state.commandAgent(conversation)))
-                                default:
-                                    PlanList(items: conversation.plan)
-                                }
-                            }
-                            .id(Self.cardAnchor)
-                        }
-                        // 12 of air under the last message (user 2026-09-15): it never sits on the composer's line.
-                        Color.clear.frame(height: 12).id(Self.endAnchor)
+                        commandCard
+                        // Air under the last message (user 2026-09-15: 12; 2026-09-20: 「甚至没有安全距离」): while a run
+                        // writes, the thread follows this, so this is the distance kept from the composer's line.
+                        Color.clear.frame(height: 26).id(Self.endAnchor)
                     }
                     .padding(.top, 22)
                     .padding(.horizontal, 26)
-                    .background(GeometryReader { proxy in Color.clear.preference(key: ThreadHeight.self, value: proxy.size.height) })
+                    .background(ContentProbe())
                 }
             }
+            // The window the thread is read through, and the space the content's place is measured in.
+            .coordinateSpace(name: Self.space)
+            .background(ViewportProbe())
+            // 回到最新 (user 2026-09-20): while the thread isn't following, the way back is one click — and following
+            // starts again from there.
+            .overlay(alignment: .bottomTrailing) { backToLatest(proxy, hasContent: !visible.isEmpty) }
+            .animation(.easeOut(duration: 0.15), value: atEnd)
             // Opens at its end (user 2026-09-14: 「重新打开必须是最新的内容」; 2026-09-15: switching to 消息 still showed the first
             // message of a long thread). The lazy rows get their real heights only once laid out, so one jump lands short:
             // it jumps again whenever the content's height changes in the first moments, and on a schedule besides.
-            .onPreferenceChange(ThreadHeight.self) { _ in if isLanding { proxy.scrollTo(Self.endAnchor, anchor: .bottom) } }
+            .onPreferenceChange(ThreadViewport.self) { viewport = $0 }
+            .onPreferenceChange(ThreadGeometry.self) { settled(proxy, $0) }
             .onAppear {
                 if state.messageJump?.conversationID == id {
                     jump(proxy)
@@ -274,8 +284,8 @@ private struct ThreadView: View {
                 }
             }
             .onChange(of: state.messageJump) { jump(proxy) }
-            .onChange(of: visible.count) { toBottom(proxy) }
-            .onChange(of: state.chat.steering[id]?.count) { toBottom(proxy) }
+            .onChange(of: visible.count) { toBottom(proxy, isOwn: endsWithOwnMessage) }
+            .onChange(of: state.chat.steering[id]?.count) { toBottom(proxy, isOwn: true) }
             .onChange(of: state.chat.approvals[id]) { toBottom(proxy) }
             // QA (-FormoraRevealCompaction): a new compaction's divider comes into view.
             .onChange(of: conversation.messages.last(where: { $0.compaction != nil })?.id) { _, landed in
@@ -286,9 +296,8 @@ private struct ThreadView: View {
                 guard state.commandCards[id] != nil else { return }
                 withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(Self.cardAnchor, anchor: .bottom) }
             }
-            // The reply being written stays in view as it grows: the draft's own view follows it (9a — reading its
-            // text here would redraw the whole thread for every token).
-            .onChange(of: draft?.runID) { if draft != nil { proxy.scrollTo(Self.draftAnchor, anchor: .bottom) } }
+            // A new turn of a run it is following comes into view with the rest.
+            .onChange(of: draft?.runID) { if draft != nil { follow(proxy) } }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .contain)
@@ -296,55 +305,26 @@ private struct ThreadView: View {
     }
 
     @ViewBuilder private func itemRow(_ item: ThreadItem, isLast: Bool, draft: ChatRunner.Draft?, lastID: UUID?,
-                                      follow: @escaping () -> Void = {}, reveal: @escaping (AnyHashable) -> Void = { _ in },
-                                      isEarlier: Bool = false) -> some View {
+                                      follow: @escaping () -> Void = {}, reveal: @escaping (AnyHashable) -> Void = { _ in }) -> some View {
         if item.isUser {
             let message = item.messages[0]
             if let event = message.event {
                 if event.kind == .summary {
                     SummaryCard(event: event).id(message.id)
                 } else if event.kind == .rewind {
-                    rewindRow(event, isEarlier: isEarlier).id(message.id)
+                    // 10e (user 2026-09-20): an edit that was re-sent leaves no line. New ones are hidden outright;
+                    // this skips the ones older conversations already have on disk.
+                    EmptyView()
                 } else {
                     EventDivider(state: state, event: event, conversationID: conversation.id, messageID: message.id).id(message.id)
                 }
             } else {
-                MessageRow(state: state, session: session, conversation: conversation, message: message, isFlashing: flashing == message.id,
-                           isEarlier: isEarlier)
+                MessageRow(state: state, session: session, conversation: conversation, message: message, isFlashing: flashing == message.id)
                     .id(message.id)
             }
         } else {
             AgentRunRow(state: state, session: session, conversation: conversation, messages: item.messages, flashing: flashing,
                         draft: draft, lastID: lastID, follow: follow, reveal: reveal)
-        }
-    }
-
-    /// 10e: where the user went back — the line, and under it, opened, what the edited message replaced: dimmed and
-    /// read-only. A line inside an earlier version stays a line.
-    private func rewindRow(_ event: ThreadEvent, isEarlier: Bool) -> some View {
-        let version = conversation.earlier.first { $0.id == event.versionID }
-        let items = version.map { ThreadItem.group($0.messages.filter { !$0.isHidden || $0.marker != nil }) } ?? []
-        let canOpen = !isEarlier && !items.isEmpty
-        let isOpen = canOpen && (version.map { openVersions.contains($0.id) } == true || VerificationHooks.opensToolCards)
-        return VStack(spacing: 14) {
-            RewindDivider(title: event.title, count: items.count, isOpen: isOpen, canOpen: canOpen) {
-                guard let version else { return }
-                if openVersions.remove(version.id) == nil { openVersions.insert(version.id) }
-            }
-            if isOpen {
-                // The rows inside are this view's own rows: erased, or the type would contain itself.
-                AnyView(VStack(spacing: 16) {
-                    ForEach(items) { item in itemRow(item, isLast: false, draft: nil, lastID: nil, isEarlier: true) }
-                })
-                .padding(14)
-                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Palette.surfaceRaised.color.opacity(0.5)))
-                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(Palette.line.color, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
-                .opacity(0.6)
-                .disabled(true)
-                .accessibilityElement(children: .contain)
-                .accessibilityIdentifier("rewind.earlier")
-            }
         }
     }
 
@@ -364,9 +344,74 @@ private struct ThreadView: View {
         return "开始与 \(ConversationReadiness.headline(of: conversation, agents: state.agents)) 对话"
     }
 
-    /// Keeps the reply being written in view as it grows.
+    /// Keeps the reply being written in view as it grows — the thread's end, so the run's steps and folds under the
+    /// words are in view too (user 2026-09-20), and only while the thread is following.
     private func followDraft(_ proxy: ScrollViewProxy) -> () -> Void {
-        { proxy.scrollTo(Self.draftAnchor, anchor: .bottom) }
+        { follow(proxy) }
+    }
+
+    /// A command's output (D2): `/cost`, `/memory`, the plan.
+    @ViewBuilder private var commandCard: some View {
+        if let card = state.commandCards[id] {
+            CommandCardView(card: card, close: { state.commandCards[id] = nil }) {
+                switch card.body {
+                case .usage:
+                    UsageSummary(report: UsageReport(conversation, subtasks: state.conversations.subtasks(of: conversation.id))) { model in
+                        "\(state.providers.entry(model.providerID)?.name ?? model.providerID) · \(model.modelID)"
+                    }
+                case .memory:
+                    MemorySummary(groups: MemorySummary.groups(state.chat.memory, conversation: conversation,
+                                                              agent: state.commandAgent(conversation)))
+                default:
+                    PlanList(items: conversation.plan)
+                }
+            }
+            .id(Self.cardAnchor)
+        }
+    }
+
+    @ViewBuilder private func backToLatest(_ proxy: ScrollViewProxy, hasContent: Bool) -> some View {
+        // Not while the thread is still settling onto its end: it is on its way there, not left behind.
+        if !atEnd, hasContent, !isLanding {
+            BackToLatestButton {
+                atEnd = true
+                withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(Self.endAnchor, anchor: .bottom) }
+            }
+            .padding(.trailing, 18)
+            .padding(.bottom, 14)
+            .transition(.opacity)
+        }
+    }
+
+    /// To the end, unless the user has scrolled away from it.
+    private func follow(_ proxy: ScrollViewProxy) {
+        guard atEnd else { return }
+        proxy.scrollTo(Self.endAnchor, anchor: .bottom)
+    }
+
+    /// Every layout of the thread. The content growing is the Agent at work: the thread follows it if it was
+    /// following. Only the user moving it decides whether it follows at all — or growth itself, which takes the
+    /// bottom away for an instant, would stop the following at the first token.
+    private func settled(_ proxy: ScrollViewProxy, _ next: ThreadMetrics) {
+        let previous = metrics
+        metrics = next
+        // Scrolled up by hand while the thread is still settling onto its end: the user wins, and the scheduled
+        // jumps stop with it. Landing only ever moves the content the other way (its top downwards), so the
+        // direction tells them apart — the first frames of an opening thread are never mistaken for a scroll.
+        if isLanding, next.top > previous.top + 1 { isLanding = false }
+        // While landing, how far from the end it is means nothing: it is mid-jump, and a frame caught in the middle
+        // of one read as 「滚走了」 and left 回到最新 showing on a thread that was already at its end.
+        if isLanding {
+            if next.height != previous.height { proxy.scrollTo(Self.endAnchor, anchor: .bottom) }
+            return
+        }
+        if next.height != previous.height {
+            follow(proxy)
+            return
+        }
+        guard next.top != previous.top, viewport > 0 else { return }
+        // How much of the content is still below the window.
+        atEnd = next.height + next.top - viewport <= Self.endSlack
     }
 
     /// The least scroll that shows a view whole — a fold's cards once it opens (user 2026-09-15).
@@ -377,6 +422,7 @@ private struct ThreadView: View {
     /// To the end now, and again as the rows settle — for a second and a half, unless something else moved the thread.
     private func land(_ proxy: ScrollViewProxy) {
         isLanding = true
+        atEnd = true
         proxy.scrollTo(Self.endAnchor, anchor: .bottom)
         Task { @MainActor in
             for delay in [60, 250, 700, 1500] {
@@ -388,9 +434,19 @@ private struct ThreadView: View {
         }
     }
 
-    private func toBottom(_ proxy: ScrollViewProxy) {
-        let target: AnyHashable = state.chat.steering[id]?.last?.id ?? (state.chat.drafts[id] != nil ? Self.draftAnchor : Self.endAnchor)
+    /// New content at the end. What the user sends themselves always takes them there — sending is asking to see it
+    /// (every chat app); the Agent's own goes unfollowed while they are reading further up (user 2026-09-20).
+    private func toBottom(_ proxy: ScrollViewProxy, isOwn: Bool = false) {
+        if isOwn { atEnd = true }
+        guard atEnd else { return }
+        let target: AnyHashable = (state.chat.steering[id]?.last?.id).map { Self.queuedAnchor($0) } ?? Self.endAnchor
         withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(target, anchor: .bottom) }
+    }
+
+    /// The last thing in the thread is the user's own message: they just sent it.
+    private var endsWithOwnMessage: Bool {
+        guard let last = visible.last else { return false }
+        return last.role == .user && last.marker == nil && last.event == nil
     }
 
     private func jump(_ proxy: ScrollViewProxy) {
@@ -406,10 +462,73 @@ private struct ThreadView: View {
     }
 }
 
-/// The thread content's height: while it settles after opening, the thread lands at its end again.
-private struct ThreadHeight: PreferenceKey {
+/// Where the thread's content stands: how tall it is, and where its top sits in the window it is read through
+/// (negative once scrolled). Together with the window's height that says how much is still below — whether the
+/// thread is at its end.
+struct ThreadMetrics: Equatable {
+    var height: CGFloat = 0
+    var top: CGFloat = 0
+}
+
+/// Measures the thread's content where it stands in the window (`ThreadView.space`).
+private struct ContentProbe: View {
+    var body: some View {
+        GeometryReader { geometry in
+            let frame = geometry.frame(in: .named(ThreadView.space))
+            Color.clear.preference(key: ThreadGeometry.self,
+                                   value: ThreadMetrics(height: geometry.size.height, top: frame.minY))
+        }
+    }
+}
+
+/// Measures the window the thread is read through.
+private struct ViewportProbe: View {
+    var body: some View {
+        GeometryReader { geometry in
+            Color.clear.preference(key: ThreadViewport.self, value: geometry.size.height)
+        }
+    }
+}
+
+private struct ThreadGeometry: PreferenceKey {
+    static let defaultValue = ThreadMetrics()
+    static func reduce(value: inout ThreadMetrics, nextValue: () -> ThreadMetrics) {
+        let next = nextValue()
+        if next != ThreadMetrics() { value = next }
+    }
+}
+
+/// The height of the window the thread is read through.
+private struct ThreadViewport: PreferenceKey {
     static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
+/// `.back-to-latest` (user 2026-09-20): while the thread isn't following its end, the way back.
+private struct BackToLatestButton: View {
+    let action: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                IconView(Icons.chevronDown, size: 12)
+                Text("回到最新").font(FormoraFont.ui(11.5, weight: 600))
+            }
+            .foregroundStyle(Palette.ink.color)
+            .padding(.horizontal, 11)
+            .frame(height: 28)
+            .background(Capsule().fill(isHovering ? Palette.surfaceRaised2.color : Palette.surfaceRaised.color))
+            .overlay(Capsule().strokeBorder(Palette.lineStrong.color, lineWidth: 1))
+            .softShadow()
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .help("回到对话最新的一条，并重新跟随")
+        .accessibilityIdentifier("thread.backToLatest")
+    }
 }
 
 /// `.msg-row` for the user: right-aligned bubble, avatar 32 (old D11), time in mono under it; at most 640 wide.
@@ -421,14 +540,12 @@ private struct MessageRow: View {
     let message: Message
     let isFlashing: Bool
     var isQueued = false
-    /// Inside an earlier version (10e): read-only.
-    var isEarlier = false
 
     @State private var isHovering = false
 
-    private var isEditing: Bool { !isQueued && !isEarlier && state.editingMessage == message.id }
+    private var isEditing: Bool { !isQueued && state.editingMessage == message.id }
     /// 10e: 修改 while the pointer is on it.
-    private var showsEdit: Bool { isHovering && !isQueued && !isEarlier && state.canEdit(message, in: conversation) }
+    private var showsEdit: Bool { isHovering && !isQueued && state.canEdit(message, in: conversation) }
     /// 复制 while the pointer is on it (user 2026-09-14).
     private var showsCopy: Bool { isHovering && !isEditing && !message.text.isEmpty }
 
@@ -472,7 +589,7 @@ private struct MessageRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help("改了重新发送：这条之后的对话会收起，Agent 从这条开始重新做")
+        .help("改了重新发送：这条之后的内容会被去掉，Agent 从这条开始重新做")
         .accessibilityIdentifier("message.edit")
     }
 
@@ -585,7 +702,6 @@ private struct AgentRunRow: View {
                 }
                 if let draft {
                     DraftContent(state: state, conversation: conversation, draft: draft, showsThinking: false, follow: follow)
-                        .id(ThreadView.draftAnchor)
                 }
                 // 一次运行底部的四组折叠 (user 2026-09-15, 2026-09-18): the run's thinking, the 旁审 notes, its steps (the one
                 // in hand in view while it runs) and the files it changed, each a line under its words.

@@ -49,7 +49,7 @@ struct MessageEditor: View {
         VStack(alignment: .leading, spacing: 10) {
             FormoraTextEditor(placeholder: "改成…", text: $text, height: height, identifier: "message.editText")
             Text(following == 0 ? "重新发送后，Agent 从这条开始重新做。"
-                 : "重新发送后，这条之后的 \(following) 条回复和消息会收起，Agent 从这条开始重新做，不再看到它们。")
+                 : "重新发送后，这条之后的 \(following) 条回复和消息会从对话里去掉，Agent 从这条开始重新做，不再看到它们。")
                 .font(FormoraFont.ui(11.5))
                 .foregroundStyle(Palette.inkMuted.color)
                 .fixedSize(horizontal: false, vertical: true)
@@ -117,37 +117,5 @@ struct MessageEditor: View {
                 state.editingMessage = nil
             }
         }
-    }
-}
-
-/// 10e: the line where the user went back, over the message that went again — and the way to what it replaced.
-struct RewindDivider: View {
-    let title: String
-    let count: Int
-    let isOpen: Bool
-    let canOpen: Bool
-    let toggle: () -> Void
-
-    var body: some View {
-        HStack(spacing: 10) {
-            rule
-            Text(title)
-                .font(FormoraFont.mono(10.5))
-                .foregroundStyle(Palette.inkFaint.color)
-                .lineLimit(1)
-                .layoutPriority(1)
-                .accessibilityIdentifier("rewind.title")
-            if canOpen {
-                SmallButton(title: isOpen ? "收起" : "看之前的版本（\(count) 条）", identifier: "rewind.toggle", action: toggle)
-            }
-            rule
-        }
-        .frame(maxWidth: .infinity)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("event.rewind")
-    }
-
-    private var rule: some View {
-        Rectangle().fill(Palette.line.color).frame(height: 1).frame(maxWidth: .infinity)
     }
 }

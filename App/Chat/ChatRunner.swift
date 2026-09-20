@@ -87,6 +87,19 @@ final class ChatRunner {
     private(set) var steering: [UUID: [Message]] = [:]
     /// Unseen, ahead of the user's own words when they arrive mid-run (user 2026-09-17): the message comes first.
     nonisolated static let steeringNote = "〔用户在你工作时发来了下面这条新消息。先处理它：该回答就回答，该照办就照办；再判断原来的事还要不要接着做、要不要调整。〕"
+    // 按 Tab 联想下一句 (user 2026-09-20). Written only by `ChatRunner+Suggest`, which is another file — so not
+    // `private(set)`; read by the composer.
+    /// The line offered as grey text in the composer, by conversation.
+    var suggestions: [UUID: String] = [:]
+    /// Conversations with a line being asked for.
+    var suggesting: Set<UUID> = []
+    /// Asked, and nothing came back: the composer says so once, then forgets it.
+    var suggestFailures: Set<UUID> = []
+    /// `ChatRunner+Suggest` asks its own question: the stream, the target and whose model answers.
+    var suggestClient: ChatClient { client }
+    func suggestTarget(_ reference: ModelReference) async -> ChatTarget? { await target(for: reference) }
+    func suggestAgent(_ conversation: Conversation) -> AgentRecord? { contextAgent(conversation) }
+
     /// What a run remembered, waiting for the thread's line.
     @ObservationIgnored private var memoryNotes: [UUID: [MemoryChange]] = [:]
     /// 旁审's 提醒 while the run goes on (user 2026-09-17): cards once it rests — no step is spent answering them.
@@ -948,6 +961,8 @@ final class ChatRunner {
             return
         }
         conversations.clearPauses(in: id)
+        // A line offered for the composer was about the conversation as it stood: work starting makes it stale.
+        clearSuggestion(id)
         // Sent while a dispatcher chose or between rounds (7g): read before the first call.
         flushMemoryNotes(id)
         deliverSteering(id)

@@ -20,6 +20,8 @@ enum Icons {
 
     static let chevronLeft = SVGIcon(validated: #"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 6-6 6 6 6"/></svg>"#, name: "chevronLeft")
 
+    static let chevronDown = SVGIcon(validated: #"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>"#, name: "chevronDown")
+
     static let plus = SVGIcon(validated: #"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>"#, name: "plus")
 
     static let search = SVGIcon(validated: #"<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35"/></svg>"#, name: "search")
@@ -123,6 +125,7 @@ enum Icons {
         ("power", power), ("sparkle", sparkle), ("plug", plug),
         ("messages", messages), ("agents", agents), ("board", board), ("files", files), ("file", file), ("settings", settings),
         ("chevronUpDown", chevronUpDown), ("chevronRight", chevronRight), ("chevronLeft", chevronLeft),
+        ("chevronDown", chevronDown),
         ("plus", plus), ("search", search), ("check", check), ("close", close), ("trash", trash),
         ("pencil", pencil), ("reveal", reveal), ("alertCircle", alertCircle),
         ("person", person), ("chip", chip), ("upload", upload), ("eye", eye), ("eyeOff", eyeOff), ("refresh", refresh),
