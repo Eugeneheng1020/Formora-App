@@ -15,6 +15,8 @@ final class FileBrowser {
     private(set) var selectedFileID: String?
     /// Keyboard focus in the tree (files and folders).
     var focusedID: String?
+    /// The entry the user last clicked or moved to, file or folder (user 2026-09-22): what the files pane's chat carries.
+    private(set) var lastChosen: FileNode?
 
     /// 预览 or 源码 for HTML files. Kept while moving between files, so reading several pages' source
     /// doesn't need a click per file; a newly opened project starts on 预览.
@@ -99,6 +101,8 @@ final class FileBrowser {
 
     func select(_ node: FileNode) {
         focusedID = node.id
+        // The project row only folds the tree: it isn't an entry to carry (`@.` is no token).
+        if node.id != root.id { lastChosen = node }
         if node.isFolder {
             toggle(node)
         } else {
@@ -113,7 +117,10 @@ final class FileBrowser {
         let current = rows.firstIndex { $0.id == focusedID } ?? (delta > 0 ? -1 : rows.count)
         let next = rows[min(max(current + delta, 0), rows.count - 1)].node
         focusedID = next.id
-        if !next.isFolder { selectedFileID = next.id }
+        if !next.isFolder {
+            selectedFileID = next.id
+            lastChosen = next
+        }
     }
 
     /// ← collapses the focused folder (or jumps to its parent); → expands it.
@@ -138,6 +145,7 @@ final class FileBrowser {
             guard let child = listings[current.id]?.first(where: { $0.name == name }) else { return }
             if index == parts.count - 1 {
                 focusedID = child.id
+                lastChosen = child
                 if child.isFolder { await setExpanded(child, true) } else { selectedFileID = child.id }
             } else {
                 current = child

@@ -13,6 +13,8 @@ struct ComposerView: View {
     let blockReason: String?
     /// On the canvas (8d, K13): the focused card it pushes on — the same composer, floating over the board.
     var boardCard: BoardCard? = nil
+    /// The files pane's chat (user 2026-09-22): the path to send along as an `@` token, asked at send time; `nil` elsewhere.
+    var carry: (() -> String?)? = nil
 
     @State private var height: CGFloat = 22
     @State private var isFocused = false
@@ -289,6 +291,8 @@ struct ComposerView: View {
         case .text:
             break
         }
+        // The chosen file or folder rides along (user 2026-09-22) — on words, never on a command.
+        let outgoing = FileChat.outgoingText(text, carry: carry?())
         var assignees: [UUID] = []
         if conversation.isGroup || onBoard {
             assignees = Mentions.assignees(in: text, members: members)
@@ -310,7 +314,7 @@ struct ComposerView: View {
         token = nil
         let root = projectRoot
         let projectName = projectName
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = outgoing.trimmingCharacters(in: .whitespacesAndNewlines)
         let card = boardCard
         let current = session.current
         Task {

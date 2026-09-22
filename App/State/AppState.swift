@@ -206,6 +206,15 @@ final class AppState {
     let toasts = ToastCenter()
     /// The open project's folder tree; `nil` while no reachable folder is open.
     var files: FileBrowser?
+    /// 文件区的对话面板 (user 2026-09-22), the settings behind `AppState+FilesChat`: open, width, whether the chosen file
+    /// travels with a message, the Agent per project — kept in the profile's defaults.
+    @ObservationIgnored let defaults: UserDefaults?
+    var filesChatOpenStored = false
+    var filesChatWidthStored: CGFloat = FileChat.defaultWidth
+    var filesChatCarriesStored = true
+    var filesChatAgents: [UUID: UUID] = [:]
+    /// The conversation the panel shows now, so a reply landing there isn't unread (like `displayedConversationID`).
+    var filesChatShownConversationID: UUID?
     /// 自动更新 (2026-09-14): Sparkle, set by the app; `nil` in tests and in QA copies without a feed.
     var updater: AppUpdater?
     /// 一键提交 (2026-09-14): the commit sheet is open for this project folder.
@@ -221,7 +230,14 @@ final class AppState {
          conversations: ConversationStore, notifications: NotificationSettings, hooks: HookStore = HookStore(folder: nil),
          chatClient: ChatClient = ChatClient(), memory: MemoryStore = MemoryStore(folder: nil),
          bobModel: BobModel = BobModel(defaults: nil), approvalRules: ApprovalRuleStore = ApprovalRuleStore(fileURL: nil),
-         prices: ModelPriceStore = ModelPriceStore(fileURL: nil), subagents: SubagentLibrary = SubagentLibrary(globalFolder: nil)) {
+         prices: ModelPriceStore = ModelPriceStore(fileURL: nil), subagents: SubagentLibrary = SubagentLibrary(globalFolder: nil),
+         defaults: UserDefaults? = nil) {
+        self.defaults = defaults
+        filesChatOpenStored = defaults?.bool(forKey: FileChat.openKey) ?? false
+        if let width = defaults?.object(forKey: FileChat.widthKey) as? Double {
+            filesChatWidthStored = min(max(CGFloat(width), FileChat.minWidth), FileChat.maxWidth)
+        }
+        if defaults?.object(forKey: FileChat.carriesKey) != nil { filesChatCarriesStored = defaults?.bool(forKey: FileChat.carriesKey) ?? true }
         self.account = account
         self.subagents = subagents
         self.prices = prices
@@ -257,8 +273,13 @@ final class AppState {
         skills.usage = { [weak agents] id in agents?.usage(ofSkill: id) ?? 0 }
         mcp.usage = { [weak agents] id in agents?.usage(ofMCP: id) ?? 0 }
         chat.isVisible = { [weak self] id in
-            guard let self else { return false }
-            return selectedSection == .messages && displayedConversationID == id && NSApplication.shared.isActive
+            guard let self, NSApplication.shared.isActive else { return false }
+            switch selectedSection {
+            case .messages: return displayedConversationID == id
+            // The files pane's chat (user 2026-09-22) is looked at like 消息 while it is open.
+            case .files: return filesChatOpen && filesChatShownConversationID == id
+            default: return false
+            }
         }
         chat.onUnseenReply = { [weak self] conversation, message in self?.replyAlert(conversation, message) }
         chat.userName = { [weak account] in account?.displayName ?? "" }
@@ -326,7 +347,7 @@ final class AppState {
     }
 
     /// In-memory account, providers, Agents, Skills and MCP (tests, previews): nothing touches disk or the Keychain.
-    convenience init(accountName: String) {
+    convenience init(accountName: String, defaults: UserDefaults? = nil) {
         // An in-memory store cannot fail to open.
         let container = try! ProjectStore.makeContainer(storeURL: nil)
         self.init(account: AccountStore(defaults: nil, folder: nil, systemName: accountName),
@@ -334,7 +355,8 @@ final class AppState {
                   agents: AgentStore(container: container, avatarFolder: nil),
                   skills: SkillLibrary(folder: nil, builtInFolder: nil, defaults: nil),
                   mcp: MCPStore(secrets: InMemorySecretStore(), fileURL: nil, openURL: { _ in }),
-                  conversations: ConversationStore(folder: nil), notifications: NotificationSettings(defaults: nil))
+                  conversations: ConversationStore(folder: nil), notifications: NotificationSettings(defaults: nil),
+                  defaults: defaults)
     }
 
     /// 「发起对话」 (C6): a new direct chat, opened in 消息. Not guarded — the button says where it goes (§8.6).

@@ -918,6 +918,7 @@ final class ChatRunner {
     /// The run ends on its question (D6): nothing queued runs, and the user is told where they aren't looking.
     private func waitForAnswer(_ id: UUID, runID: UUID) {
         guard isCurrent(runID, id) else { return }
+        AppLog.info(WaitLog.category, WaitLog.waitingForAnswer(conversation: id))
         end(id)
         queues[id] = nil
         endRelay(id, .paused)
@@ -1573,9 +1574,11 @@ final class ChatRunner {
             approvals[id] = Approval(messageID: messageID, callID: call.id, reason: forced,
                                      grant: rememberable ? ApprovalGrants.offer(for: call) : nil,
                                      preview: conversation.flatMap { workRoot(for: $0) }.flatMap { FileHistory.preview(call, root: $0) })
+            AppLog.info(WaitLog.category, WaitLog.waitingForApproval(call: call, conversation: id))
             explainRisk(id, call: call, agent: agent)
             let allowed = await withCheckedContinuation { decisions[id] = $0 }
             approvals[id] = nil
+            AppLog.info(WaitLog.category, WaitLog.decided(call: call, conversation: id, allowed: allowed))
             guard allowed else {
                 return .refused(ToolResult(status: .denied, output: "用户拒绝了这一步（\(call.summary)）。不要换个说法再做同样的事；换个做法，或者问用户想怎么做。"))
             }

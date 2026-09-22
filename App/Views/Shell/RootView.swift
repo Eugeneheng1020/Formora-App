@@ -31,7 +31,7 @@ struct RootView: View {
                 .frame(width: ShellMetrics.leftPaneWidth)
                 switch state.selectedSection {
                 case .messages: ConversationPane(state: state, session: session)
-                case .files: FilePreviewPane(browser: state.files)
+                case .files: FileChatColumn(state: state, session: session)
                 case .agents: AgentDetailPane(state: state, session: session)
                 case .settings: SettingsPane(state: state, session: session)
                 case .board: BoardPane(state: state, session: session)
@@ -212,6 +212,7 @@ struct RootView: View {
         // Coming back to the window reads the reply that is on screen.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             if state.selectedSection == .messages, let id = state.displayedConversationID { state.conversations.markRead(id) }
+            if state.selectedSection == .files, state.filesChatOpen, let id = state.filesChatShownConversationID { state.conversations.markRead(id) }
             state.skills.reload() // a Skill folder may have been added or changed in Finder meanwhile
             state.hooks.reload() // and hooks.json edited in another app
         }

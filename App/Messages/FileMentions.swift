@@ -8,6 +8,8 @@ struct FileMention: Codable, Equatable, Sendable {
     var content: String?
     /// Why the content is cut or missing.
     var note: String?
+    /// A folder (user 2026-09-22): `content` is its listing, not a file's text. Absent in older data.
+    var isFolder: Bool?
 }
 
 /// `@` files (D3): like Claude Code, a mentioned text file travels with the message, so the model doesn't spend a
@@ -18,6 +20,8 @@ enum FileMentions {
     static let totalCap = 120_000
     /// Files offered in the `@` list at most.
     static let listLimit = 5_000
+    /// Entries a folder mention lists at most.
+    static let folderLimit = 200
     private static let byteCap = 4 * 1024 * 1024
 
     /// How the list inserts a path: quoted when it has a space, so the token ends where the path does.
@@ -48,10 +52,15 @@ enum FileMentions {
         var mentions: [FileMention] = []
         var total = 0
         for token in tokens(in: text) {
-            guard let url = try? sandbox.resolve(token),
-                  (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else { continue }
+            guard let url = try? sandbox.resolve(token) else { continue }
+            let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isDirectoryKey])
             let path = sandbox.relative(url)
             guard !mentions.contains(where: { $0.path == path }) else { continue }
+            if values?.isDirectory == true {
+                mentions.append(folderMention(url, path: path))
+                continue
+            }
+            guard values?.isRegularFile == true else { continue }
             let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
             guard size <= byteCap, let data = try? Data(contentsOf: url) else {
                 mentions.append(FileMention(path: path, note: "文件太大，没有带上内容，需要时用 read 分段读"))
@@ -82,6 +91,18 @@ enum FileMentions {
         return mentions
     }
 
+    /// A folder as the tree shows it (user 2026-09-22): its direct entries in Finder's order, folders first and marked with
+    /// `/`, at most `folderLimit` — never the files' contents, never recursive; `ls` is for the rest.
+    static func folderMention(_ url: URL, path: String) -> FileMention {
+        guard let entries = try? DirectoryLister.list(url) else {
+            return FileMention(path: path, note: "读不了这个文件夹", isFolder: true)
+        }
+        let shown = entries.prefix(folderLimit).map { path + "/" + $0.name + ($0.isFolder ? "/" : "") }
+        let rest = entries.count - shown.count
+        return FileMention(path: path, content: shown.joined(separator: "\n"),
+                           note: rest > 0 ? "还有 \(rest) 项，用 ls 看" : nil, isFolder: true)
+    }
+
     /// What the model reads after the user's words.
     static func context(_ mentions: [FileMention]) -> String {
         mentions.map { mention in
@@ -89,7 +110,8 @@ enum FileMentions {
             var fence = "```"
             while content.contains(fence) { fence += "`" }
             let note = mention.note.map { "\n（\($0)）" } ?? ""
-            return "〔@\(mention.path) 的内容〕\n\(fence)\n\(content)\n\(fence)\(note)"
+            let heading = mention.isFolder == true ? "〔@\(mention.path)/ 的目录〕" : "〔@\(mention.path) 的内容〕"
+            return "\(heading)\n\(fence)\n\(content)\n\(fence)\(note)"
         }.joined(separator: "\n\n")
     }
 

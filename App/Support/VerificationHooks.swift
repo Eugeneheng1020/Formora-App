@@ -156,9 +156,31 @@ enum VerificationHooks {
     /// `-FormoraCreateAgentStep 1|2|3`: the creation dialog opens prefilled on that step.
     static let createAgentStepKey = "FormoraCreateAgentStep"
 
+    /// `-FormoraSeedEvalAgents custom-xxx/deepseek/deepseek-v4.1-flash` (user 2026-09-20, 行为评估设计 §5): one Agent
+    /// per role in the eval profile, all on the evaluation's model, 允许写入 and 旁审 off — the fixed setting the
+    /// scores are compared against. Kept apart from `-FormoraSeedAgents`, whose shape the UI tests depend on.
+    static let seedEvalAgentsKey = "FormoraSeedEvalAgents"
+
+    static func seedEvalAgents(into agents: AgentStore, project: UUID, profile: AppProfile,
+                               settings: UserDefaults = .standard) {
+        guard !profile.isDefault, let spec = settings.string(forKey: seedEvalAgentsKey),
+              let slash = spec.firstIndex(of: "/") else { return }
+        let providerID = String(spec[..<slash])
+        let modelID = String(spec[spec.index(after: slash)...])
+        for role in AgentRole.all where !agents.agents.contains(where: { $0.roleID == role.id }) {
+            guard let agent = try? agents.create(NewAgent(roleID: role.id, name: role.name, subtitle: "", avatarPNG: nil,
+                                                          providerID: providerID, modelID: modelID, projectIDs: [project]))
+            else { continue }
+            try? agents.setApprovalMode(agent, .write)
+            try? agents.setReviewsOwnWork(agent, false)
+            try? agents.setActive(agent, true)
+        }
+    }
+
     static func applyAgents(to state: AppState, currentProject: ProjectRecord?, profile: AppProfile,
                             settings: UserDefaults = .standard) {
         guard !profile.isDefault else { return }
+        if let project = currentProject { seedEvalAgents(into: state.agents, project: project.id, profile: profile, settings: settings) }
         if settings.bool(forKey: seedAgentsKey), state.agents.agents.isEmpty, let project = currentProject {
             let samples: [(role: String, name: String, provider: String, model: String, active: Bool)] = [
                 ("ops", "增长", "deepseek", "deepseek-v4-flash", false),
@@ -1027,6 +1049,20 @@ enum VerificationHooks {
     /// `-FormoraFakeLLM http://127.0.0.1:8765/v1` (with `scripts/fake-llm.py` running): a custom provider pointing at
     /// the local fake model, and every seeded Agent answering with it — streamed replies without API credit.
     static let fakeLLMKey = "FormoraFakeLLM"
+    /// `-FormoraFilesChat YES` (user 2026-09-22): 文件's chat panel opens; `-FormoraFilesChatAgent design` picks the seeded
+    /// Agent of that role in it, as the menu would. Runs after the fake model is set, so the Agent can take work.
+    static let filesChatKey = "FormoraFilesChat"
+    static let filesChatAgentKey = "FormoraFilesChatAgent"
+
+    static func applyFilesChat(to state: AppState, currentProject: ProjectRecord?, profile: AppProfile,
+                               settings: UserDefaults = .standard) {
+        guard !profile.isDefault else { return }
+        if settings.bool(forKey: filesChatKey) { state.filesChatOpen = true }
+        if let role = settings.string(forKey: filesChatAgentKey), let project = currentProject,
+           let agent = state.agents.agents.first(where: { $0.roleID == role }) {
+            state.chooseFilesChatAgent(agent.id, project: project)
+        }
+    }
     /// `-FormoraLiveModel deepseek/deepseek-flash` (with a `FORMORA_QA_KEY_<PROVIDER>` key in the environment): every seeded
     /// Agent answers with that real model — a live run for a test to watch (user 2026-09-14: 「运行过程」 crashes on a real run).
     static let liveModelKey = "FormoraLiveModel"
@@ -1054,19 +1090,41 @@ enum VerificationHooks {
     static let fakeChatGPTKey = "FormoraFakeChatGPT"
     /// `-FormoraAutoAllow YES` (7j-3): every approval card is answered 允许 about half a second after it appears.
     static let autoAllowKey = "FormoraAutoAllow"
+    /// `-FormoraAutoDeny YES` (user 2026-09-20, 行为评估设计 §5): every approval card is answered 拒绝 — one
+    /// evaluation question needs to observe what the Agent does after being refused. `-FormoraAutoAllow` wins
+    /// when both are given.
+    static let autoDenyKey = "FormoraAutoDeny"
+
+    enum AutoAnswer: Equatable { case allow, deny }
+
+    static func autoAnswer(for profile: AppProfile, settings: UserDefaults = .standard) -> AutoAnswer? {
+        guard !profile.isDefault else { return nil }
+        if settings.bool(forKey: autoAllowKey) { return .allow }
+        return settings.bool(forKey: autoDenyKey) ? .deny : nil
+    }
     /// `-FormoraProbeComputer YES` (7j-3): a second after launch, what computer use can reach, written to the container's
     /// `tmp/computer-probe.txt` for a QA script to read (the old app's phase 0 probe).
     static let probeComputerKey = "FormoraProbeComputer"
 
     static func applyChat(to state: AppState, profile: AppProfile, settings: UserDefaults = .standard) {
         guard !profile.isDefault else { return }
-        if let base = settings.string(forKey: fakeLLMKey),
-           let provider = try? state.providers.saveCustom(CustomProviderDraft(name: "本机模拟", baseURL: base, apiProtocol: .openAICompletions,
-                                                                              key: "fake-local-key"), editing: nil) {
-            for agent in state.agents.agents {
-                try? state.agents.saveModel(agent, AgentModelDraft(providerID: provider, modelID: "fake-prd"), isConfigured: { _ in true })
+        if let base = settings.string(forKey: fakeLLMKey) {
+            // 行为评估（Task 9，2026-09-21 端到端跑时撞上）：eval 档一次评测会连续启动这个副本很多次
+            // （每道自测题、每次重跑都是一次全新的进程），profile.reset() 故意不清 Providers.json（钥匙
+            // 串和已配置的服务商不该被每道题清空）。`editing: nil` 每次都当"新建"，第二次启动时上一次
+            // 建的「本机模拟」还在，saveCustom() 的名称唯一性检查会直接把这次的新建请求判成
+            // .nameTaken 并 throw——`try?` 吞掉这个错误，整个覆盖块被跳过，Agent 的模型还留着
+            // seedEvalAgents() 刚建号时给的字面量 "fake"，查不到同名服务商，之后每一次调用都报
+            // "「fake」没有配置 API Key"。改成找已有的「本机模拟」就传它的 id 给 editing:，没有才当
+            // 新建，让重复启动这个副本可以重复覆盖同一个服务商。
+            let existing = state.providers.entries.first { $0.isCustom && $0.name == "本机模拟" }?.id
+            if let provider = try? state.providers.saveCustom(CustomProviderDraft(name: "本机模拟", baseURL: base, apiProtocol: .openAICompletions,
+                                                                                  key: "fake-local-key"), editing: existing) {
+                for agent in state.agents.agents {
+                    try? state.agents.saveModel(agent, AgentModelDraft(providerID: provider, modelID: "fake-prd"), isConfigured: { _ in true })
+                }
+                state.bobModel.choose(ModelReference(providerID: provider, modelID: "fake-prd"))
             }
-            state.bobModel.choose(ModelReference(providerID: provider, modelID: "fake-prd"))
         }
         if let spec = settings.string(forKey: liveModelKey), let slash = spec.firstIndex(of: "/") {
             let provider = String(spec[..<slash]), model = String(spec[spec.index(after: slash)...])
@@ -1108,12 +1166,12 @@ enum VerificationHooks {
                 try? lines.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
             }
         }
-        if settings.bool(forKey: autoAllowKey) {
+        if let answer = autoAnswer(for: profile, settings: settings) {
             Task { @MainActor [weak state] in
                 for _ in 0..<600 {
                     try? await Task.sleep(for: .milliseconds(500))
                     guard let state else { return }
-                    for id in Array(state.chat.approvals.keys) { state.chat.decide(id, allow: true) }
+                    for id in Array(state.chat.approvals.keys) { state.chat.decide(id, allow: answer == .allow) }
                 }
             }
         }

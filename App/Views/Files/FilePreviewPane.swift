@@ -5,6 +5,9 @@ import SwiftUI
 /// lasts until the content has actually painted (todo #8).
 struct FilePreviewPane: View {
     let browser: FileBrowser?
+    /// The chat panel's switch (user 2026-09-22): in the header beside a file, at the top right when nothing is chosen.
+    var isChatOpen = false
+    var toggleChat: () -> Void = {}
 
     @State private var content: PreviewContent?
     @State private var isReady = false
@@ -20,6 +23,7 @@ struct FilePreviewPane: View {
                                              selection: Binding(get: { browser.htmlView }, set: { browser.htmlView = $0 }),
                                              identifier: "files.htmlView")
                         }
+                        toggleButton
                     }
                     preview(for: node)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -38,12 +42,19 @@ struct FilePreviewPane: View {
                     .font(FormoraFont.ui(13))
                     .foregroundStyle(Palette.inkFaint.color)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .overlay(alignment: .topTrailing) { toggleButton.padding(.top, 28).padding(.trailing, 30) }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Palette.ground.color)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("detail.files")
+    }
+
+    private var toggleButton: some View {
+        IconActionButton(icon: Icons.terminal, label: isChatOpen ? "关闭对话面板" : "打开对话面板", identifier: "files.chat.toggle",
+                         action: toggleChat)
+            .background(Circle().fill(isChatOpen ? Palette.surfaceRaised2.color : .clear))
     }
 
     private func header(_ node: FileNode, path: String, @ViewBuilder accessory: () -> some View) -> some View {

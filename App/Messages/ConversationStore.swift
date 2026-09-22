@@ -70,6 +70,14 @@ final class ConversationStore {
 
     func hiddenCount(project: UUID?) -> Int { list(project: project, hiddenView: true).count }
 
+    /// The files pane's chat (user 2026-09-22): this Agent's latest normal direct chat in this project — hidden and archived
+    /// ones are put away, subtasks and side chats aren't the user's own.
+    func latestDirect(agentID: UUID, project: UUID) -> Conversation? {
+        Self.recent(conversations.filter {
+            $0.kind == .direct && $0.agentID == agentID && $0.projectID == project && $0.parent == nil && $0.visibility == .normal
+        }).first
+    }
+
     func archived() -> [Conversation] { conversations.filter { $0.parent == nil && $0.visibility == .archived } }
 
     // MARK: Creating (C6, C7)

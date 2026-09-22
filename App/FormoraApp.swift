@@ -65,7 +65,7 @@ struct FormoraApp: App {
                              bobModel: BobModel(defaults: profile.makeUserDefaults()),
                              approvalRules: ApprovalRuleStore(fileURL: support?.appendingPathComponent(ApprovalRuleStore.fileName)),
                              prices: ModelPriceStore(fileURL: support?.appendingPathComponent(ModelPriceStore.fileName)),
-                             subagents: subagents)
+                             subagents: subagents, defaults: profile.makeUserDefaults())
         // Replies still streaming are kept as stopped, and background writes land, before the process goes.
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { _ in
             MainActor.assumeIsolated {
@@ -149,6 +149,7 @@ struct FormoraApp: App {
         VerificationHooks.applyMCP(to: state, profile: profile)
         VerificationHooks.applyMessages(to: state, currentProject: session.current, profile: profile)
         VerificationHooks.applyChat(to: state, profile: profile)
+        VerificationHooks.applyFilesChat(to: state, currentProject: session.current, profile: profile)
         VerificationHooks.applyHooks(to: state, projectRoot: session.accessibleRoot, profile: profile)
         PerfTour.startIfAsked(state: state, session: session, profile: profile)
 
