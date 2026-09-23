@@ -5,6 +5,15 @@
     <description>Formora 的更新</description>
     <language>zh-Hans</language>
     <item>
+      <title>1.0.27</title>
+      <pubDate>Thu, 24 Sep 2026 00:08:32 +0800</pubDate>
+      <sparkle:version>43</sparkle:version>
+      <sparkle:shortVersionString>1.0.27</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[<p>计划模式常开、effort 档位与 /effort、图片文件写进文字、/skills /mcp /hooks 一句话创建、GPT-6 与 Claude Opus 5.5 等新模型</p>]]></description>
+      <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.27/Formora-1.0.27.dmg" type="application/octet-stream" sparkle:edSignature="ayb3KqkhwQ7hFSAh9eUlGmpmOD3M+zmUKvGPec2nKHbOnf/DvdylLOWVp7Q79biOWwQYN0SXox5cd6zYXzihDw==" length="13532573"/>
+    </item>
+    <item>
       <title>1.0.26</title>
       <pubDate>Tue, 22 Sep 2026 21:03:06 +0800</pubDate>
       <sparkle:version>42</sparkle:version>
@@ -84,15 +93,6 @@
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
       <description><![CDATA[<p>治过度执行：旧计划不再把新任务拉回去；写过的大文件不再每一步重发；旁审的必须停会真的停下来问你；小事直接做、不反复验证；OpenRouter 上的 Claude 用上提示词缓存</p>]]></description>
       <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.18/Formora-1.0.18.dmg" type="application/octet-stream" sparkle:edSignature="fkIYsWX1BFS/GFOeP4HhPb9z0dmDTRc0HiSzDDLGsTI3RnyLZ9T4fFBaABj73vI2RwFHy245dAditgUVg4qDAw==" length="13006741"/>
-    </item>
-    <item>
-      <title>1.0.17</title>
-      <pubDate>Thu, 17 Sep 2026 23:15:35 +0800</pubDate>
-      <sparkle:version>33</sparkle:version>
-      <sparkle:shortVersionString>1.0.17</sparkle:shortVersionString>
-      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <description><![CDATA[<p>/agent 后写上目的就自动创建子代理，全程没有弹窗；做完对话里出现一行结果，在看板上发起的显示在那张卡片的运行过程里</p>]]></description>
-      <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.17/Formora-1.0.17.dmg" type="application/octet-stream" sparkle:edSignature="4V58+LhoTl0FHXjbjlw2AHQJaNTbRJNI8rTD3FXf2BiqzIcWPJhmmeCBgOqivKFOyVCHE5maxAareq1JNCuEBQ==" length="12991008"/>
     </item>
   </channel>
 </rss>
