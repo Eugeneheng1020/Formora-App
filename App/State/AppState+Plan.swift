@@ -9,16 +9,17 @@ extension AppState {
         conversations.setPlanMode(isOn, in: id)
         guard !message.isEmpty else {
             toasts.show(isOn ? "已开启计划模式" : "已关闭计划模式",
-                        note: isOn ? "它先看、先问、先出方案，你点「按这个计划做」它才动手" : "恢复直接执行", seconds: 3)
+                        note: isOn ? "每件事它先看、先问、先出方案，你点「按这个计划做」它才动手；一直开着，再点 plan 关闭" : "恢复直接执行", seconds: 3)
             return nil
         }
         sendFromCommand(message, to: id, projectRoot: projectRoot, projectName: projectName)
         return nil
     }
 
-    /// 「按这个计划做」 under a plan-mode run: plan mode off, and the Agent that planned is told to go.
+    /// 「按这个计划做」 under a plan-mode run: the Agent that planned is told to go, and the plan is carried out without asking
+    /// (dangerous commands still ask). Plan mode stays on for what comes next (user 2026-09-23).
     func executePlan(_ id: UUID, projectRoot: URL?, projectName: String?) {
-        conversations.setPlanMode(false, in: id)
+        conversations.setPlanApproved(true, in: id)
         sendFromCommand(PlanTool.goAhead, to: id, projectRoot: projectRoot, projectName: projectName)
     }
 

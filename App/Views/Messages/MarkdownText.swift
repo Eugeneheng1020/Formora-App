@@ -19,6 +19,9 @@ struct MarkdownText: View {
     var openFile: ((String) -> Void)? = nil
     /// Set, a code block gets a copy icon in front (user 2026-09-15).
     var onCopy: ((String) -> Void)? = nil
+    /// Set, each block's right-click menu has 复制 for the whole reply. On the blocks, not around them: a context menu
+    /// on the container took the drag that selects words (user 2026-09-23: 气泡里的字选不中).
+    var onCopyAll: (() -> Void)? = nil
 
     var body: some View {
         // A reply still streaming changes with every token: parsed fresh, not kept.
@@ -26,6 +29,7 @@ struct MarkdownText: View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { index, block in
                 view(block, cursor: showsCursor && index == blocks.count - 1)
+                    .contextMenu { if let onCopyAll { Button("复制") { onCopyAll() } } }
                     .padding(.top, index == 0 ? 0 : MarkdownBlocks.gap(before: block, after: blocks[index - 1]))
             }
             if showsCursor, blocks.isEmpty || !blocks.last!.takesCursor { Self.cursorText }

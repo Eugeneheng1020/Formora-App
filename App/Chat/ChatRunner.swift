@@ -678,7 +678,7 @@ final class ChatRunner {
         }
         // Plan mode: only what reads — and no hand-off: the plan is for the user to approve (D5, M5).
         // Plan mode looks before it acts; reading a page is looking, and it asks (D70).
-        let offered = conversation.planMode
+        let offered = conversation.plansOnly
             ? all.filter { ($0.tier == .read || $0.name == AgentTools.fetch.name) && $0.name != TeamTools.handoff.name } : all
         // What was started in the background is read and stopped with these — wherever bash is offered (10f).
         return offered.contains { $0.name == AgentTools.bash.name } ? offered + BackgroundJobs.specs : offered
@@ -695,7 +695,7 @@ final class ChatRunner {
 
     /// Whether the `plan` tool belongs in this conversation now (user 2026-09-17).
     nonisolated static func keepsPlan(_ conversation: Conversation) -> Bool {
-        conversation.planMode || conversation.plan.contains(where: \.isOpen)
+        conversation.plansOnly || conversation.plan.contains(where: \.isOpen)
     }
 
     /// The Agent's own tools (7f): loading its Skills, writing a new one, memory, its MCP tools.
@@ -1059,7 +1059,7 @@ final class ChatRunner {
     nonisolated static func modelChain(for conversation: Conversation, agent: AgentRecord) -> [ModelReference] {
         var chain: [ModelReference] = []
         func add(_ model: ModelReference?) { if let model, !chain.contains(model) { chain.append(model) } }
-        if conversation.planMode { add(agent.model(for: .plan)) }
+        if conversation.plansOnly { add(agent.model(for: .plan)) }
         if hasImages(conversation) { add(agent.model(for: .vision)) }
         add(agent.primaryModel)
         return chain
@@ -1166,7 +1166,7 @@ final class ChatRunner {
                     // is sent back to them, at most three times a run. Not in plan mode (the plan is for the user), not a
                     // hand-off; a question is a call, so it never comes here. And only when the plan is what this run is
                     // about (user 2026-09-17): an old plan once sent 「删除 skills 来源文件夹」 back to seven steps of a design.
-                    if state.planContinues < Self.planContinueLimit, !conversation.planMode, !state.steered,
+                    if state.planContinues < Self.planContinueLimit, !conversation.plansOnly, !state.steered,
                        Self.followsPlan(conversations.conversation(id) ?? conversation, touched: state.touchedPlan),
                        let open = conversations.conversation(id)?.plan.filter(\.isOpen), !open.isEmpty,
                        trailingHandoff(reply.text, conversationID: id, agent: agent).handoff == nil {
@@ -1541,8 +1541,8 @@ final class ChatRunner {
         let conversation = conversations.conversation(id)
         let tier = tier(of: call.name, agent: agent)
         // Plan mode (D5): tools above read aren't offered, but a text-protocol model may write one anyway.
-        if conversation?.planMode == true, let tier, tier > .read, call.name != AgentTools.fetch.name {
-            return .refused(ToolResult(status: .denied, output: "现在是计划模式：不能写文件、改文件或运行命令。把方案写出来，用户点「按这个计划做」之后才会关掉计划模式。"))
+        if conversation?.plansOnly == true, let tier, tier > .read, call.name != AgentTools.fetch.name {
+            return .refused(ToolResult(status: .denied, output: "现在是计划模式：不能写文件、改文件或运行命令。把方案写出来，用户点「按这个计划做」之后你才能动手。"))
         }
         // A read-only subtask (7g, S1), the same way — reading a page aside: it only looks, and it asks (D70).
         if conversation?.parent?.readOnly == true, let tier, tier > .read, call.name != AgentTools.fetch.name {
@@ -1561,9 +1561,12 @@ final class ChatRunner {
         }
         // Computer use (7j, C2): looking never asks; the first acting call of a run asks once, 全部放行 not at all.
         let isComputer = call.name == ComputerTool.name
+        // An approved plan (user 2026-09-23: 计划确认后无需用户确认执行): its writes and commands don't ask; the dangerous
+        // ones below still do, as under 允许写入.
+        let planApproved = conversation?.planMode == true && conversation?.planApproved == true
         let aboveMode = isComputer
             ? ComputerTool.acts(call.arguments) && agent.approvalMode != .yolo && !state.computerAllowed
-            : tier.map { agent.approvalMode.needsApproval($0) } ?? false
+            : !planApproved && (tier.map { agent.approvalMode.needsApproval($0) } ?? false)
         // The seven kinds of dangerous command ask whatever a hook allowed (7c, C3) — except under 全部放行 (user 2026-09-15).
         let forced = AgentTools.forcedApproval(call, mode: agent.approvalMode)
         // 10b: what the user said to remember — for this conversation, or the project — needs no asking. A forced step
@@ -1891,7 +1894,7 @@ final class ChatRunner {
         return SystemPrompt.build(role: agent.role, environment: SystemPrompt.Environment(
             projectName: projectName(conversation.projectID), userName: userName(),
             groupName: group.isGroup ? group.groupName : nil, groupMembers: members,
-            canAsk: tools.contains { $0.name == AskTool.spec.name }, tools: tools.map(\.name), planMode: conversation.planMode,
+            canAsk: tools.contains { $0.name == AskTool.spec.name }, tools: tools.map(\.name), planMode: conversation.plansOnly,
             skills: tools.contains { $0.name == SkillTools.load.name }
                 ? enabledSkills(agent).map { SystemPrompt.SkillLine(name: $0.name, description: $0.document.description) } : [],
             // Its directory only (user 2026-09-17) — without the notes not read or confirmed for half a year (10j).

@@ -10,11 +10,10 @@ struct ComposerCommand: Identifiable, Equatable, Sendable {
         case subagent
         /// `/model 关键词` (user 2026-09-18): the Agent's main model, picked from a list in the composer's popover.
         case model
-        case go(Destination)
-    }
-
-    enum Destination: Equatable, Sendable {
-        case skills, mcp, files, settings, hooks
+        /// `/skills`, `/mcp`, `/hooks` + what's wanted (user 2026-09-23): made, not a page to go to.
+        case create(Creations.Kind)
+        /// `/effort 档位` (user 2026-09-23): the conversation's reasoning level, picked from a list in the popover.
+        case effort
     }
 
     /// With its slash — what the popover inserts (spec §9.8: a name without it would be sent as a message).
@@ -45,13 +44,12 @@ enum Commands {
         ComposerCommand(name: "/dump", note: "复制整段对话到剪贴板", action: .dump),
         ComposerCommand(name: "/help", note: "列出全部可用指令", action: .help),
         ComposerCommand(name: "/git", note: "查看仓库状态和最近的提交", roles: ["dev"], action: .git),
+        ComposerCommand(name: "/effort", note: "调推理强度：列出这个模型有的档位，只影响这个对话", takesArgument: true, action: .effort),
         ComposerCommand(name: "/model", note: "切换这个 Agent 的主模型：/model 关键词 只看匹配的", takesArgument: true, action: .model),
-        ComposerCommand(name: "/skills", note: "去「Skills」", action: .go(.skills)),
-        ComposerCommand(name: "/mcp", note: "去「MCP」", action: .go(.mcp)),
+        ComposerCommand(name: "/skills", note: "创建一个 Skill：/skills 写清要它会什么", takesArgument: true, action: .create(.skill)),
+        ComposerCommand(name: "/mcp", note: "接入一个 MCP 服务：/mcp 服务名、地址或配置", takesArgument: true, action: .create(.mcp)),
+        ComposerCommand(name: "/hooks", note: "创建一个 Hook：/hooks 什么时候做什么", takesArgument: true, action: .create(.hook)),
         ComposerCommand(name: "/agent", note: "创建一个子代理：/agent 写清它的目的，名字、提示词由模型起草", takesArgument: true, action: .subagent),
-        ComposerCommand(name: "/files", note: "去文件", action: .go(.files)),
-        ComposerCommand(name: "/settings", note: "去设置", action: .go(.settings)),
-        ComposerCommand(name: "/hooks", note: "去「设置 → Hooks」", action: .go(.hooks)),
     ]
 
     /// What the Agents of a conversation have (spec §9.8: `/git` only for 研发). A group counts every member's role.

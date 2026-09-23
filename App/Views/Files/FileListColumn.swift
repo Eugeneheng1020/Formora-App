@@ -8,13 +8,22 @@ struct FileListColumn: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
-                Text("文件")
-                    .font(FormoraFont.ui(19, weight: 700))
-                    .tracking(-0.19)
-                    .foregroundStyle(Palette.ink.color)
-                    .frame(height: 26, alignment: .leading)
-                    .accessibilityIdentifier("list.title")
-                    .padding(.bottom, 14)
+                HStack(spacing: 0) {
+                    Text("文件")
+                        .font(FormoraFont.ui(19, weight: 700))
+                        .tracking(-0.19)
+                        .foregroundStyle(Palette.ink.color)
+                        .accessibilityIdentifier("list.title")
+                    Spacer(minLength: 0)
+                    // 刷新 (user 2026-09-23): nothing watches the folder, so files changed outside Formora show on a click.
+                    if let browser = state.files {
+                        IconActionButton(icon: Icons.refresh, label: "刷新文件树", identifier: "files.refresh") {
+                            Task { await browser.reload() }
+                        }
+                    }
+                }
+                .frame(height: 26)
+                .padding(.bottom, 14)
                 if let browser = state.files {
                     SearchField(placeholder: "搜索文件", text: Binding(get: { browser.searchText }, set: { browser.searchText = $0 }),
                                 identifier: "files.search")
@@ -22,7 +31,7 @@ struct FileListColumn: View {
                         .padding(.bottom, session.accessibleRoot == nil ? 22 : 10)
                 }
                 if let root = session.accessibleRoot {
-                    GitChangesButton(state: state, root: root).padding(.bottom, 12)
+                    GitChangesButton(state: state, root: root, reloads: state.files?.reloads ?? 0).padding(.bottom, 12)
                 }
             }
             .padding(.top, 16)
@@ -192,6 +201,8 @@ struct FileTreeRow: View {
 private struct GitChangesButton: View {
     let state: AppState
     let root: URL
+    /// 刷新 reads the count again too.
+    let reloads: Int
 
     @State private var count: Int?
     @State private var branch = ""
@@ -211,7 +222,7 @@ private struct GitChangesButton: View {
                 .accessibilityIdentifier("files.changes")
             }
         }
-        .task(id: root.path + (state.commitSheet == nil ? "-closed" : "-open")) { await load() }
+        .task(id: root.path + (state.commitSheet == nil ? "-closed" : "-open") + "#\(reloads)") { await load() }
     }
 
     private func load() async {

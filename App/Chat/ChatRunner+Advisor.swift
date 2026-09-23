@@ -12,7 +12,7 @@ extension ChatRunner {
         guard let conversation = conversations.conversation(id), let model = advisorModel(for: agent) else { return }
         if !manual {
             // Not plan mode (nothing changes), not a subtask (its requester checks it) — a lane is the member's own work.
-            guard agent.reviewsOwnWork, !conversation.planMode, !conversation.isSubtask || conversation.isLane else { return }
+            guard agent.reviewsOwnWork, !conversation.plansOnly, !conversation.isSubtask || conversation.isLane else { return }
             // One look at a time (real run 2026-09-18): a look takes longer than a quick step, so looks piled up beside
             // each other — two of them flagged the same surplus in different words, which no de-duplication catches, and
             // each cost a call. A step that finishes while a look is out waits: the next look reads it with what follows.

@@ -280,8 +280,6 @@ enum VerificationHooks {
     static let seedPlanKey = "FormoraSeedPlan"
     /// `-FormoraSeedUsage YES`: every seeded reply gets its Agent's model and a usage, for 设置 → 用量.
     static let seedUsageKey = "FormoraSeedUsage"
-    /// `-FormoraReasoningMenu YES`: the reasoning menu opens on the selected conversation.
-    static let reasoningMenuKey = "FormoraReasoningMenu"
     /// `-FormoraFreshModel deepseek/deepseek-v4-pro` (real-model test 2026-09-18): the fresh chat's Agent gets that main
     /// model, as `/model` would; `-FormoraReasoning max`: the fresh chat's level.
     static let freshModelKey = "FormoraFreshModel"
@@ -656,12 +654,20 @@ enum VerificationHooks {
         default: break
         }
         if settings.bool(forKey: composerDraftKey), let id = state.selectedConversationID {
-            state.composerDrafts[id] = AppState.ComposerDraft(attachments: [
-                Attachment(name: "logo.png", relativePath: "site/images/logo.png", kind: .image),
-                Attachment(name: "PRD.md", relativePath: "docs/PRD.md", kind: .file),
+            // Tagged in the words (user 2026-09-23), as a paste and the paperclip leave them.
+            state.composerDrafts[id] = AppState.ComposerDraft(text: "看看 [image1] 和 [PRD.md] ", attachments: [
+                Attachment(name: "logo.png", relativePath: "site/images/logo.png", kind: .image, label: "image1"),
+                Attachment(name: "PRD.md", relativePath: "docs/PRD.md", kind: .file, label: "PRD.md"),
             ])
         }
-        if settings.bool(forKey: reasoningMenuKey) { state.reasoningMenuFor = state.selectedConversationID }
+        // `-FormoraSeedCreation YES` (user 2026-09-23): a `/hooks` draft waiting for 允许 above the selected conversation's composer.
+        if settings.bool(forKey: seedCreationKey), let id = state.selectedConversationID {
+            let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("FormoraSeedCreation")
+            let draft = Creations.HookDraft(event: .postToolUse, matcher: "write|edit", handler: HookHandler(kind: .command("swiftformat .")))
+            let shown = Creations.hookLines(draft)
+            state.pendingCreations[id] = Creations.Pending(kind: .hook, title: "新建 Hook：\(draft.event.label)", lines: shown.lines, code: shown.code,
+                                                           payload: .hook(draft.handler, event: draft.event, matcher: draft.matcher, root: root))
+        }
         if let text = settings.string(forKey: composerTextKey), let id = state.selectedConversationID {
             state.composerDrafts[id, default: AppState.ComposerDraft()].text = text
         }
@@ -798,6 +804,8 @@ enum VerificationHooks {
 
     /// `-FormoraComposerText @`: the selected conversation's composer starts with this text (a group shows its `@` list).
     static let composerTextKey = "FormoraComposerText"
+    /// `-FormoraSeedCreation YES`: a drafted Hook waits for 允许 above the selected conversation's composer.
+    static let seedCreationKey = "FormoraSeedCreation"
 
     private static func importConversation(at path: String, into state: AppState, project: UUID) -> UUID? {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),

@@ -33,8 +33,8 @@ struct FilePreviewPane: View {
                 }
                 .padding(.vertical, 28)
                 .padding(.horizontal, 30)
-                // Only HTML reloads when the 预览/源码 mode changes.
-                .task(id: isHTML ? "\(node.id)#\(browser.htmlView.rawValue)" : node.id) {
+                // Only HTML reloads when the 预览/源码 mode changes; any file on 刷新.
+                .task(id: (isHTML ? "\(node.id)#\(browser.htmlView.rawValue)" : node.id) + "#\(browser.reloads)") {
                     await load(node, root: browser.root.url, htmlView: browser.htmlView)
                 }
             } else {

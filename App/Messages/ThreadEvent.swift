@@ -36,6 +36,8 @@ struct ThreadEvent: Codable, Equatable, Sendable {
         /// User 2026-09-17: `/agent 目的` made a subagent (`passed`), or couldn't — said in the thread, so the canvas's
         /// window says it too.
         case subagent
+        /// User 2026-09-23: `/skills`, `/mcp`, `/hooks` made a Skill, an MCP service or a Hook (`passed`), or couldn't.
+        case created
     }
 
     /// Bob's arrangement (9e): the stages in order — the members of one stage start together, the next stage waits

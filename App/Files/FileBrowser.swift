@@ -23,6 +23,8 @@ final class FileBrowser {
     var htmlView: HTMLViewMode = .rendered
 
     var searchText = ""
+    /// Bumped by 刷新 (user 2026-09-23): what shows the folder's state — the preview, the git count — reads again on it.
+    private(set) var reloads = 0
     /// `nil` while not searching.
     private(set) var searchOutcome: FileSearch.Outcome?
 
@@ -68,6 +70,14 @@ final class FileBrowser {
             guard let folder = node(withID: id) ?? (id == root.id ? root : nil) else { continue }
             await load(folder)
         }
+    }
+
+    /// 刷新 (user 2026-09-23): the tree, the search results and the preview read the disk again — for files changed
+    /// outside Formora, which nothing watches.
+    func reload() async {
+        await refresh()
+        await performSearch()
+        reloads += 1
     }
 
     func setExpanded(_ folder: FileNode, _ isExpanded: Bool) async {

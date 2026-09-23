@@ -32,7 +32,8 @@ struct ComposerView: View {
     private var isRunning: Bool { state.chat.isRunning(id) }
     /// While the Agent works, sending is steering: it reads the message after the current step (7b, L4).
     private var canSend: Bool {
-        !isBlocked && (!draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !draft.attachments.isEmpty)
+        !isBlocked && (!draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !AttachmentTokens.kept(draft.attachments, in: draft.text).isEmpty)
     }
     private var showsPopover: Bool { token != nil && !isBlocked }
     private var contextUsage: ContextBudget.Usage? { state.chat.contextUsage(id) }
@@ -87,18 +88,10 @@ struct ComposerView: View {
                 send()
             }
             VStack(alignment: .leading, spacing: 8) {
-                if !draft.attachments.isEmpty {
-                    FlowLayout(spacing: 6) {
-                        ForEach(draft.attachments) { attachment in
-                            AttachmentChip(attachment: attachment, projectRoot: session.accessibleRoot, onRemove: { remove(attachment) })
-                        }
-                    }
-                    .accessibilityElement(children: .contain)
-                    .accessibilityIdentifier("composer.attachments")
-                }
                 ComposerTextView(text: textBinding, height: $height, isFocused: $isFocused, isEditable: !isBlocked,
                                  placeholder: placeholder, identifier: "composer.input",
                                  onSubmit: send, onPasteImage: pasteImage, onPasteFiles: add, memberNames: memberNames,
+                                 attachmentTokens: draft.attachments.compactMap(\.token), isCommand: isCommand,
                                  onToken: { token = $0 }, onMentionKey: handleKey, controller: controller,
                                  autofocus: !onBoard, history: { [conversation] in Self.sentTexts(conversation) }, onEscape: escape,
                                  listOpen: { showsPopover }, ghost: ghost, onTab: handleTab)
@@ -106,9 +99,9 @@ struct ComposerView: View {
                     .frame(height: min(max(height, 28), 160))
                 HStack(spacing: 6) {
                     IconActionButton(icon: Icons.paperclip, label: "添加附件", identifier: "composer.attach") { pickFiles() }
-                    ReasoningPill(state: state, conversation: conversation)
-                    if conversation.planMode {
-                        PlanModePill { state.conversations.setPlanMode(false, in: id) }
+                    EffortLabel(state: state, conversation: conversation)
+                    PlanModePill(isOn: conversation.planMode) {
+                        _ = state.togglePlanMode(id, message: "", projectRoot: projectRoot, projectName: projectName)
                     }
                     Spacer(minLength: 10)
                     // 7e, E7: the context ring right before 发送 (user 2026-09-06); a click opens /cost.
@@ -172,7 +165,10 @@ struct ComposerView: View {
         .padding(.horizontal, onBoard ? 0 : 22)
         .padding(.bottom, onBoard ? 0 : 18)
         .overlay(alignment: .top) { if !onBoard { Rectangle().fill(Palette.line.color).frame(height: 1) } }
-        .onChange(of: token) { cursor = 0 }
+        // `/effort` opens on the level in use, so a stray Enter changes nothing.
+        .onChange(of: token) {
+            cursor = token?.kind == .effort ? state.effortChoices(id, query: token?.query ?? "").firstIndex(where: \.isCurrent) ?? 0 : 0
+        }
         .onChange(of: token?.kind) {
             if token?.kind == .at { loadFiles() }
             // `/model`: the providers' real lists, read once — the 常用模型 stand in until they arrive.
@@ -291,6 +287,12 @@ struct ComposerView: View {
         case .text:
             break
         }
+        // A question of several parts (user 2026-09-23): Enter answers the part shown and moves on; the last one sends.
+        if !isRunning, !onBoard, draft.attachments.isEmpty,
+           state.typeAskAnswer(id, text: text.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            token = nil
+            return
+        }
         // The chosen file or folder rides along (user 2026-09-22) — on words, never on a command.
         let outgoing = FileChat.outgoingText(text, carry: carry?())
         var assignees: [UUID] = []
@@ -309,7 +311,9 @@ struct ComposerView: View {
         }
         // UserPromptSubmit hooks see it first (7b′): they may keep it unsent — then the words come back — or add
         // background for the Agent. Sent while the Agent works, it waits as steering (L4).
-        let kept = draft
+        var kept = draft
+        // A tag deleted from the words leaves its attachment out (user 2026-09-23).
+        kept.attachments = AttachmentTokens.kept(draft.attachments, in: text)
         state.composerDrafts[id] = nil
         token = nil
         let root = projectRoot
@@ -347,6 +351,14 @@ struct ComposerView: View {
         return inside + state.agents.agents.filter { agent in !inside.contains { $0.id == agent.id } }
     }
 
+    /// A `/word` this composer runs: a command of its roles, a Skill, a subagent.
+    private func isCommand(_ word: String) -> Bool {
+        if word.hasPrefix("skill:") { return word.count > 6 }
+        let name = "/" + word
+        return Commands.available(roles: state.commandRoles(conversation)).contains { $0.name == name }
+            || state.subagents.names.contains { $0.lowercased() == word }
+    }
+
     private var memberNames: [String] { members.flatMap { [$0.displayName, $0.customName] }.filter { !$0.isEmpty } }
 
     private var sections: [PopoverSection] {
@@ -368,6 +380,8 @@ struct ComposerView: View {
             return state.modelChoices(for: conversation, query: token.query).map { group in
                 PopoverSection(title: group.title, items: group.items.map { .model($0) })
             }
+        case .effort:
+            return [PopoverSection(title: "推理强度", items: state.effortChoices(id, query: token.query).map { .effort($0) })]
         case .at:
             let needle = FileSearch.normalize(token.query)
             var result: [PopoverSection] = []
@@ -397,6 +411,9 @@ struct ComposerView: View {
             return filtered ? "没有匹配的指令" : "还没有指令"
         case .model:
             return filtered ? "没有匹配的模型" : "还没有可选的模型：先在「设置 → 模型」配一个"
+        case .effort:
+            if state.effortOptions(id).isEmpty { return "这个模型的推理强度不能调" }
+            return "没有这一档"
         case .at:
             if conversation.isGroup || onBoard { return filtered ? "没有匹配的角色或文件" : "还没有角色或项目文件" }
             if session.accessibleRoot == nil { return "项目文件夹现在打不开" }
@@ -453,6 +470,9 @@ struct ComposerView: View {
             if let reason = state.switchModel(choice.reference, in: conversation) {
                 state.toasts.show("/model 没有执行", note: reason, isError: true)
             }
+        case .effort(let choice):
+            state.composerDrafts[id, default: AppState.ComposerDraft()].text = ""
+            state.setEffort(choice, in: id)
         }
         token = nil
     }
@@ -482,8 +502,12 @@ struct ComposerView: View {
 
     // MARK: Attachments
 
-    private func remove(_ attachment: Attachment) {
-        state.composerDrafts[id, default: AppState.ComposerDraft()].attachments.removeAll { $0.id == attachment.id }
+    /// Tagged and written into the words at the caret (user 2026-09-23): `[image1]`, `[文件名]`.
+    private func attach(_ attachment: Attachment) {
+        var tagged = attachment
+        tagged.label = AttachmentTokens.label(for: attachment, among: draft.attachments)
+        state.composerDrafts[id, default: AppState.ComposerDraft()].attachments.append(tagged)
+        if let token = tagged.token { controller.insert(token) }
     }
 
     private func pickFiles() {
@@ -505,8 +529,7 @@ struct ComposerView: View {
         guard let root = session.accessibleRoot else { return }
         for url in urls {
             do {
-                let attachment = try ConversationStore.importAttachment(from: url, projectRoot: root)
-                state.composerDrafts[id, default: AppState.ComposerDraft()].attachments.append(attachment)
+                attach(try ConversationStore.importAttachment(from: url, projectRoot: root))
             } catch {
                 state.toasts.show("没有添加「\(url.lastPathComponent)」", note: error.localizedDescription, isError: true)
             }
@@ -520,8 +543,7 @@ struct ComposerView: View {
             return
         }
         do {
-            let attachment = try ConversationStore.savePastedImage(png, projectRoot: root)
-            state.composerDrafts[id, default: AppState.ComposerDraft()].attachments.append(attachment)
+            attach(try ConversationStore.savePastedImage(png, projectRoot: root))
             Task { await state.files?.refresh() }
         } catch {
             state.toasts.show("没有粘贴图片", note: error.localizedDescription, isError: true)
@@ -547,6 +569,8 @@ enum PopoverItem: Identifiable {
     case file(String)
     /// A model to switch to (user 2026-09-18).
     case model(ModelChoice)
+    /// A reasoning level (user 2026-09-23).
+    case effort(EffortChoice)
 
     var id: String {
         switch self {
@@ -556,6 +580,7 @@ enum PopoverItem: Identifiable {
         case .member(let member): "member:" + member.id.uuidString
         case .file(let path): "file:" + path
         case .model(let choice): "model:" + choice.id
+        case .effort(let choice): "effort:" + choice.id
         }
     }
 }
@@ -630,6 +655,7 @@ private struct ComposerPopover: View {
         case .member(let member): MentionRow(state: state, item: member, isOn: isOn) { pick(item) }
         case .file(let path): FileRow(path: path, isOn: isOn) { pick(item) }
         case .model(let choice): ModelRow(choice: choice, isOn: isOn) { pick(item) }
+        case .effort(let choice): EffortRow(choice: choice, isOn: isOn) { pick(item) }
         }
     }
 }
@@ -803,91 +829,28 @@ private struct SendButton: View {
     }
 }
 
-/// `.reasoning-btn`: 30pt pill with the current level; its menu opens upward, drawn above everything by RootView.
-private struct ReasoningPill: View {
+/// 推理强度 on the tool row (user 2026-09-23): `effort: high` — words, not a button; `/effort` changes it.
+private struct EffortLabel: View {
     let state: AppState
     let conversation: Conversation
 
-    @Environment(\.isEnabled) private var isEnabled
-    @State private var isHovering = false
-
-    private var isOpen: Bool { state.reasoningMenuFor == conversation.id }
-
     var body: some View {
-        let lit = isOpen || (isHovering && isEnabled)
-        Button { state.reasoningMenuFor = isOpen ? nil : conversation.id } label: {
-            HStack(spacing: 5) {
-                IconView(Icons.bulb, size: 13)
-                Text(state.reasoningLabel(conversation.id)).font(FormoraFont.ui(11.5))
-            }
-            .foregroundStyle(lit ? Palette.ink.color : Palette.inkMuted.color)
-            .padding(.horizontal, 11)
-            .frame(height: 30)
-            .background(Capsule().fill(lit ? Palette.surfaceRaised2.color : .clear))
-            .overlay(Capsule().strokeBorder(isOpen ? Palette.accent.color : Palette.lineStrong.color, lineWidth: 1))
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .opacity(isEnabled ? 1 : 0.32)
-        .onHover { isHovering = $0 }
-        .background {
-            GeometryReader { proxy in
-                Color.clear
-                    .onAppear { report(proxy.frame(in: .global)) }
-                    .onChange(of: proxy.frame(in: .global)) { _, frame in report(frame) }
-            }
-        }
-        .accessibilityLabel("推理强度：\(state.reasoningLabel(conversation.id))")
-        .accessibilityIdentifier("composer.reasoning")
-    }
-
-    private func report(_ frame: CGRect) {
-        if state.reasoningButtonFrame != frame { state.reasoningButtonFrame = frame }
+        let label = state.effortLabel(conversation.id)
+        Text(label)
+            .font(FormoraFont.mono(11))
+            .foregroundStyle(Palette.inkMuted.color)
+            .padding(.horizontal, 10)
+            .frame(height: 26)
+            .overlay(Capsule().strokeBorder(Palette.line.color, lineWidth: 1))
+            .help(state.effortLevel(conversation.id) == nil ? "这个模型的推理强度不能调" : "推理强度，输入 /effort 调整")
+            .accessibilityLabel(label)
+            .accessibilityIdentifier("composer.effort")
     }
 }
 
-/// `.reasoning-menu` (C14): the levels the conversation's model has (user 2026-09-18: omp's table, not all eight),
-/// each with what it means; the one the stored level lands on checked.
-struct ReasoningMenu: View {
-    let state: AppState
-    let conversationID: UUID
-
-    var body: some View {
-        let options = state.reasoningOptions(conversationID)
-        let current = ModelThinking.clamp(state.conversations.conversation(conversationID)?.reasoning ?? .auto, to: options.map(\.level))
-        VStack(alignment: .leading, spacing: 0) {
-            Text("推理强度")
-                .font(FormoraFont.ui(12.5, weight: 600))
-                .foregroundStyle(Palette.ink.color)
-                .padding(.horizontal, 10)
-                .padding(.top, 8)
-                .padding(.bottom, 4)
-            ForEach(options, id: \.level) { option in
-                ReasoningItem(option: option, isOn: option.level == current) { choose(option) }
-            }
-        }
-        .padding(6)
-        .frame(width: 230)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Palette.surfaceRaised.color))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Palette.lineStrong.color, lineWidth: 1))
-        .modalShadow()
-        .background {
-            Button("") { state.reasoningMenuFor = nil }.keyboardShortcut(.cancelAction).opacity(0).accessibilityHidden(true)
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("reasoning.menu")
-    }
-
-    /// Takes effect at once and only here (spec §9.9); the toast says so.
-    private func choose(_ option: ModelThinking.Option) {
-        state.conversations.setReasoning(conversationID, option.level)
-        state.reasoningMenuFor = nil
-        state.toasts.show("推理强度：\(option.label)", note: "只影响这个对话", seconds: 2)
-    }
-}
-
-private struct ReasoningItem: View {
-    let option: ModelThinking.Option
+/// One level of the `/effort` list (user 2026-09-23): omp's word, what it means, a check on the current.
+private struct EffortRow: View {
+    let choice: EffortChoice
     let isOn: Bool
     let action: () -> Void
 
@@ -895,25 +858,29 @@ private struct ReasoningItem: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(option.label)
-                        .font(FormoraFont.ui(12.5, weight: isOn ? 600 : 400))
-                        .foregroundStyle(isOn ? Palette.accent.color : Palette.ink.color)
-                    Text(option.note).font(FormoraFont.ui(11)).foregroundStyle(Palette.inkFaint.color)
-                }
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(choice.word)
+                    .font(FormoraFont.mono(12))
+                    .foregroundStyle(choice.isCurrent ? Palette.accent.color : Palette.ink.color)
+                    .frame(minWidth: 58, alignment: .leading)
+                Text("\(choice.option.label) · \(choice.option.note)")
+                    .font(FormoraFont.ui(11.5))
+                    .foregroundStyle(Palette.inkFaint.color)
+                    .lineLimit(1)
                 Spacer(minLength: 0)
-                IconView(Icons.check, size: 14).foregroundStyle(Palette.accent.color).opacity(isOn ? 1 : 0).frame(width: 14)
+                if choice.isCurrent { IconView(Icons.check, size: 13).foregroundStyle(Palette.accent.color) }
             }
             .padding(.vertical, 7)
             .padding(.horizontal, 10)
-            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(isHovering ? Palette.surfaceRaised2.color : .clear))
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(isOn || isHovering ? Palette.surfaceRaised2.color : .clear))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
-        .accessibilityAddTraits(isOn ? .isSelected : [])
-        .accessibilityIdentifier("reasoning.\(option.level.rawValue)")
+        .accessibilityLabel(choice.word)
+        .accessibilityValue(choice.isCurrent ? "当前" : "")
+        .accessibilityIdentifier("popover.effort.\(choice.word)")
     }
 }
 
@@ -927,6 +894,8 @@ enum MentionKey {
 struct ComposerToken: Equatable {
     enum Kind: Equatable {
         case slash, at, model
+        /// `/effort …` (user 2026-09-23): the levels list, filtered by what follows.
+        case effort
     }
 
     let kind: Kind
@@ -942,10 +911,14 @@ struct ComposerToken: Equatable {
     /// `/model` and whatever follows on that one line: the words the list is filtered by. Spaces don't end it — a model's
     /// name may be typed in pieces (`claude son`).
     static func model(in text: String) -> ComposerToken? {
-        guard !text.contains("\n"), text.count >= 6, text.prefix(6).lowercased() == "/model" else { return nil }
-        let rest = text.dropFirst(6)
+        line(text, command: "/model", kind: .model) ?? line(text, command: "/effort", kind: .effort)
+    }
+
+    private static func line(_ text: String, command: String, kind: Kind) -> ComposerToken? {
+        guard !text.contains("\n"), text.count >= command.count, text.prefix(command.count).lowercased() == command else { return nil }
+        let rest = text.dropFirst(command.count)
         guard rest.isEmpty || rest.first?.isWhitespace == true else { return nil }
-        return ComposerToken(kind: .model, query: rest.trimmingCharacters(in: .whitespaces))
+        return ComposerToken(kind: kind, query: rest.trimmingCharacters(in: .whitespaces))
     }
 }
 
@@ -953,6 +926,19 @@ struct ComposerToken: Equatable {
 @MainActor
 final class ComposerController {
     weak var textView: NSTextView?
+
+    /// A tag at the caret, spaced off the words around it (user 2026-09-23).
+    func insert(_ tag: String) {
+        guard let view = textView else { return }
+        let string = view.string as NSString
+        let range = view.selectedRange()
+        let before = range.location > 0 ? string.substring(with: NSRange(location: range.location - 1, length: 1)) : "\n"
+        let after = NSMaxRange(range) < string.length ? string.substring(with: NSRange(location: NSMaxRange(range), length: 1)) : ""
+        let lead = before.rangeOfCharacter(from: .whitespacesAndNewlines) == nil ? " " : ""
+        let trail = after.rangeOfCharacter(from: .whitespacesAndNewlines) == nil ? " " : ""
+        view.insertText(lead + tag + trail, replacementRange: range)
+        view.window?.makeFirstResponder(view)
+    }
 
     func replaceToken(with replacement: String) {
         guard let view = textView, let token = ComposerTextView.tokenBeforeCaret(in: view),
@@ -979,6 +965,11 @@ struct ComposerTextView: NSViewRepresentable {
     var onPasteFiles: ([URL]) -> Void
     /// A group's members, coloured as roles when `@`-ed.
     var memberNames: [String] = []
+    /// The attachments' tags in the words (`[image1]`), coloured like a file (user 2026-09-23).
+    var attachmentTokens: [String] = []
+    /// Whether the word after the leading `/` names a command here (`plan`, `skill:weekly-report`, a subagent): it is
+    /// coloured amber, apart from `@` (user 2026-09-23). `/Users/…` isn't one.
+    var isCommand: (String) -> Bool = { _ in false }
     var onToken: (ComposerToken?) -> Void = { _ in }
     var onMentionKey: (MentionKey) -> Bool = { _ in false }
     var controller: ComposerController?
@@ -1062,6 +1053,7 @@ struct ComposerTextView: NSViewRepresentable {
             context.coordinator.reportToken(view)
             context.coordinator.highlight(view)
         }
+        if context.coordinator.highlightedTokens != attachmentTokens, !view.hasMarkedText() { context.coordinator.highlight(view) }
         view.isEditable = isEditable
         view.isSelectable = isEditable
         view.placeholder = placeholder
@@ -1094,6 +1086,8 @@ struct ComposerTextView: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: ComposerTextView
         var recalled = ComposerHistory()
+        /// The tags last coloured: a new attachment's tag is coloured once the draft has it.
+        var highlightedTokens: [String] = []
 
         init(_ parent: ComposerTextView) { self.parent = parent }
 
@@ -1187,6 +1181,25 @@ struct ComposerTextView: NSViewRepresentable {
                 // The chip (user 2026-09-14): a soft block behind the mention, rounded by `ChipLayoutManager`.
                 layout.addTemporaryAttribute(.backgroundColor, value: NSColor(isMember ? Palette.successSoft.color : Palette.accentSoft.color),
                                              forCharacterRange: match.range)
+            }
+            // A command at the very start (user 2026-09-23): an amber chip, not the `@`'s accent.
+            let head = view.string.prefix { !$0.isWhitespace }
+            if head.count > 1, head.hasPrefix("/"), parent.isCommand(String(head.dropFirst()).lowercased()) {
+                let range = NSRange(location: 0, length: (String(head) as NSString).length)
+                layout.addTemporaryAttribute(.foregroundColor, value: NSColor(Palette.command.color), forCharacterRange: range)
+                layout.addTemporaryAttribute(.backgroundColor, value: NSColor(Palette.commandSoft.color), forCharacterRange: range)
+            }
+            // Attachment tags (user 2026-09-23): the file's accent chip.
+            highlightedTokens = parent.attachmentTokens
+            for token in parent.attachmentTokens {
+                var from = 0
+                while from < string.length {
+                    let found = string.range(of: token, range: NSRange(location: from, length: string.length - from))
+                    guard found.location != NSNotFound else { break }
+                    layout.addTemporaryAttribute(.foregroundColor, value: NSColor(Palette.accent.color), forCharacterRange: found)
+                    layout.addTemporaryAttribute(.backgroundColor, value: NSColor(Palette.accentSoft.color), forCharacterRange: found)
+                    from = NSMaxRange(found)
+                }
             }
         }
 

@@ -719,7 +719,7 @@ enum ChatText {
             case .user:
                 var text = message.text
                 if !message.attachments.isEmpty {
-                    text += (text.isEmpty ? "" : "\n\n") + "附件：" + message.attachments.map(\.relativePath).joined(separator: "、")
+                    text += (text.isEmpty ? "" : "\n\n") + AttachmentTokens.modelLine(message.attachments)
                 }
                 // `@` files (7d, D3): their text as it was when sent.
                 if !message.mentions.isEmpty {

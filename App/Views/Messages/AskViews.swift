@@ -3,7 +3,8 @@ import SwiftUI
 /// The question docked above the composer (7d, D6; spec §9.8b, mockup `.choice-panel`): in the normal flow, never
 /// over the last message; option cards with what each means; one question at a time; multi-select confirms with
 /// 确定; ↑↓ and Enter once it has focus; and a standing line that the user can answer in their own words. Several
-/// questions: 上一步 shows an earlier one with its answer, which can be changed (user 2026-09-15).
+/// questions: 上一步 shows an earlier one with its answer, which can be changed (user 2026-09-15); words typed in the composer
+/// answer the part shown and Enter moves on, 上一步 brings them back into the composer (user 2026-09-23).
 struct AskPanel: View {
     let state: AppState
     let conversationID: UUID
@@ -11,12 +12,10 @@ struct AskPanel: View {
 
     @State private var selection: Set<Int> = []
     @State private var cursor: Int?
-    /// An earlier question shown again; `nil` = the one in hand.
-    @State private var viewing: Int?
     @FocusState private var isFocused: Bool
 
-    private var answered: [AskTool.Answer] { state.askAnswers[conversationID] ?? [] }
-    private var nav: AskNavigation { AskNavigation(count: questions.count, answered: answered, viewing: viewing) }
+    /// Kept in `AppState` (`AppState+Ask`): the composer answers parts too.
+    private var nav: AskNavigation { state.askNavigation(conversationID, count: questions.count) }
     private var index: Int { nav.index }
     private var question: AskTool.Question { questions[index] }
 
@@ -54,7 +53,8 @@ struct AskPanel: View {
                 }
             }
             HStack(alignment: .center, spacing: 10) {
-                Text(nav.canGoForward ? "改一个选项就换成新的答案；不改就点「下一步」。" : "也可以直接在下面输入框里说，不一定要选这几个。")
+                Text(nav.canGoForward ? "改一个选项或改下面输入框里的话就换成新的答案；不改就点「下一步」。"
+                     : questions.count > 1 ? "也可以在下面输入框里说，回车进入下一个问题。" : "也可以直接在下面输入框里说，不一定要选这几个。")
                     .font(FormoraFont.ui(11))
                     .foregroundStyle(Palette.inkFaint.color)
                     .fixedSize(horizontal: false, vertical: true)
@@ -104,9 +104,7 @@ struct AskPanel: View {
     }
 
     private func move(_ change: (inout AskNavigation) -> Void) {
-        var nav = nav
-        change(&nav)
-        viewing = nav.viewing
+        state.moveAsk(conversationID, count: questions.count, change)
     }
 
     private func moveCursor(_ step: Int) -> KeyPress.Result {
@@ -130,14 +128,8 @@ struct AskPanel: View {
     }
 
     private func record(_ answer: AskTool.Answer) {
-        var nav = nav
-        let finished = nav.record(answer)
-        viewing = nav.viewing
-        if finished {
-            state.askAnswers[conversationID] = nil
-            state.chat.answer(conversationID, nav.answered)
-        } else {
-            state.askAnswers[conversationID] = nav.answered
+        if let all = state.recordAsk(conversationID, count: questions.count, answer) {
+            state.chat.answer(conversationID, all)
         }
     }
 }

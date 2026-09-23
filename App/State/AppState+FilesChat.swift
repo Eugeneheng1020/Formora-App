@@ -12,6 +12,7 @@ enum FileChat {
     static let widthKey = "filesChat.width"
     static let carriesKey = "filesChat.carries"
     static func agentKey(_ project: UUID) -> String { "filesChat.agent." + project.uuidString }
+    static func pinKey(project: UUID, agent: UUID) -> String { "filesChat.pinned." + project.uuidString + "." + agent.uuidString }
 
     /// At most 800 and what the preview leaves; never under 320 — at the window's minimum both minimums fit exactly
     /// (84 + 300 + 320 + 320 = 1024).
@@ -64,32 +65,56 @@ extension AppState {
         return defaults?.string(forKey: FileChat.agentKey(project)).flatMap(UUID.init(uuidString:))
     }
 
-    /// The conversation the panel shows: that Agent's latest normal direct chat here (§4 of the design) — a hard rule,
-    /// nothing remembered.
+    /// The conversation pinned for this Agent here (user 2026-09-23: 「每个 agent 都是固定一个消息，而不是最新的消息，不然上下文会
+    /// 错乱」): `nil` = never pinned; a pinned one may since have been archived or deleted.
+    private func filesChatPin(project: UUID, agent: UUID) -> UUID? {
+        let key = FileChat.pinKey(project: project, agent: agent)
+        if let id = filesChatPins[key] { return id }
+        return defaults?.string(forKey: key).flatMap(UUID.init(uuidString:))
+    }
+
+    private func pinFilesChat(_ conversation: UUID, project: UUID, agent: UUID) {
+        let key = FileChat.pinKey(project: project, agent: agent)
+        filesChatPins[key] = conversation
+        defaults?.set(conversation.uuidString, forKey: key)
+    }
+
+    /// The conversation the panel shows: the one pinned for that Agent here, while it lives — a chat started in 消息 later
+    /// doesn't take its place. Hidden still counts; archived or deleted is gone, and a new one is started in its place. Never
+    /// pinned (panels from 1.0.26): the latest normal direct chat, which `ensureFilesChatConversation` pins — the user
+    /// 2026-09-23 chose keeping the one already shown.
     func filesChatConversation(project: UUID) -> Conversation? {
         guard let agentID = filesChatAgentID(project: project) else { return nil }
-        return conversations.latestDirect(agentID: agentID, project: project)
+        guard let pinned = filesChatPin(project: project, agent: agentID) else {
+            return conversations.latestDirect(agentID: agentID, project: project)
+        }
+        guard let conversation = conversations.conversation(pinned), conversation.parent == nil,
+              conversation.visibility != .archived else { return nil }
+        return conversation
     }
 
     func chooseFilesChatAgent(_ id: UUID, project: ProjectRecord) {
         filesChatAgents[project.id] = id
         defaults?.set(id.uuidString, forKey: FileChat.agentKey(project.id))
         ensureFilesChatConversation(project: project)
+        if let shown = filesChatConversation(project: project.id) { selectedConversationID = shown.id }
     }
 
-    /// The panel has an Agent but no conversation: start one, as 「发起对话」 would — unless it can't take work, and then
-    /// the reason (the same judgement, spec §6.3) is for the panel to show. Returns why nothing was started.
+    /// The panel has an Agent: its pinned conversation stays; never pinned, the one shown is pinned; none (or the pinned one
+    /// archived or deleted), a new one is started and pinned, as 「发起对话」 would — unless the Agent can't take work, and
+    /// then the reason (the same judgement, spec §6.3) is for the panel to show. Returns why nothing was started.
     @discardableResult
     func ensureFilesChatConversation(project: ProjectRecord) -> String? {
         guard let agentID = filesChatAgentID(project: project.id) else { return nil }
-        if let existing = conversations.latestDirect(agentID: agentID, project: project.id) {
-            selectedConversationID = existing.id
+        if let shown = filesChatConversation(project: project.id) {
+            if filesChatPin(project: project.id, agent: agentID) != shown.id { pinFilesChat(shown.id, project: project.id, agent: agentID) }
             return nil
         }
         guard let agent = agents.agent(agentID) else { return "这个 Agent 已被删除" }
         if let reason = AgentReadiness.blockReason(of: agent, currentProject: project, providers: providers) { return reason }
         do {
             let started = try conversations.startDirect(agentID: agentID, projectID: project.id, blockReason: nil)
+            pinFilesChat(started.id, project: project.id, agent: agentID)
             selectedConversationID = started.id
             return nil
         } catch {

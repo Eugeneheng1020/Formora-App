@@ -287,8 +287,8 @@ enum BoardCards {
                 add(.line(event.title), to: card, id: message.id.uuidString)
                 current[taker] = card
                 lastOpened = card
-            case .subagent:
-                // `/agent 目的` from the canvas (user 2026-09-17): what came of it is a line on the card it was typed at —
+            case .subagent, .created:
+                // `/agent 目的`, `/skills`, `/mcp`, `/hooks` from the canvas (user 2026-09-17, 2026-09-23): what came of it is a line on the card it was typed at —
                 // or the one last opened.
                 guard let card = message.boardCard.flatMap({ index[$0] }) ?? lastOpened else { return }
                 add(.line([event.title, event.detail].filter { !$0.isEmpty }.joined(separator: "\n")), to: card, id: message.id.uuidString)

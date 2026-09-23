@@ -418,7 +418,7 @@ extension ChatRunner {
     /// not, he hands it on, within the chain's limits (M3). `true` while he looks (the queue goes on after).
     func reviewTurn(_ id: UUID, agentID: UUID?) -> Bool {
         guard conductorModel() != nil, conducts[id] == nil, autoruns[id] == nil, let conversation = conversations.conversation(id),
-              conversation.isGroup, !conversation.isSubtask, !conversation.planMode, relayLimit(conversation) == nil,
+              conversation.isGroup, !conversation.isSubtask, !conversation.plansOnly, relayLimit(conversation) == nil,
               let agent = agents.agent(agentID),
               let reply = conversation.messages.last(where: { $0.role == .agent && !$0.isHidden && $0.agentID == agent.id }), !reply.text.isEmpty,
               let request = conversation.messages.last(where: { $0.role == .user && !$0.isHidden && $0.event == nil }) else { return false }

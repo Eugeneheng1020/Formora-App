@@ -6,6 +6,8 @@ struct BobCommand: Identifiable, Equatable, Sendable {
     enum Action: Equatable, Sendable {
         case clear, help, dump, export, memory
         case go(SettingsCategory)
+        /// `/skills`, `/mcp`, `/hooks` + what's wanted (user 2026-09-23): made, not a page to go to — the words ride along.
+        case create(Creations.Kind, words: String)
     }
 
     let name: String
@@ -23,9 +25,9 @@ enum BobCommands {
         BobCommand(name: "/dump", note: "把和 Bob 的对话复制到剪贴板", action: .dump),
         BobCommand(name: "/export", note: "把和 Bob 的对话导出成 HTML 文件", action: .export),
         BobCommand(name: "/model", note: "去「设置 → Bob」选他用的模型", action: .go(.bob)),
-        BobCommand(name: "/skills", note: "去「设置 → Skills」", action: .go(.skills)),
-        BobCommand(name: "/mcp", note: "去「设置 → MCP」", action: .go(.mcp)),
-        BobCommand(name: "/hooks", note: "去「设置 → Hooks」", action: .go(.hooks)),
+        BobCommand(name: "/skills", note: "创建一个 Skill：/skills 写清要它会什么", action: .create(.skill, words: "")),
+        BobCommand(name: "/mcp", note: "接入一个 MCP 服务：/mcp 服务名、地址或配置", action: .create(.mcp, words: "")),
+        BobCommand(name: "/hooks", note: "在当前项目创建一个 Hook：/hooks 什么时候做什么", action: .create(.hook, words: "")),
         BobCommand(name: "/notifications", note: "去「设置 → 通知」", action: .go(.notifications)),
         BobCommand(name: "/computer", note: "去「设置 → 电脑操作」", action: .go(.computer)),
     ]
@@ -61,7 +63,14 @@ enum BobCommands {
         }
         guard head.range(of: #"^[A-Za-z][A-Za-z0-9_-]*$"#, options: .regularExpression) != nil else { return .text }
         let name = "/" + head.lowercased()
-        if let command = all.first(where: { $0.name == name }) { return .command(command) }
+        if let command = all.first(where: { $0.name == name }) {
+            // The words after a create command are what to make.
+            if case .create(let kind, _) = command.action {
+                let words = String(text.dropFirst(1 + head.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                return .command(BobCommand(name: command.name, note: command.note, action: .create(kind, words: words)))
+            }
+            return .command(command)
+        }
         if Commands.all.contains(where: { $0.name == name }) {
             return .unknown("\(name) 是 Agent 对话里的指令，在 Bob 这里用不了。输入 / 看这里能用的")
         }

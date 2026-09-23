@@ -26,11 +26,35 @@ extension AppState {
         return ModelThinking.options(for: ModelThinking.union(lists))
     }
 
-    /// The pill's word: where the conversation's level lands on that menu.
-    func reasoningLabel(_ id: UUID) -> String {
-        let options = reasoningOptions(id)
-        let level = ModelThinking.clamp(conversations.conversation(id)?.reasoning ?? .auto, to: options.map(\.level))
-        return options.first { $0.level == level }?.label ?? level.label
+    /// What `/effort` offers (user 2026-09-23: 去掉自动，完全由用户选择): the menu without 自动. Empty for a model whose
+    /// reasoning can't be steered.
+    func effortOptions(_ id: UUID) -> [ModelThinking.Option] { reasoningOptions(id).filter { $0.level != .auto } }
+
+    /// Where the conversation's level lands on those (the request's level too); `nil` when there is nothing to choose.
+    func effortLevel(_ id: UUID) -> ModelThinking.Option? {
+        let options = effortOptions(id)
+        let level = ModelThinking.clamp(conversations.conversation(id)?.reasoning ?? .high, to: options.map(\.level))
+        return options.first { $0.level == level }
+    }
+
+    /// The level's word on the tool row and in `/effort`: omp's names; a host with only a switch says on.
+    static func effortWord(_ option: ModelThinking.Option) -> String { option.label == "开启" ? "on" : option.level.rawValue }
+
+    /// The tool row's `effort: high` (user 2026-09-23); a model that can't be steered says so.
+    func effortLabel(_ id: UUID) -> String { "effort: " + (effortLevel(id).map(Self.effortWord) ?? "不可调") }
+
+    /// `/effort` and what follows: the levels whose word or name has it.
+    func effortChoices(_ id: UUID, query: String) -> [EffortChoice] {
+        let current = effortLevel(id)?.level
+        let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
+        return effortOptions(id).filter { needle.isEmpty || Self.effortWord($0).contains(needle) || $0.label.contains(needle) }
+            .map { EffortChoice(option: $0, word: Self.effortWord($0), isCurrent: $0.level == current) }
+    }
+
+    /// Takes effect at once and only in this conversation (spec §9.9).
+    func setEffort(_ choice: EffortChoice, in id: UUID) {
+        conversations.setReasoning(id, choice.option.level)
+        toasts.show("effort: \(choice.word)", note: "推理强度「\(choice.option.label)」，只影响这个对话", seconds: 2)
     }
 
     /// The Agent a command is about: the direct chat's; in a group whoever answered last, else the first member.
@@ -79,8 +103,17 @@ extension AppState {
             let result = await Shell.run("git status --short --branch && echo && git log --oneline -8", cwd: root, timeout: 15,
                                          environment: Shell.environment(projectPath: root.path))
             commandCards[id] = CommandCard(kicker: "git", title: "仓库状态", body: .mono(Self.gitText(result)))
-        case .go(let destination):
-            go(destination, agent: commandAgent(conversation))
+        case .create(let kind):
+            // Made, not a page to go to (user 2026-09-23).
+            createFromCommand(kind, words: argument, in: id, boardCard: boardCard)
+        case .effort:
+            // Like /model: the list is the popover's; a line sent as is must name one level outright.
+            let matches = effortChoices(id, query: argument)
+            guard !effortOptions(id).isEmpty else { return "这个模型的推理强度不能调" }
+            guard matches.count == 1, let choice = matches.first else {
+                return matches.isEmpty ? "没有「\(argument)」这一档，输入 /effort 从列表里选" : "输入 /effort 从列表里选一档"
+            }
+            setEffort(choice, in: id)
         case .model:
             // The list is the popover's while typing; a line sent as is must name one model outright.
             let matches = modelChoices(for: conversation, query: argument).flatMap(\.items)
@@ -149,24 +182,6 @@ extension AppState {
         if said.contains("not a git repository") { return "这个项目文件夹还不是 git 仓库。" }
         return "git 没有运行成功：\(said)\n\n沙盒里 macOS 自带的 /usr/bin/git 用不了，需要 Homebrew 装的 git（brew install git）。"
     }
-
-    /// The jumps: an explicit destination, so the composer's draft isn't guarded (spec §9.8, §8.6).
-    private func go(_ destination: ComposerCommand.Destination, agent: AgentRecord?) {
-        switch destination {
-        case .skills, .mcp:
-            if let agent { selectedAgentID = agent.id }
-            agentTab = destination == .skills ? .skills : .mcp
-            select(.agents)
-        case .files:
-            select(.files)
-        case .settings:
-            settingsCategory = .account
-            select(.settings)
-        case .hooks:
-            settingsCategory = .hooks
-            select(.settings)
-        }
-    }
 }
 
 // MARK: /model (user 2026-09-18)
@@ -234,7 +249,7 @@ extension AppState {
 
 extension AppState {
     /// The model that drafts a subagent: Bob's, else the conversation's Agent's.
-    private func drafterModels(for conversation: Conversation) -> [ModelReference] {
+    func drafterModels(for conversation: Conversation) -> [ModelReference] {
         [chat.conductorModel(), commandAgent(conversation)?.primaryModel].compactMap { $0 }
     }
 
@@ -324,4 +339,13 @@ extension AppState {
         await chat.runSubagent(definition, task: task, in: id, requester: requester)
         return nil
     }
+}
+
+/// One level of the `/effort` list (user 2026-09-23).
+struct EffortChoice: Identifiable, Equatable {
+    let option: ModelThinking.Option
+    let word: String
+    let isCurrent: Bool
+
+    var id: String { option.level.rawValue }
 }

@@ -101,16 +101,18 @@ enum ProviderCatalog {
     private static let listed: [BuiltInProvider] = [
         BuiltInProvider(id: "openai", name: "OpenAI", logo: "openai", mark: "OA", apiProtocol: .openAIResponses,
                         hosts: [ProviderHost(label: "", baseURL: "https://api.openai.com/v1")],
-                        commonModels: featured(["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.4-mini"], provider: "openai")),
+                        // 2026-09-23: GPT-6 Sol / Luna (Sept 16 / 22) and Astra lead.
+                        commonModels: featured(["gpt-6-sol", "gpt-6-luna", "gpt-6-astra", "gpt-5.6-sol"], provider: "openai")),
         // 7i, U1: a ChatGPT Plus / Pro plan, signed in with the browser instead of a key.
         BuiltInProvider(id: ChatGPTAuth.providerID, name: "ChatGPT 订阅", logo: "openai", mark: "GP", apiProtocol: .openAIResponses,
                         hosts: [ProviderHost(label: "", baseURL: ChatGPTAuth.baseURL)],
-                        commonModels: featured(["gpt-5.6-sol", "gpt-5.6-luna", "gpt-5.6-terra", "gpt-6-astra", "gpt-5.5", "gpt-5.4",
-                                                "gpt-5.4-mini", "gpt-5.3-codex-spark"], provider: ChatGPTAuth.providerID),
+                        // 2026-09-23: what omp lists for Codex now — GPT-5.4, 5.4 mini and 5.3 Codex Spark are gone from it.
+                        commonModels: featured(["gpt-6-sol", "gpt-6-luna", "gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-luna", "gpt-5.6-terra",
+                                                "gpt-5.5"], provider: ChatGPTAuth.providerID),
                         access: .chatGPT, tag: "订阅登录 · 非官方接入"),
         BuiltInProvider(id: "anthropic", name: "Anthropic", logo: "anthropic", mark: "A", apiProtocol: .anthropicMessages,
                         hosts: [ProviderHost(label: "", baseURL: "https://api.anthropic.com")],
-                        commonModels: featured(["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"], provider: "anthropic")),
+                        commonModels: featured(["claude-opus-5-5", "claude-fable-5-1", "claude-sonnet-5", "claude-haiku-4-5"], provider: "anthropic")),
         BuiltInProvider(id: "google", name: "Google Gemini", logo: "googlegemini", mark: "G", apiProtocol: .googleGenerativeAI,
                         hosts: [ProviderHost(label: "", baseURL: "https://generativelanguage.googleapis.com/v1beta")],
                         commonModels: featured(["gemini-3.1-pro-preview", "gemini-3.8-flash", "gemini-flash-lite-latest"], provider: "google")),
@@ -120,7 +122,10 @@ enum ProviderCatalog {
         BuiltInProvider(id: "qwen", name: "Qwen", logo: "qwen", mark: "QW", apiProtocol: .openAICompletions,
                         hosts: [ProviderHost(label: "中国大陆", baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1"),
                                 ProviderHost(label: "国际", baseURL: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1")],
+                        // Qwen3.8 Max / Flash (Aug 2026; 阿里云百炼的模型页 2026-09-23): 1M context, 131K output, image input.
                         commonModels: [
+                            ModelInfo(id: "qwen3.8-max", name: "Qwen3.8 Max", contextWindow: 1_000_000, maxOutput: 131_072, acceptsImages: true),
+                            ModelInfo(id: "qwen3.8-flash", name: "Qwen3.8 Flash", contextWindow: 1_000_000, maxOutput: 131_072, acceptsImages: true),
                             ModelInfo(id: "qwen3-max", name: "Qwen3 Max", contextWindow: 262_144, maxOutput: 65_536, acceptsImages: false),
                             ModelInfo(id: "qwen-plus", name: "Qwen Plus", contextWindow: 1_000_000, maxOutput: 32_768, acceptsImages: false),
                             ModelInfo(id: "qwen3-coder-plus", name: "Qwen3 Coder Plus", contextWindow: 1_000_000, maxOutput: 65_536, acceptsImages: false),
@@ -135,7 +140,7 @@ enum ProviderCatalog {
                         commonModels: featured(["glm-5.3", "glm-5.3-flash", "glm-5v-turbo"], provider: "zai")),
         BuiltInProvider(id: "xai", name: "xAI", logo: "x", mark: "x", apiProtocol: .openAIResponses,
                         hosts: [ProviderHost(label: "", baseURL: "https://api.x.ai/v1")],
-                        commonModels: featured(["grok-4.6", "grok-4-1-fast", "grok-code-fast-1"], provider: "xai")),
+                        commonModels: featured(["grok-4.7", "grok-4.6", "grok-4-1-fast", "grok-code-fast-1"], provider: "xai")),
         // Not yet verified with a real key: MiniMax authenticates before routing (a fake key gets 401 on any
         // path), so a 404 with a real key means the key passed and there is no list endpoint.
         BuiltInProvider(id: "minimax", name: "MiniMax", logo: "minimax", mark: "MM", apiProtocol: .openAICompletions,

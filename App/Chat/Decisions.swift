@@ -43,7 +43,10 @@ enum Decisions {
 
     /// A plan-mode run ended on its answer (D5): 「按这个计划做」 waits.
     static func planAwaitsApproval(_ conversation: Conversation, isRunning: Bool, hasQuestion: Bool) -> Bool {
-        guard conversation.planMode, !isRunning, !hasQuestion, let last = lastShown(conversation) else { return false }
+        guard conversation.plansOnly, !isRunning, !hasQuestion, let last = lastShown(conversation) else { return false }
+        // A reply from before plan mode was turned on isn't a plan (user 2026-09-23: the mode stays on, so turning it on
+        // over an ordinary answer is common now).
+        if let since = conversation.planModeAt, last.createdAt < since { return false }
         return last.role == .agent && last.failure == nil && last.pause == nil
     }
 

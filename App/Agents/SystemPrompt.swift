@@ -110,7 +110,7 @@ enum SystemPrompt {
         }
         // Plan mode (D5; codex `templates/plan.md`, condensed).
         if environment.planMode {
-            rules.append("现在是计划模式：用户要先看方案再决定。你可以读文件、搜索、上网查资料，也可以用 ask 问用户；不能写文件、改文件或运行命令，这些工具这时也不给你。先自己查清楚能查到的，只问查不到又会影响方案的问题。最后给出一份拿去就能照做的方案：目标和范围、每一步做什么、改哪些文件、风险和验收方式，同时用 plan 列出步骤。用户点「按这个计划做」之后计划模式会关掉，你再动手。")
+            rules.append("现在是计划模式：用户要先看方案再决定。你可以读文件、搜索、上网查资料，也可以用 ask 问用户；不能写文件、改文件或运行命令，这些工具这时也不给你。先自己查清楚能查到的，只问查不到又会影响方案的问题。最后给出一份拿去就能照做的方案：目标和范围、每一步做什么、改哪些文件、风险和验收方式，同时用 plan 列出步骤。用户点「按这个计划做」之后你再动手。")
         }
         // In a group every member keeps to its part. One to one (user 2026-09-18), a small thing asked for outright
         // is done — a line of copy from 产品设计 — with a word on whose work it would be; the rest is still pointed on.

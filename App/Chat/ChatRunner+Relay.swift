@@ -113,7 +113,7 @@ extension ChatRunner {
 
     /// The handoff tool: checked now, carried out when the turn is done — the run ends there (M2).
     func handOff(_ call: ToolCall, conversationID id: UUID, agent: AgentRecord, state: inout RunState) -> ToolResult {
-        guard conversations.conversation(id)?.planMode == false else {
+        guard conversations.conversation(id)?.plansOnly == false else {
             return .failed("现在是计划模式：先把方案给用户，用户确认后再交接。")
         }
         guard let args = TeamTools.handoffArguments(call.arguments) else { return .failed("to 和 brief 都要写。没有交出去。") }
@@ -126,7 +126,7 @@ extension ChatRunner {
 
     /// A reply's last line `@名字 交待` (M2): the hand-off, or a note on the reply when it can't go.
     func trailingHandoff(_ text: String, conversationID id: UUID, agent: AgentRecord) -> (handoff: Handoff?, note: String?) {
-        guard let conversation = conversations.conversation(id), conversation.isGroup, !conversation.isSubtask, !conversation.planMode,
+        guard let conversation = conversations.conversation(id), conversation.isGroup, !conversation.isSubtask, !conversation.plansOnly,
               autoruns[id] == nil else { return (nil, nil) }
         let others = ConversationReadiness.members(of: conversation, agents: agents).filter { $0.id != agent.id }
         guard let line = TeamTools.trailingHandoff(in: text, names: others.flatMap { [$0.displayName, $0.customName, $0.role.name] })

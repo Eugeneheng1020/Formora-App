@@ -3,7 +3,7 @@ import SwiftUI
 
 /// The files pane's chat (user 2026-09-22): the fourth column. An Agent picked at the top, the whole conversation printed
 /// as a terminal (the board's 「运行过程」 look), the status line, 消息's own composer, and under it the file or folder
-/// the next message carries. The conversation is one of 消息's — this Agent's latest direct chat here.
+/// the next message carries. The conversation is one of 消息's — the one pinned for this Agent here (user 2026-09-23).
 struct FileChatPanel: View {
     let state: AppState
     let session: ProjectSession
@@ -37,9 +37,10 @@ struct FileChatPanel: View {
         .frame(maxHeight: .infinity)
         .background(Palette.railGround.color)
         .overlay(alignment: .leading) { Rectangle().fill(Palette.line.color).frame(width: 1) }
-        // No conversation for the chosen Agent (none yet, or 消息 archived it): start one, as 发起对话 would.
+        // The chosen Agent's conversation is pinned (user 2026-09-23); none (none yet, or 消息 archived it): start one, as
+        // 发起对话 would.
         .task(id: [project?.id.uuidString ?? "", agentID?.uuidString ?? "", conversation?.id.uuidString ?? ""].joined(separator: "/")) {
-            guard let project, agentID != nil, conversation == nil else { return }
+            guard let project, agentID != nil else { return }
             state.ensureFilesChatConversation(project: project)
         }
         .onChange(of: conversation?.id, initial: true) { _, id in

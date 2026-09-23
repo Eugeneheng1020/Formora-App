@@ -113,28 +113,30 @@ struct PlanStrip: View {
     }
 }
 
-/// 计划模式 in the composer's tool row (D5): on while it shows; × turns it off.
+/// 计划模式 in the composer's tool row (D5; user 2026-09-23): `plan: on` in accent, `plan: off` grey — a click turns it
+/// the other way. On, it stays on: every task is planned first.
 struct PlanModePill: View {
-    let turnOff: () -> Void
+    let isOn: Bool
+    let toggle: () -> Void
+
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var isHovering = false
 
     var body: some View {
-        HStack(spacing: 5) {
-            Text("计划模式").font(FormoraFont.ui(11.5, weight: 600))
-            Button(action: turnOff) {
-                IconView(Icons.close, size: 10).frame(width: 14, height: 14).contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help("关闭计划模式")
-            .accessibilityLabel("关闭计划模式")
-            .accessibilityIdentifier("composer.planMode.off")
+        Button(action: toggle) {
+            Text(isOn ? "plan: on" : "plan: off")
+                .font(FormoraFont.mono(11))
+                .foregroundStyle(isOn ? Palette.accent.color : isHovering && isEnabled ? Palette.ink.color : Palette.inkMuted.color)
+                .padding(.horizontal, 10)
+                .frame(height: 26)
+                .background(Capsule().fill(isOn ? Palette.accentSoft.color : isHovering && isEnabled ? Palette.surfaceRaised2.color : .clear))
+                .overlay(Capsule().strokeBorder(isOn ? Color.clear : Palette.line.color, lineWidth: 1))
+                .contentShape(Capsule())
         }
-        .foregroundStyle(Palette.accent.color)
-        .padding(.leading, 10)
-        .padding(.trailing, 6)
-        .frame(height: 26)
-        .background(Capsule().fill(Palette.accentSoft.color))
-        .help("计划模式：它只看、只问、只出方案，不改文件、不运行命令")
-        .accessibilityElement(children: .contain)
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .help(isOn ? "计划模式开着：每件事它先出方案，你点「按这个计划做」才动手。点一下关闭" : "点一下开启计划模式：每件事先出方案再动手")
+        .accessibilityLabel(isOn ? "计划模式：开" : "计划模式：关")
         .accessibilityIdentifier("composer.planMode")
     }
 }
@@ -151,7 +153,7 @@ struct PlanApprovalCard: View {
                 Text("PLAN").font(FormoraFont.mono(10)).foregroundStyle(Palette.inkFaint.color)
             }
             .padding(.bottom, 11)
-            Text("计划模式下它没有改任何文件。觉得可以就点「按这个计划做」，计划模式随之关闭；要改哪里，直接在下面说。")
+            Text("计划模式下它没有改任何文件。觉得可以就点「按这个计划做」，它照着做、不再逐步问你（危险命令照样问）；要改哪里，直接在下面说。")
                 .font(FormoraFont.ui(12))
                 .foregroundStyle(Palette.inkMuted.color)
                 .lineSpacing(4)

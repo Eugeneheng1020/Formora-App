@@ -21,6 +21,11 @@ enum Palette {
     static let alertSoft = ColorToken(0xE8695C, opacity: 0.13)
     static let alertLine = ColorToken(0xE8695C, opacity: 0.38)
 
+    /// `/` commands in the composer (user 2026-09-23: 和 @ 区分，换一种颜色): amber, set apart from the accent of `@` files
+    /// and the success of `@` members.
+    static let command = ColorToken(0xE8B45C)
+    static let commandSoft = ColorToken(0xE8B45C, opacity: 0.13)
+    static let commandLine = ColorToken(0xE8B45C, opacity: 0.38)
     static let success = ColorToken(0x3FCB8E)
     static let successSoft = ColorToken(0x3FCB8E, opacity: 0.13)
     static let successLine = ColorToken(0x3FCB8E, opacity: 0.34)

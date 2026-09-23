@@ -104,6 +104,9 @@ final class ModelPriceStore {
     /// 通义 (DashScope), in yuan per million — omp has no DashScope rows.
     private static func qwenPrice(_ model: String) -> ModelPrice? {
         func cny(_ input: Double, _ output: Double) -> ModelPrice { ModelPrice(input: input, output: output, currency: .cny) }
+        // 百炼 中国内地 list prices, 2026-09-23 (no tiers; thinking output priced as output).
+        if model.hasPrefix("qwen3.8-max") { return cny(12, 36) }
+        if model.hasPrefix("qwen3.8-flash") { return cny(0.8, 2.7) }
         if model.contains("max") { return cny(2.4, 9.6) }
         if model.contains("coder") { return cny(4, 16) }
         if model.contains("turbo") || model.contains("flash") { return cny(0.3, 0.6) }

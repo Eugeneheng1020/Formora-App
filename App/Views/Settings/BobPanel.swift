@@ -69,6 +69,8 @@ private struct BobPanel: View {
                 .onChange(of: bob.entries) { scroll(proxy) }
                 .onChange(of: bob.draft) { scroll(proxy) }
                 .onChange(of: bob.confirmation) { scroll(proxy) }
+                .onChange(of: state.bobPendingCreation) { scroll(proxy) }
+                .onChange(of: state.bobCreating) { scroll(proxy) }
                 .onAppear { scroll(proxy) }
             }
             Rectangle().fill(Palette.line.color).frame(height: 1)
@@ -163,6 +165,18 @@ private struct BobPanel: View {
             }
             ForEach(bob.entries) { entry in
                 BobEntryView(state: state, entry: entry)
+            }
+            // `/skills`, `/mcp`, `/hooks` (user 2026-09-23): drafting, then the 允许 for what runs on this Mac.
+            if let kind = state.bobCreating {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("正在创建\(kind.label)…").font(FormoraFont.ui(11.5)).foregroundStyle(Palette.inkFaint.color)
+                }
+                .accessibilityIdentifier("bob.creating")
+            }
+            if let pending = state.bobPendingCreation {
+                CreationConfirmCard(pending: pending, allow: { state.resolveBobCreation(allow: true) },
+                                    cancel: { state.resolveBobCreation(allow: false) }, compact: true)
             }
             if !bob.draft.isEmpty {
                 MarkdownText(source: bob.draft)
@@ -503,6 +517,10 @@ private struct BobInput: View {
                          identifier: "bob.input", onSubmit: submit,
                          onPasteImage: { bob.attachPasted($0) },
                          onPasteFiles: { urls in Task { await bob.attach(urls) } },
+                         // His commands in amber too (user 2026-09-23).
+                         isCommand: { word in
+                             word.hasPrefix("skill:") ? word.count > 6 : BobCommands.all.contains { $0.name == "/" + word }
+                         },
                          onMentionKey: key, listOpen: { !suggestions.isEmpty }, fontSize: 12.5)
             .frame(height: min(max(height, 24), 110))
             .onChange(of: bob.input) { selection = 0 }
@@ -587,7 +605,10 @@ private struct BobInput: View {
 
     /// A command runs at once; a Skill waits for what to do with it.
     private func accept(_ item: BobSuggestion) {
-        if item.command != nil {
+        if let command = item.command, case .create = command.action {
+            // What to make is written next (user 2026-09-23).
+            bob.input = item.name + " "
+        } else if item.command != nil {
             bob.input = item.name
             perform(bob.sendInput())
         } else {
@@ -615,6 +636,8 @@ private struct BobInput: View {
             }
         case .go(let category):
             state.settingsCategory = category
+        case let .create(kind, words):
+            state.createForBob(kind, words: words)
         default:
             break
         }

@@ -31,8 +31,14 @@ struct Conversation: Codable, Identifiable, Equatable, Sendable {
     var messages: [Message]
     /// The Agent's plan for the task (7d, D4), shown docked above the composer while steps are open.
     var plan: [PlanItem] = []
-    /// `/plan` (D5): look, ask and plan; change nothing until the user says go.
+    /// `/plan` (D5): look, ask and plan; change nothing until the user says go. It stays on until the user turns it off
+    /// (user 2026-09-23): after one plan is carried out, the next task is planned too.
     var planMode = false
+    /// 「按这个计划做」 in plan mode (user 2026-09-23): the plan is being carried out — the tools are back and its steps don't
+    /// ask (dangerous commands still do). Over once the user asks for something else.
+    var planApproved = false
+    /// When plan mode was last turned on (user 2026-09-23): only a reply after it is a plan waiting for 「按这个计划做」.
+    var planModeAt: Date?
     /// When it was last looked over for what the memory missed (user 2026-09-17): at most once a day.
     var memoryPassAt: Date?
     /// A subtask's place (7g, S2): kept out of the list, opened from its parent's card.
@@ -49,7 +55,7 @@ struct Conversation: Codable, Identifiable, Equatable, Sendable {
 
     init(id: UUID = UUID(), kind: Kind, projectID: UUID, agentID: UUID? = nil, groupName: String = "",
          members: [GroupMember] = [], title: String, titleIsAuto: Bool = true, status: ConversationStatus = .pending,
-         visibility: ConversationVisibility = .normal, reasoning: ReasoningLevel = .auto, unread: Int = 0,
+         visibility: ConversationVisibility = .normal, reasoning: ReasoningLevel = .high, unread: Int = 0,
          createdAt: Date = .now, updatedAt: Date? = nil, messages: [Message] = []) {
         self.id = id
         self.kind = kind
@@ -70,7 +76,7 @@ struct Conversation: Codable, Identifiable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case id, kind, projectID, agentID, groupName, members, title, titleIsAuto, titleIsModelNamed, status, visibility
-        case reasoning, unread, createdAt, updatedAt, messages, plan, planMode, parent, boardLayout, groupNameIsAuto, cardTitles
+        case reasoning, unread, createdAt, updatedAt, messages, plan, planMode, planApproved, planModeAt, parent, boardLayout, groupNameIsAuto, cardTitles
         case earlier, memoryPassAt
     }
 
@@ -88,13 +94,17 @@ struct Conversation: Codable, Identifiable, Equatable, Sendable {
         titleIsModelNamed = try values.decodeIfPresent(Bool.self, forKey: .titleIsModelNamed) ?? false
         status = try values.decodeIfPresent(ConversationStatus.self, forKey: .status) ?? .pending
         visibility = try values.decodeIfPresent(ConversationVisibility.self, forKey: .visibility) ?? .normal
-        reasoning = try values.decodeIfPresent(ReasoningLevel.self, forKey: .reasoning) ?? .auto
+        // 自动 is gone from the choices (user 2026-09-23: 完全由用户选择，默认高): a conversation saved on it is on 高.
+        let reasoning = try values.decodeIfPresent(ReasoningLevel.self, forKey: .reasoning) ?? .high
+        self.reasoning = reasoning == .auto ? .high : reasoning
         unread = try values.decodeIfPresent(Int.self, forKey: .unread) ?? 0
         createdAt = try values.decode(Date.self, forKey: .createdAt)
         updatedAt = try values.decodeIfPresent(Date.self, forKey: .updatedAt) ?? createdAt
         messages = try values.decodeIfPresent([Message].self, forKey: .messages) ?? []
         plan = try values.decodeIfPresent([PlanItem].self, forKey: .plan) ?? []
         planMode = try values.decodeIfPresent(Bool.self, forKey: .planMode) ?? false
+        planApproved = try values.decodeIfPresent(Bool.self, forKey: .planApproved) ?? false
+        planModeAt = try values.decodeIfPresent(Date.self, forKey: .planModeAt)
         parent = try values.decodeIfPresent(SubtaskLink.self, forKey: .parent)
         boardLayout = try values.decodeIfPresent(BoardLayout.self, forKey: .boardLayout)
         groupNameIsAuto = try values.decodeIfPresent(Bool.self, forKey: .groupNameIsAuto) ?? false
@@ -444,11 +454,23 @@ struct Attachment: Codable, Hashable, Identifiable, Sendable {
     var name: String
     var relativePath: String
     var kind: Kind
+    /// Its tag in the words (user 2026-09-23): `image1`, or the file's name — written `[image1]` where it was put.
+    /// `nil` for attachments from before, shown as chips.
+    var label: String?
 
-    init(id: UUID = UUID(), name: String, relativePath: String, kind: Kind) {
+    init(id: UUID = UUID(), name: String, relativePath: String, kind: Kind, label: String? = nil) {
         self.id = id
         self.name = name
         self.relativePath = relativePath
         self.kind = kind
+        self.label = label
     }
+
+    /// `[image1]`, `[PRD.md]`; `nil` without a label.
+    var token: String? { label.map { "[" + $0 + "]" } }
+}
+
+extension Conversation {
+    /// Plan mode's limits hold now: on, and not carrying out an approved plan (user 2026-09-23).
+    var plansOnly: Bool { planMode && !planApproved }
 }

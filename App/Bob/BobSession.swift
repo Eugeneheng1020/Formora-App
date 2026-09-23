@@ -157,7 +157,7 @@ final class BobSession {
             case .help:
                 entries.append(Entry(role: .user, text: text))
                 entries.append(Entry(role: .bob, text: BobCommands.helpText))
-            case .dump, .export, .go:
+            case .dump, .export, .go, .create:
                 return command.action
             }
             return nil
@@ -178,6 +178,16 @@ final class BobSession {
         checkedOperation = false
         start()
         return nil
+    }
+
+    /// `/skills`, `/mcp`, `/hooks` (user 2026-09-23) are drafted outside his loop: the command and what came of it are lines of
+    /// his panel, not turns he reads.
+    func noteCommand(_ text: String) {
+        entries.append(Entry(role: .user, text: text))
+    }
+
+    func noteReply(_ text: String, failure: String? = nil) {
+        entries.append(Entry(role: .bob, text: text, failure: failure))
     }
 
     /// The input and the files waiting with it: they go with a message or a Skill; a command runs and leaves them for

@@ -613,9 +613,11 @@ private struct MessageRow: View {
                     })
                     .contextMenu { Button("复制") { CopyButton.copy(message.text, state: state) } }
             }
-            if !message.attachments.isEmpty {
+            // Tagged in the words (user 2026-09-23), an attachment is its coloured tag there; chips only for the rest.
+            let chips = message.attachments.filter { attachment in attachment.token.map { !message.text.contains($0) } ?? true }
+            if !chips.isEmpty {
                 FlowLayout(spacing: 6) {
-                    ForEach(message.attachments) { attachment in
+                    ForEach(chips) { attachment in
                         AttachmentChip(attachment: attachment, projectRoot: session.accessibleRoot, fill: Palette.surfaceRaised.color) {
                             state.select(.files)
                             Task { await state.files?.reveal(relativePath: attachment.relativePath) }
@@ -647,6 +649,14 @@ private struct MessageRow: View {
                     text[lower..<upper].link = FileMentions.link(mention.path)
                 }
             }
+        }
+        // Attachment tags (user 2026-09-23): the file's accent chip, a link that opens it in 文件.
+        for (range, attachment) in AttachmentTokens.ranges(in: message.text, attachments: message.attachments) {
+            guard let lower = AttributedString.Index(range.lowerBound, within: text),
+                  let upper = AttributedString.Index(range.upperBound, within: text) else { continue }
+            text[lower..<upper].foregroundColor = Palette.accent.color
+            text[lower..<upper].backgroundColor = Palette.accentSoft.color
+            text[lower..<upper].link = FileMentions.link(attachment.relativePath)
         }
         guard conversation.isGroup, !message.assignees.isEmpty else { return text }
         let names = message.assignees.compactMap { agents.agent($0) }.flatMap { [$0.displayName, $0.customName] }
@@ -814,13 +824,12 @@ private struct AgentRunRow: View {
         let shape = UnevenRoundedRectangle(topLeadingRadius: 4, bottomLeadingRadius: 12, bottomTrailingRadius: 12, topTrailingRadius: 12,
                                            style: .continuous)
         return MarkdownText(source: message.text, links: true, fileExists: fileExists, openFile: openFile,
-                            onCopy: { CopyButton.copy($0, state: state) })
+                            onCopy: { CopyButton.copy($0, state: state) }, onCopyAll: { CopyButton.copy(message.text, state: state) })
             .padding(.vertical, 11)
             .padding(.horizontal, 14)
             .background(shape.fill(isFlashing ? Palette.accentSoft.color : Palette.surface.color))
             .overlay(shape.strokeBorder(isFlashing ? Palette.accent.color : Palette.line.color, lineWidth: 1))
             .animation(.easeOut(duration: 0.25), value: isFlashing)
-            .contextMenu { Button("复制") { CopyButton.copy(message.text, state: state) } }
     }
 
     private func phase(_ call: ToolCall, in messageID: UUID) -> ToolCallCard.Phase {

@@ -315,8 +315,18 @@ final class ConversationStore {
 
     /// `/plan` (D5).
     func setPlanMode(_ isOn: Bool, in id: UUID) {
-        guard conversation(id)?.planMode != isOn else { return }
-        change(id) { $0.planMode = isOn }
+        guard let conversation = conversation(id), conversation.planMode != isOn || conversation.planApproved else { return }
+        change(id) {
+            if isOn, !$0.planMode { $0.planModeAt = .now }
+            $0.planMode = isOn
+            $0.planApproved = false
+        }
+    }
+
+    /// 「按这个计划做」 (user 2026-09-23): plan mode stays on; this plan is carried out without asking.
+    func setPlanApproved(_ isOn: Bool, in id: UUID) {
+        guard conversation(id)?.planApproved != isOn else { return }
+        change(id) { $0.planApproved = isOn }
     }
 
     /// `/clear` (7d): the words go, the conversation and its place in the list stay.

@@ -131,10 +131,6 @@ final class AppState {
     var messageJump: MessageJump?
     /// 10e: the user's message open in 修改 — one at a time.
     var editingMessage: UUID?
-    /// The conversation whose reasoning menu is open; the menu is drawn above everything, at the pill.
-    var reasoningMenuFor: UUID?
-    /// The reasoning pill's frame in window coordinates, so the menu can open right above it.
-    var reasoningButtonFrame: CGRect = .zero
     let account: AccountStore
     let providers: ProviderStore
     let agents: AgentStore
@@ -185,8 +181,14 @@ final class AppState {
     var commandCards: [UUID: CommandCard] = [:]
     /// `/clear` waits for its confirmation (R1).
     var conversationToClear: UUID?
-    /// A question's answers so far, one per question, while the rest are still open (7d, D6).
-    var askAnswers: [UUID: [AskTool.Answer]] = [:]
+    /// A question's answers so far, one per question, while the rest are still open (7d, D6); which one is shown and the words
+    /// typed for each (user 2026-09-23) — `AppState+Ask`.
+    var askProgress: [UUID: AskProgress] = [:]
+    /// `/mcp`, `/hooks` drafted and waiting for 允许 above a conversation's composer (user 2026-09-23).
+    var pendingCreations: [UUID: Creations.Pending] = [:]
+    /// The same in Bob's panel, and what he is drafting now.
+    var bobPendingCreation: Creations.Pending?
+    var bobCreating: Creations.Kind?
     /// A reply's numbered ways the user put away (user 2026-09-15): by message id, this session only.
     var dismissedChoices: Set<UUID> = []
     /// QA only (`-FormoraRevealCompaction`): a new compaction's divider scrolls into view with its summary open.
@@ -213,6 +215,8 @@ final class AppState {
     var filesChatWidthStored: CGFloat = FileChat.defaultWidth
     var filesChatCarriesStored = true
     var filesChatAgents: [UUID: UUID] = [:]
+    /// Each Agent's own conversation in the panel, per project (user 2026-09-23): `FileChat.pinKey` → conversation.
+    var filesChatPins: [String: UUID] = [:]
     /// The conversation the panel shows now, so a reply landing there isn't unread (like `displayedConversationID`).
     var filesChatShownConversationID: UUID?
     /// 自动更新 (2026-09-14): Sparkle, set by the app; `nil` in tests and in QA copies without a feed.
@@ -313,12 +317,14 @@ final class AppState {
         // A question waits (spec §9.8b): what the user writes answers it, and clears it.
         if !chat.isRunning(id), attachments.isEmpty, chat.pendingQuestion(id) != nil {
             let typed = mentions.isEmpty ? text : text + "\n\n" + FileMentions.context(mentions)
-            let answers = (askAnswers[id] ?? []) + [AskTool.Answer(typed: typed)]
-            askAnswers[id] = nil
+            let answers = askAnswered(id) + [AskTool.Answer(typed: typed)]
+            askProgress[id] = nil
             if let background { conversations.append(background, to: id) }
             chat.answer(id, answers)
             return nil
         }
+        // An approved plan is carried out until the user asks for something else (user 2026-09-23): then plan mode plans again.
+        if !chat.isRunning(id), conversation.planApproved, !PlanTool.isGoAhead(text) { conversations.setPlanApproved(false, in: id) }
         if chat.isRunning(id) {
             var steering = Message(role: .user, text: text, attachments: attachments, assignees: assignees, mentions: mentions)
             steering.boardParent = board?.parent

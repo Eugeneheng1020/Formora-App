@@ -35,6 +35,13 @@ struct DecisionDock: View {
                 .id(choices.messageID)
                 .padding(.bottom, 10)
         }
+        // `/mcp`, `/hooks` (user 2026-09-23): drafted, waiting for one 允许.
+        if let pending = state.pendingCreations[id] {
+            CreationConfirmCard(pending: pending, allow: { state.resolveCreation(in: id, allow: true) },
+                                cancel: { state.resolveCreation(in: id, allow: false) })
+                .id(pending.id)
+                .padding(.bottom, 10)
+        }
         if Decisions.planAwaitsApproval(conversation, isRunning: isRunning, hasQuestion: question != nil) {
             PlanApprovalCard { state.executePlan(id, projectRoot: projectRoot, projectName: projectName) }
                 .padding(.bottom, 10)
@@ -248,5 +255,64 @@ struct RetryPanel: View {
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Palette.alertLine.color, lineWidth: 1))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("retry.panel")
+    }
+}
+
+/// `/mcp`, `/hooks` drafted (user 2026-09-23): what will be made, the command or address in full, and 不用了 / 允许 — above the
+/// composer, and on a card in Bob's panel. Both run things on this Mac, so they are never made without it.
+struct CreationConfirmCard: View {
+    let pending: Creations.Pending
+    let allow: () -> Void
+    let cancel: () -> Void
+    /// Bob's panel is narrower: smaller type.
+    var compact = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(pending.title).font(FormoraFont.ui(compact ? 12 : 12.5, weight: 700)).foregroundStyle(Palette.ink.color)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 12)
+                Text(pending.kind.command).font(FormoraFont.mono(10)).foregroundStyle(Palette.command.color)
+            }
+            .padding(.bottom, 8)
+            ForEach(pending.lines, id: \.self) { line in
+                Text(line)
+                    .font(FormoraFont.ui(compact ? 11 : 12))
+                    .foregroundStyle(Palette.inkMuted.color)
+                    .lineSpacing(3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let code = pending.code {
+                Text(code)
+                    .font(FormoraFont.mono(compact ? 10.5 : 11.5))
+                    .foregroundStyle(Palette.ink.color)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Palette.ground.color))
+                    .padding(.top, 8)
+                    .accessibilityIdentifier("creation.code")
+            }
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+                Button("不用了", action: cancel)
+                    .buttonStyle(FormoraButtonStyle(kind: .ghost))
+                    .accessibilityIdentifier("creation.cancel")
+                Button("允许", action: allow)
+                    .buttonStyle(FormoraButtonStyle(kind: .primary))
+                    .accessibilityIdentifier("creation.allow")
+            }
+            .padding(.top, 12)
+        }
+        .padding(.vertical, 14)
+        .padding(.horizontal, compact ? 12 : 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Palette.surface.color))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Palette.commandLine.color, lineWidth: 1))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("creation.confirm")
     }
 }

@@ -183,20 +183,6 @@ struct RootView: View {
                               onConfirm: { state.discardDraftAndProceed() })
             }
 
-            // The reasoning menu opens upward from its pill, above every column (spec §9.9); any click
-            // outside closes it, like the project menu.
-            if let id = state.reasoningMenuFor {
-                Color.clear
-                    .contentShape(Rectangle())
-                    .onTapGesture { state.reasoningMenuFor = nil }
-                    .accessibilityIdentifier("reasoning.dismiss")
-                ZStack(alignment: .topLeading) {
-                    ReasoningMenu(state: state, conversationID: id)
-                        .alignmentGuide(.top) { $0[.bottom] }
-                        .offset(x: state.reasoningButtonFrame.minX, y: state.reasoningButtonFrame.minY - 8)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            }
 
             ToastHost(center: state.toasts)
         }

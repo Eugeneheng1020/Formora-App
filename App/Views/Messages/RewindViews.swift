@@ -2,7 +2,8 @@ import SwiftUI
 
 /// 10e: 修改 on a message of the user's own — its words in place of the bubble, and under them what going again does:
 /// the thread from here folds away as an earlier version; the files the Agent changed since can go back with it (10d's
-/// 撤销, newest first). ⌘↩ sends; esc leaves everything as it was.
+/// 撤销, newest first). Enter sends and Shift + Enter breaks the line, as in the composer (user 2026-09-23; it was ⌘↩);
+/// esc leaves everything as it was.
 struct MessageEditor: View {
     let state: AppState
     let session: ProjectSession
@@ -12,6 +13,8 @@ struct MessageEditor: View {
     @State private var text: String
     @State private var restoresFiles = false
     @State private var isSending = false
+    @State private var measured: CGFloat = 22
+    @State private var isFocused = false
 
     init(state: AppState, session: ProjectSession, conversation: Conversation, message: Message) {
         self.state = state
@@ -37,17 +40,26 @@ struct MessageEditor: View {
         !isSending && (!text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !message.attachments.isEmpty)
     }
 
-    private var height: CGFloat {
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false).count
-        return min(200, max(66, CGFloat(lines) * 22 + 22))
-    }
 
     var body: some View {
         let files = changedFiles
         let shape = UnevenRoundedRectangle(topLeadingRadius: 12, bottomLeadingRadius: 12, bottomTrailingRadius: 12, topTrailingRadius: 4,
                                            style: .continuous)
         VStack(alignment: .leading, spacing: 10) {
-            FormoraTextEditor(placeholder: "改成…", text: $text, height: height, identifier: "message.editText")
+            // The composer's own text view (user 2026-09-23): Enter sends, Shift + Enter breaks the line, and Enter while
+            // Pinyin is composing only commits the letters.
+            ComposerTextView(text: $text, height: $measured, isFocused: $isFocused, isEditable: !isSending, placeholder: "改成…",
+                             identifier: "message.editText", onSubmit: send, onPasteImage: { _ in }, onPasteFiles: { _ in },
+                             autofocus: true, onEscape: {
+                                 state.editingMessage = nil
+                                 return true
+                             })
+                .frame(height: min(max(measured, 44), 200))
+                .padding(.horizontal, 9)
+                .padding(.vertical, 8)
+                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Palette.surfaceRaised.color))
+                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(isFocused ? Palette.accent.color : Palette.lineStrong.color, lineWidth: 1))
             Text(following == 0 ? "重新发送后，Agent 从这条开始重新做。"
                  : "重新发送后，这条之后的 \(following) 条回复和消息会从对话里去掉，Agent 从这条开始重新做，不再看到它们。")
                 .font(FormoraFont.ui(11.5))
@@ -63,7 +75,6 @@ struct MessageEditor: View {
                     .accessibilityIdentifier("message.edit.cancel")
                 Button("重新发送") { send() }
                     .buttonStyle(FormoraButtonStyle(kind: .primary))
-                    .keyboardShortcut(.return, modifiers: .command)
                     .disabled(!canSend)
                     .accessibilityIdentifier("message.edit.send")
             }
