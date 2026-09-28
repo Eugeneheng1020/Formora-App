@@ -5,6 +5,15 @@
     <description>Formora 的更新</description>
     <language>zh-Hans</language>
     <item>
+      <title>1.0.28</title>
+      <pubDate>Mon, 28 Sep 2026 21:08:31 +0800</pubDate>
+      <sparkle:version>44</sparkle:version>
+      <sparkle:shortVersionString>1.0.28</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[<p>权限放进输入框（/permissions 按对话切换）、消息里 @ 联想同事、计划模式方案出来直接执行</p>]]></description>
+      <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.28/Formora-1.0.28.dmg" type="application/octet-stream" sparkle:edSignature="NxKteGcoNSVJRx+P4JV/IRFFqBvWPjrmXFO+H0HXCvqZyXMdMchRQTIbwhEyiG/YJ9+2eKpI+pkyWEPHcsedCA==" length="13597103"/>
+    </item>
+    <item>
       <title>1.0.27</title>
       <pubDate>Thu, 24 Sep 2026 00:08:32 +0800</pubDate>
       <sparkle:version>43</sparkle:version>
@@ -84,15 +93,6 @@
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
       <description><![CDATA[<p>提示词瘦身：重复的规则合并、岗位段只留立场和交付标准、记忆规则缩成一句，每次调用少约 1000 token；单聊里顺手的小事不再推给别的岗位</p>]]></description>
       <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.19/Formora-1.0.19.dmg" type="application/octet-stream" sparkle:edSignature="xpSj73F6U/8CBg90PyBP6TeJ7dXxMsJRTso4sZXMha0LPsRGP2/2vPtJWDLF69FcCNJrFfJa/vh881sHuyo0BA==" length="13004662"/>
-    </item>
-    <item>
-      <title>1.0.18</title>
-      <pubDate>Fri, 18 Sep 2026 00:06:23 +0800</pubDate>
-      <sparkle:version>34</sparkle:version>
-      <sparkle:shortVersionString>1.0.18</sparkle:shortVersionString>
-      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <description><![CDATA[<p>治过度执行：旧计划不再把新任务拉回去；写过的大文件不再每一步重发；旁审的必须停会真的停下来问你；小事直接做、不反复验证；OpenRouter 上的 Claude 用上提示词缓存</p>]]></description>
-      <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.18/Formora-1.0.18.dmg" type="application/octet-stream" sparkle:edSignature="fkIYsWX1BFS/GFOeP4HhPb9z0dmDTRc0HiSzDDLGsTI3RnyLZ9T4fFBaABj73vI2RwFHy245dAditgUVg4qDAw==" length="13006741"/>
     </item>
   </channel>
 </rss>
