@@ -14,6 +14,8 @@ struct ComposerCommand: Identifiable, Equatable, Sendable {
         case create(Creations.Kind)
         /// `/effort 档位` (user 2026-09-23): the conversation's reasoning level, picked from a list in the popover.
         case effort
+        /// `/permissions 档位` (user 2026-09-28): this conversation's 权限模式, picked from a list in the popover like `/effort`.
+        case permissions
     }
 
     /// With its slash — what the popover inserts (spec §9.8: a name without it would be sent as a message).
@@ -32,7 +34,7 @@ enum Commands {
     static let all: [ComposerCommand] = [
         ComposerCommand(name: "/clear", note: "清空当前对话的消息", action: .clear),
         ComposerCommand(name: "/cost", note: "这条对话用了多少 token、调用了几次模型", action: .cost),
-        ComposerCommand(name: "/plan", note: "切换计划模式：先出方案，你确认后再动手", action: .plan),
+        ComposerCommand(name: "/plan", note: "切换计划模式：先出方案、列好步骤，再接着做", action: .plan),
         ComposerCommand(name: "/compact", note: "压缩上下文：把前面的对话整理成摘要（/compact 重点 指定要保留的）", action: .compact),
         ComposerCommand(name: "/todo", note: "看当前的计划（/todo 文字 可以加一项）", takesArgument: true, action: .todo),
         ComposerCommand(name: "/memory", note: "看这条对话用得到的记忆：全局、本项目、这个 Agent 自己的（只读）", action: .memory),
@@ -45,6 +47,7 @@ enum Commands {
         ComposerCommand(name: "/help", note: "列出全部可用指令", action: .help),
         ComposerCommand(name: "/git", note: "查看仓库状态和最近的提交", roles: ["dev"], action: .git),
         ComposerCommand(name: "/effort", note: "调推理强度：列出这个模型有的档位，只影响这个对话", takesArgument: true, action: .effort),
+        ComposerCommand(name: "/permissions", note: "调这个对话的权限：每次询问 / 允许写入 / 全部放行", takesArgument: true, action: .permissions),
         ComposerCommand(name: "/model", note: "切换这个 Agent 的主模型：/model 关键词 只看匹配的", takesArgument: true, action: .model),
         ComposerCommand(name: "/skills", note: "创建一个 Skill：/skills 写清要它会什么", takesArgument: true, action: .create(.skill)),
         ComposerCommand(name: "/mcp", note: "接入一个 MCP 服务：/mcp 服务名、地址或配置", takesArgument: true, action: .create(.mcp)),

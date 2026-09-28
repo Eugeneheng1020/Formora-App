@@ -693,6 +693,20 @@ final class ChatRunner {
         return PlanTool.isGoAhead(latest.text)
     }
 
+    /// A plan-mode reply that is a plan to carry out (user 2026-09-28): steps listed with `plan` since the user's latest
+    /// words — before a question to the user too — some still open, and it doesn't ask which way to take. An answer to a
+    /// question, or a list of ways to pick from, waits for the user.
+    nonisolated static func planReady(_ conversation: Conversation, reply: String) -> Bool {
+        guard conversation.plan.contains(where: \.isOpen), ProseChoices.find(in: reply) == nil else { return false }
+        let since = conversation.messages.lastIndex(where: isSpoken).map { $0 + 1 } ?? 0
+        return conversation.messages[since...].contains { message in
+            message.toolCalls.contains { call in
+                call.name == PlanTool.spec.name && call.result?.status == .done
+                    && ToolArguments.parse(call.arguments)?["op"] as? String != "view"
+            }
+        }
+    }
+
     /// Whether the `plan` tool belongs in this conversation now (user 2026-09-17).
     nonisolated static func keepsPlan(_ conversation: Conversation) -> Bool {
         conversation.plansOnly || conversation.plan.contains(where: \.isOpen)
@@ -1081,8 +1095,10 @@ final class ChatRunner {
         // A subagent with a model of its own (user 2026-09-15) tries it first, the caller's chain after; the phase
         // models (user 2026-09-16) order the rest — plan mode leads with the plan model, an image turn with the vision.
         let pinned = conversation.parent?.subagent.flatMap { subagents?.definition(named: $0)?.model }
-        var candidates = (pinned.map { [$0] } ?? []) + Self.modelChain(for: conversation, agent: agent)
-        candidates = candidates.reduce(into: []) { if !$0.contains($1) { $0.append($1) } }
+        func chain(_ conversation: Conversation) -> [ModelReference] {
+            ((pinned.map { [$0] } ?? []) + Self.modelChain(for: conversation, agent: agent)).reduce(into: []) { if !$0.contains($1) { $0.append($1) } }
+        }
+        var candidates = chain(conversation)
         var state = RunState(sendsReasoning: (conversations.conversation(id)?.reasoning ?? .auto) != .auto)
         // A `/review` run is the review: it doesn't review itself again.
         state.reviewed = conversations.conversation(id)?.messages.last?.marker != nil
@@ -1160,6 +1176,18 @@ final class ChatRunner {
                     if steering[id]?.isEmpty == false {
                         conversations.append(reply, to: id)
                         if deliverSteering(id, runID: runID) { state.steered = true }
+                        continue
+                    }
+                    // 方案出来直接执行 (user 2026-09-28: 「方案出来了」这一步省略): a plan-mode reply whose plan is written goes
+                    // on to carry it out in this run, as 「按这个计划做」 did — the tools back, the main model leading, the
+                    // model told to go (unseen: the user said nothing). Codex asks only when a plan came out that turn.
+                    if let latest = conversations.conversation(id), latest.plansOnly, Self.planReady(latest, reply: reply.text) {
+                        conversations.append(reply, to: id)
+                        conversations.setPlanApproved(true, in: id)
+                        nudge(id, runID: runID, PlanTool.goAhead)
+                        state.touchedPlan = true
+                        if let approved = conversations.conversation(id) { candidates = chain(approved) }
+                        state.model = 0
                         continue
                     }
                     // The plan's open steps (user 2026-09-14; omp's todo reminder): a reply that stops with steps still open
@@ -1542,7 +1570,7 @@ final class ChatRunner {
         let tier = tier(of: call.name, agent: agent)
         // Plan mode (D5): tools above read aren't offered, but a text-protocol model may write one anyway.
         if conversation?.plansOnly == true, let tier, tier > .read, call.name != AgentTools.fetch.name {
-            return .refused(ToolResult(status: .denied, output: "现在是计划模式：不能写文件、改文件或运行命令。把方案写出来，用户点「按这个计划做」之后你才能动手。"))
+            return .refused(ToolResult(status: .denied, output: "现在是计划模式：还不能写文件、改文件或运行命令。先把方案写出来、用 plan 列好步骤，之后才能动手。"))
         }
         // A read-only subtask (7g, S1), the same way — reading a page aside: it only looks, and it asks (D70).
         if conversation?.parent?.readOnly == true, let tier, tier > .read, call.name != AgentTools.fetch.name {
@@ -1561,14 +1589,15 @@ final class ChatRunner {
         }
         // Computer use (7j, C2): looking never asks; the first acting call of a run asks once, 全部放行 not at all.
         let isComputer = call.name == ComputerTool.name
-        // An approved plan (user 2026-09-23: 计划确认后无需用户确认执行): its writes and commands don't ask; the dangerous
-        // ones below still do, as under 允许写入.
-        let planApproved = conversation?.planMode == true && conversation?.planApproved == true
+        // `/permissions` (user 2026-09-28): the conversation's own mode, else the Agent's.
+        let mode = approvalMode(id, agent: agent)
+        // A plan being carried out asks as the mode says (user 2026-09-28): it runs on straight from the plan, nobody
+        // approved it — 全部放行 is how it goes through without asking.
         let aboveMode = isComputer
-            ? ComputerTool.acts(call.arguments) && agent.approvalMode != .yolo && !state.computerAllowed
-            : !planApproved && (tier.map { agent.approvalMode.needsApproval($0) } ?? false)
+            ? ComputerTool.acts(call.arguments) && mode != .yolo && !state.computerAllowed
+            : tier.map { mode.needsApproval($0) } ?? false
         // The seven kinds of dangerous command ask whatever a hook allowed (7c, C3) — except under 全部放行 (user 2026-09-15).
-        let forced = AgentTools.forcedApproval(call, mode: agent.approvalMode)
+        let forced = AgentTools.forcedApproval(call, mode: mode)
         // 10b: what the user said to remember — for this conversation, or the project — needs no asking. A forced step
         // (a dangerous command, a new MCP server) and a hook's own ask always ask, and offer nothing to remember.
         let rememberable = forced == nil && pre.permission != .ask
@@ -1623,8 +1652,14 @@ final class ChatRunner {
             }
             let outcome = PlanTool.apply(call.arguments, to: conversations.conversation(id)?.plan ?? [])
             if outcome.result.status == .done, outcome.plan != conversations.conversation(id)?.plan { state.touchedPlan = true }
+            var result = outcome.result
+            // 方案出来直接执行 (user 2026-09-28): said where the model picks its next words — a live DeepSeek run still
+            // closed its plan with 「确认后我就按这三步动手」 though the prompt says it runs on.
+            if conversations.conversation(id)?.plansOnly == true, result.status == .done {
+                result.output += "\n\n方案写完这一轮就会接着照这份计划做，不用等用户确认，也不用问要不要开始。"
+            }
             conversations.setPlan(outcome.plan, in: id)
-            return outcome.result
+            return result
         }
         // 7g: the hand-off and the goal's claim; the run ends after this turn (M2, A3).
         if call.name == TeamTools.handoff.name { return handOff(call, conversationID: id, agent: agent, state: &state) }
@@ -1727,10 +1762,16 @@ final class ChatRunner {
         let root = conversation.flatMap { workRoot(for: $0) }
         var input = HookInput(event: event, conversationID: id, title: conversation?.title ?? "", projectPath: root?.path,
                               projectName: conversation.flatMap { projectName($0.projectID) }, agentID: agent.id,
-                              agentName: agent.displayName, agentRole: agent.roleID, permissionMode: agent.approvalMode.rawValue,
+                              agentName: agent.displayName, agentRole: agent.roleID, permissionMode: approvalMode(id, agent: agent).rawValue,
                               message: message)
         fill(&input)
         return await hooks(event, input, root)
+    }
+
+    /// The 权限模式 a step goes by (user 2026-09-28): the one set in this conversation — or the conversation it works
+    /// for — with `/permissions`, else the Agent's own.
+    func approvalMode(_ id: UUID, agent: AgentRecord) -> ApprovalMode {
+        conversations.approvalMode(for: id) ?? agent.approvalMode
     }
 
     /// What hooks tell the model about a tool call, after its result.

@@ -323,7 +323,25 @@ final class ConversationStore {
         }
     }
 
-    /// 「按这个计划做」 (user 2026-09-23): plan mode stays on; this plan is carried out without asking.
+    /// `/permissions` (user 2026-09-28): this conversation's own mode from now on — its Agent's setting stays as it is.
+    func setApprovalMode(_ mode: ApprovalMode, in id: UUID) {
+        guard conversation(id)?.approvalMode != mode else { return }
+        change(id) { $0.approvalMode = mode }
+    }
+
+    /// The mode set for this conversation, or for the nearest conversation it works for — a subtask, a lane and a side
+    /// question go by the conversation the user set it in. `nil`: the Agent's own applies.
+    func approvalMode(for id: UUID) -> ApprovalMode? {
+        var next: UUID? = id
+        var seen = Set<UUID>()
+        while let current = next, seen.insert(current).inserted, let conversation = conversation(current) {
+            if let mode = conversation.approvalMode { return mode }
+            next = conversation.parent?.conversationID
+        }
+        return nil
+    }
+
+    /// The plan is carried out (user 2026-09-23, 2026-09-28): plan mode stays on; its steps ask as the permission mode says.
     func setPlanApproved(_ isOn: Bool, in id: UUID) {
         guard conversation(id)?.planApproved != isOn else { return }
         change(id) { $0.planApproved = isOn }

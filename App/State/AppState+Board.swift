@@ -55,8 +55,9 @@ extension AppState {
         }
     }
 
-    /// The `@`-ed join the conversation (K14), each able to work in the project. Returns why they couldn't.
-    func joinFromBoard(_ id: UUID, _ joining: [UUID], currentProject: ProjectRecord?) -> String? {
+    /// The `@`-ed join the conversation (K14; 消息 too, user 2026-09-28), each able to work in the project. Returns why
+    /// they couldn't.
+    func joinMentioned(_ id: UUID, _ joining: [UUID], currentProject: ProjectRecord?) -> String? {
         do {
             try conversations.join(id, agents: joining, names: { agents.agent($0)?.displayName ?? ConversationReadiness.deletedAgentName },
                                    reasonFor: { agentID in

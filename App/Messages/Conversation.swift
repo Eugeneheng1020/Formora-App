@@ -34,11 +34,15 @@ struct Conversation: Codable, Identifiable, Equatable, Sendable {
     /// `/plan` (D5): look, ask and plan; change nothing until the user says go. It stays on until the user turns it off
     /// (user 2026-09-23): after one plan is carried out, the next task is planned too.
     var planMode = false
-    /// 「按这个计划做」 in plan mode (user 2026-09-23): the plan is being carried out — the tools are back and its steps don't
-    /// ask (dangerous commands still do). Over once the user asks for something else.
+    /// The plan in plan mode is being carried out (user 2026-09-23) — the tools are back. It starts by itself once the plan
+    /// is written (user 2026-09-28), or on a typed 「按这个计划做」; its steps ask as the permission mode says. Over once the
+    /// user asks for something else.
     var planApproved = false
-    /// When plan mode was last turned on (user 2026-09-23): only a reply after it is a plan waiting for 「按这个计划做」.
+    /// When plan mode was last turned on (user 2026-09-23): only a reply after it is a plan a typed go-ahead approves.
     var planModeAt: Date?
+    /// `/permissions` (user 2026-09-28): this conversation's own 权限模式, over its Agent's (in a group, over every
+    /// member's); `nil` = the Agent's. A subtask goes by the nearest one above it (`ConversationStore.approvalMode(for:)`).
+    var approvalMode: ApprovalMode?
     /// When it was last looked over for what the memory missed (user 2026-09-17): at most once a day.
     var memoryPassAt: Date?
     /// A subtask's place (7g, S2): kept out of the list, opened from its parent's card.
@@ -77,7 +81,7 @@ struct Conversation: Codable, Identifiable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id, kind, projectID, agentID, groupName, members, title, titleIsAuto, titleIsModelNamed, status, visibility
         case reasoning, unread, createdAt, updatedAt, messages, plan, planMode, planApproved, planModeAt, parent, boardLayout, groupNameIsAuto, cardTitles
-        case earlier, memoryPassAt
+        case earlier, memoryPassAt, approvalMode
     }
 
     /// Fields added after 6a are optional on disk, so older files still open.
@@ -111,6 +115,7 @@ struct Conversation: Codable, Identifiable, Equatable, Sendable {
         cardTitles = try values.decodeIfPresent([String: String].self, forKey: .cardTitles) ?? [:]
         earlier = try values.decodeIfPresent([EarlierVersion].self, forKey: .earlier) ?? []
         memoryPassAt = try values.decodeIfPresent(Date.self, forKey: .memoryPassAt)
+        approvalMode = try values.decodeIfPresent(ApprovalMode.self, forKey: .approvalMode)
     }
 
     var isGroup: Bool { kind == .group }

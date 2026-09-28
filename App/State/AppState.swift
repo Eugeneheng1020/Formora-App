@@ -295,21 +295,23 @@ final class AppState {
     /// Sending (7b′, H6): UserPromptSubmit hooks see the message first — they can keep it unsent, or hand the Agent
     /// some background with it; then it goes out, or, while the Agent works, waits as steering (L4). Returns why it
     /// wasn't sent.
-    func submit(_ id: UUID, text: String, attachments: [Attachment], assignees: [UUID], mentions: [FileMention] = [],
+    func submit(_ id: UUID, text: String, attachments: [Attachment], assignees: [UUID], joining: [UUID] = [], mentions: [FileMention] = [],
                 projectRoot: URL?, projectName: String?, board: BoardDispatch.Plan? = nil, currentProject: ProjectRecord? = nil) async -> String? {
         guard let conversation = conversations.conversation(id) else { return nil }
         commandCards[id] = nil
         let agent = conversation.isGroup ? nil : agents.agent(conversation.agentID)
         var input = HookInput(event: .userPromptSubmit, conversationID: id, title: conversation.title, projectPath: projectRoot?.path,
                               projectName: projectName, agentID: agent?.id, agentName: agent?.displayName, agentRole: agent?.roleID,
-                              permissionMode: agent?.approvalMode.rawValue,
+                              permissionMode: agent.map { chat.approvalMode(id, agent: $0).rawValue },
                               message: "你在「\(projectName ?? "项目")」发了一条消息：\(text.prefix(200))")
         input.prompt = text
         let outcome = await hooks.run(.userPromptSubmit, input, projectRoot: projectRoot)
         for note in outcome.notes { toasts.show("Hook", note: note, seconds: 4) }
         if let reason = outcome.blocked { return reason }
-        // From the canvas (8d, K14): who was `@`-ed but isn't in the conversation joins it first — in place.
-        if let board, !board.joining.isEmpty, let reason = joinFromBoard(id, board.joining, currentProject: currentProject) { return reason }
+        // Who was `@`-ed but isn't in the conversation joins it first, in place — from the canvas (8d, K14) and from 消息
+        // (user 2026-09-28; spec D66): a direct chat becomes a group.
+        let joining = board?.joining ?? joining
+        if !joining.isEmpty, let reason = joinMentioned(id, joining, currentProject: currentProject) { return reason }
         let isGroup = conversations.conversation(id)?.isGroup ?? conversation.isGroup
         let handover = board?.handover.map { Message(role: .user, text: $0, isHidden: true) }
         let background = outcome.context.isEmpty ? nil
@@ -325,6 +327,11 @@ final class AppState {
         }
         // An approved plan is carried out until the user asks for something else (user 2026-09-23): then plan mode plans again.
         if !chat.isRunning(id), conversation.planApproved, !PlanTool.isGoAhead(text) { conversations.setPlanApproved(false, in: id) }
+        // Typed after a plan-mode reply, the go-ahead approves it (user 2026-09-28: no card to click — a plan with its steps
+        // listed is carried out at once; this is for one written without them).
+        if !chat.isRunning(id), PlanTool.isGoAhead(text), Decisions.planAwaitsApproval(conversation, isRunning: false, hasQuestion: false) {
+            conversations.setPlanApproved(true, in: id)
+        }
         if chat.isRunning(id) {
             var steering = Message(role: .user, text: text, attachments: attachments, assignees: assignees, mentions: mentions)
             steering.boardParent = board?.parent

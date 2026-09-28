@@ -117,6 +117,8 @@ struct PlanStrip: View {
 /// the other way. On, it stays on: every task is planned first.
 struct PlanModePill: View {
     let isOn: Bool
+    /// Where the tool row is narrow (user 2026-09-28): `plan` alone — on or off is its colour.
+    var compact = false
     let toggle: () -> Void
 
     @Environment(\.isEnabled) private var isEnabled
@@ -124,10 +126,12 @@ struct PlanModePill: View {
 
     var body: some View {
         Button(action: toggle) {
-            Text(isOn ? "plan: on" : "plan: off")
+            Text(compact ? "plan" : isOn ? "plan: on" : "plan: off")
                 .font(FormoraFont.mono(11))
                 .foregroundStyle(isOn ? Palette.accent.color : isHovering && isEnabled ? Palette.ink.color : Palette.inkMuted.color)
-                .padding(.horizontal, 10)
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.horizontal, compact ? 7 : 10)
                 .frame(height: 26)
                 .background(Capsule().fill(isOn ? Palette.accentSoft.color : isHovering && isEnabled ? Palette.surfaceRaised2.color : .clear))
                 .overlay(Capsule().strokeBorder(isOn ? Color.clear : Palette.line.color, lineWidth: 1))
@@ -135,40 +139,8 @@ struct PlanModePill: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
-        .help(isOn ? "计划模式开着：每件事它先出方案，你点「按这个计划做」才动手。点一下关闭" : "点一下开启计划模式：每件事先出方案再动手")
+        .help(isOn ? "计划模式开着：每件事它先出方案、列好步骤，再接着做。点一下关闭" : "点一下开启计划模式：每件事先出方案再动手")
         .accessibilityLabel(isOn ? "计划模式：开" : "计划模式：关")
         .accessibilityIdentifier("composer.planMode")
-    }
-}
-
-/// Above the composer once a plan-mode run ended (D5; user 2026-09-15): the way from the plan to the work.
-struct PlanApprovalCard: View {
-    let go: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("方案出来了").font(FormoraFont.ui(12.5, weight: 700)).foregroundStyle(Palette.ink.color)
-                Spacer(minLength: 12)
-                Text("PLAN").font(FormoraFont.mono(10)).foregroundStyle(Palette.inkFaint.color)
-            }
-            .padding(.bottom, 11)
-            Text("计划模式下它没有改任何文件。觉得可以就点「按这个计划做」，它照着做、不再逐步问你（危险命令照样问）；要改哪里，直接在下面说。")
-                .font(FormoraFont.ui(12))
-                .foregroundStyle(Palette.inkMuted.color)
-                .lineSpacing(4)
-                .fixedSize(horizontal: false, vertical: true)
-            Button("按这个计划做", action: go)
-                .buttonStyle(FormoraButtonStyle(kind: .primary))
-                .padding(.top, 12)
-                .accessibilityIdentifier("plan.execute")
-        }
-        .padding(.vertical, 14)
-        .padding(.horizontal, 16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Palette.surface.color))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Palette.lineStrong.color, lineWidth: 1))
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("plan.approval")
     }
 }

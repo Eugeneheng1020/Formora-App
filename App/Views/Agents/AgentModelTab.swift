@@ -30,9 +30,10 @@ struct AgentModelTab: View {
 
     // MARK: 权限模式
 
-    /// 7b, L5: how far the Agent goes without asking; saved as it changes, like 项目权限.
+    /// 7b, L5: how far the Agent goes without asking; saved as it changes, like 项目权限. New conversations start on it; one
+    /// conversation can go its own way with `/permissions` (user 2026-09-28).
     private var approvalBlock: some View {
-        DetailBlock(title: "权限模式", note: "这个 Agent 动手之前要不要先问你。") {
+        DetailBlock(title: "权限模式", note: "新对话从这一档开始，某个对话里可以用 /permissions 单独调。") {
             EmptyView()
         } content: {
             VStack(alignment: .leading, spacing: 9) {

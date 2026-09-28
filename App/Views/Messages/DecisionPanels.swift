@@ -1,11 +1,11 @@
 import SwiftUI
 
 /// The composer's dock of decisions (user 2026-09-15; spec §5): whatever waits for the user sits here, in 消息 and over the
-/// board alike — a step waiting for 允许 / 拒绝, a question, a reply's numbered ways, 方案出来了, 要继续吗, 重试. Cards in the
-/// thread and the board's 「运行过程」 only tell. `focus` is the board's focused run; `pick` sends a choice as the user's words.
+/// board alike — a step waiting for 允许 / 拒绝, a question, a reply's numbered ways, 要继续吗, 重试 (方案出来了 is gone: the
+/// plan is carried out at once, user 2026-09-28). Cards in the thread and the board's 「运行过程」 only tell. `focus` is the
+/// board's focused run; `pick` sends a choice as the user's words.
 struct DecisionDock: View {
     let state: AppState
-    let session: ProjectSession
     let conversation: Conversation
     var focus: UUID? = nil
     let pick: (String) -> Void
@@ -16,8 +16,6 @@ struct DecisionDock: View {
     private var approval: Decisions.PendingApproval? {
         Decisions.approval(for: conversation, focus: focus, subtasks: state.conversations.subtasks(of: id), approvals: state.chat.approvals)
     }
-    private var projectRoot: URL? { session.current?.id == conversation.projectID ? session.accessibleRoot : nil }
-    private var projectName: String? { session.projects.first { $0.id == conversation.projectID }?.name }
 
     var body: some View {
         if let approval {
@@ -42,10 +40,7 @@ struct DecisionDock: View {
                 .id(pending.id)
                 .padding(.bottom, 10)
         }
-        if Decisions.planAwaitsApproval(conversation, isRunning: isRunning, hasQuestion: question != nil) {
-            PlanApprovalCard { state.executePlan(id, projectRoot: projectRoot, projectName: projectName) }
-                .padding(.bottom, 10)
-        } else if let pause = Decisions.pause(conversation, isRunning: isRunning) {
+        if let pause = Decisions.pause(conversation, isRunning: isRunning) {
             PauseCard(reason: pause) { state.chat.resume(id) }
                 .padding(.bottom, 10)
         } else if let failure = Decisions.failure(conversation, isRunning: isRunning) {

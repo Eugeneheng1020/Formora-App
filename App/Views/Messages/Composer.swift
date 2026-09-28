@@ -3,9 +3,9 @@ import SwiftUI
 
 /// The composer (spec §9.6, C12): a 14-radius card with the attachments, the text, and the tool row — left the
 /// preparation (添加文件, reasoning), right only 发送 (停止 while a reply streams). Blocked with the same judgement
-/// that stops sending, and the reason written under it. `/` at the start opens the commands, `@` the project files —
-/// in a group the members first (7d, D1–D3; spec §9.8, §9.10). Docked above it: the plan, and every decision waiting
-/// for the user (spec §5, §9.8b; `DecisionDock`).
+/// that stops sending, and the reason written under it. `/` at the start opens the commands, `@` the colleagues and then
+/// the project files (7d, D1–D3; spec §9.8, §9.10; user 2026-09-28). Docked above it: the plan, and every decision
+/// waiting for the user (spec §5, §9.8b; `DecisionDock`).
 struct ComposerView: View {
     let state: AppState
     let session: ProjectSession
@@ -81,9 +81,9 @@ struct ComposerView: View {
             if !jobs.isEmpty {
                 BackgroundJobsStrip(jobs: jobs) { state.chat.jobs.stopByUser($0) }.padding(.bottom, 10)
             }
-            // Every decision waits here (user 2026-09-15): 等你确认, a question, a reply's numbered ways, 方案出来了, 要继续吗,
-            // 重试 — on the canvas for the focused card's run. A pick is sent as the user's words.
-            DecisionDock(state: state, session: session, conversation: conversation, focus: boardCard.map { $0.subtaskID ?? id }) { text in
+            // Every decision waits here (user 2026-09-15): 等你确认, a question, a reply's numbered ways, 要继续吗, 重试 — on
+            // the canvas for the focused card's run. A pick is sent as the user's words.
+            DecisionDock(state: state, conversation: conversation, focus: boardCard.map { $0.subtaskID ?? id }) { text in
                 state.composerDrafts[id, default: AppState.ComposerDraft()].text = text
                 send()
             }
@@ -97,22 +97,12 @@ struct ComposerView: View {
                                  listOpen: { showsPopover }, ghost: ghost, onTab: handleTab)
                     // `.composer-editor`: 22 min + 3 padding above and below, at most 160.
                     .frame(height: min(max(height, 28), 160))
-                HStack(spacing: 6) {
-                    IconActionButton(icon: Icons.paperclip, label: "添加附件", identifier: "composer.attach") { pickFiles() }
-                    EffortLabel(state: state, conversation: conversation)
-                    PlanModePill(isOn: conversation.planMode) {
-                        _ = state.togglePlanMode(id, message: "", projectRoot: projectRoot, projectName: projectName)
-                    }
-                    Spacer(minLength: 10)
-                    // 7e, E7: the context ring right before 发送 (user 2026-09-06); a click opens /cost.
-                    if let usage = contextUsage, let cost = Commands.all.first(where: { $0.action == .cost }) {
-                        ContextRing(usage: usage) { run(cost, argument: "") }
-                    }
-                    if isRunning {
-                        StopButton { state.chat.stop(id) }
-                    } else {
-                        SendButton(isEnabled: canSend, action: send)
-                    }
+                // Narrow — the files pane goes down to 320 (user 2026-09-28) — the labels drop their names, then go:
+                // `/effort`, `/plan`, `/permissions` still reach them.
+                ViewThatFits(in: .horizontal) {
+                    toolRow(.full)
+                    toolRow(.compact)
+                    toolRow(.bare)
                 }
                 .disabled(isBlocked)
             }
@@ -165,9 +155,13 @@ struct ComposerView: View {
         .padding(.horizontal, onBoard ? 0 : 22)
         .padding(.bottom, onBoard ? 0 : 18)
         .overlay(alignment: .top) { if !onBoard { Rectangle().fill(Palette.line.color).frame(height: 1) } }
-        // `/effort` opens on the level in use, so a stray Enter changes nothing.
+        // `/effort` and `/permissions` open on the one in use, so a stray Enter changes nothing.
         .onChange(of: token) {
-            cursor = token?.kind == .effort ? state.effortChoices(id, query: token?.query ?? "").firstIndex(where: \.isCurrent) ?? 0 : 0
+            switch token?.kind {
+            case .effort: cursor = state.effortChoices(id, query: token?.query ?? "").firstIndex(where: \.isCurrent) ?? 0
+            case .permissions: cursor = state.permissionChoices(id, query: token?.query ?? "").firstIndex(where: \.isCurrent) ?? 0
+            default: cursor = 0
+            }
         }
         .onChange(of: token?.kind) {
             if token?.kind == .at { loadFiles() }
@@ -180,6 +174,35 @@ struct ComposerView: View {
         }
     }
 
+    /// How much of the tool row fits (user 2026-09-28).
+    enum ToolRowFit {
+        case full, compact, bare
+    }
+
+    /// 回形针, `effort: high`, `plan: on`, `perm: write` (user 2026-09-23, 2026-09-28) — then the context ring and 发送.
+    private func toolRow(_ fit: ToolRowFit) -> some View {
+        HStack(spacing: fit == .full ? 6 : 4) {
+            IconActionButton(icon: Icons.paperclip, label: "添加附件", identifier: "composer.attach") { pickFiles() }
+            if fit != .bare {
+                EffortLabel(state: state, conversation: conversation, compact: fit == .compact)
+                PlanModePill(isOn: conversation.planMode, compact: fit == .compact) {
+                    _ = state.togglePlanMode(id, message: "", projectRoot: projectRoot, projectName: projectName)
+                }
+                PermissionLabel(state: state, conversation: conversation, compact: fit == .compact)
+            }
+            Spacer(minLength: 10)
+            // 7e, E7: the context ring right before 发送 (user 2026-09-06); a click opens /cost.
+            if let usage = contextUsage, let cost = Commands.all.first(where: { $0.action == .cost }) {
+                ContextRing(usage: usage) { run(cost, argument: "") }
+            }
+            if isRunning {
+                StopButton { state.chat.stop(id) }
+            } else {
+                SendButton(isEnabled: canSend, action: send)
+            }
+        }
+    }
+
     /// Names who will read it; with a question waiting, writing is answering (spec §9.8b).
     private var placeholder: String {
         if isRunning { return "补充或纠正，它做完这一步就会看到…" }
@@ -187,7 +210,7 @@ struct ComposerView: View {
         // The mockup's words: the canvas pushes a card on, it never starts one (K13).
         if onBoard { return "补充或纠正…　@ 一个角色派给他，/ 指令" }
         return conversation.isGroup ? "@ 谁就交给谁，不 @ 就按任务自动分配…"
-            : "给 \(ConversationReadiness.headline(of: conversation, agents: state.agents)) 发消息…　/ 指令，@ 引用文件"
+            : "给 \(ConversationReadiness.headline(of: conversation, agents: state.agents)) 发消息…　/ 指令，@ \(mentionsAgents ? "同事或文件" : "引用文件")"
     }
 
     /// What ↑ brings back (9b, Q3): the user's own words, oldest first — not the loop's, not the thread's lines.
@@ -296,7 +319,7 @@ struct ComposerView: View {
         // The chosen file or folder rides along (user 2026-09-22) — on words, never on a command.
         let outgoing = FileChat.outgoingText(text, carry: carry?())
         var assignees: [UUID] = []
-        if conversation.isGroup || onBoard {
+        if conversation.isGroup || mentionsAgents {
             assignees = Mentions.assignees(in: text, members: members)
             // Typed by hand past the greyed list: checked again here (spec §9.10) — unless Bob can find a member of the
             // group a stand-in (9e, F).
@@ -309,6 +332,8 @@ struct ComposerView: View {
                 return
             }
         }
+        // In 消息 (user 2026-09-28; spec D66) those `@`-ed from outside join first; the canvas plans its own (K14).
+        let joining = onBoard ? [] : assignees
         // UserPromptSubmit hooks see it first (7b′): they may keep it unsent — then the words come back — or add
         // background for the Agent. Sent while the Agent works, it waits as steering (L4).
         var kept = draft
@@ -331,8 +356,8 @@ struct ComposerView: View {
                 reason = await state.boardSend(id, card: card, text: trimmed, attachments: kept.attachments, mentioned: assignees,
                                                mentions: mentions, projectRoot: root, projectName: projectName, currentProject: current)
             } else {
-                reason = await state.submit(id, text: trimmed, attachments: kept.attachments, assignees: assignees,
-                                            mentions: mentions, projectRoot: root, projectName: projectName)
+                reason = await state.submit(id, text: trimmed, attachments: kept.attachments, assignees: assignees, joining: joining,
+                                            mentions: mentions, projectRoot: root, projectName: projectName, currentProject: current)
             }
             guard let reason else { return }
             if state.composerDrafts[id] == nil { state.composerDrafts[id] = kept }
@@ -342,13 +367,22 @@ struct ComposerView: View {
 
     // MARK: `/` and `@`
 
-    /// Who can be `@`-ed: a group's members; on the canvas any of the project's Agents, those in it first — the others
-    /// join when `@`-ed (8d, K14).
+    /// Who can be `@`-ed: in 消息 and on the canvas any Agent, those in the conversation first — the others join when
+    /// `@`-ed (8d, K14; user 2026-09-28). The files pane's chat is its Agent's own one-to-one: a group's members there,
+    /// else nobody — an `@` would make it a group.
     private var members: [AgentRecord] {
         let inside = conversation.isGroup ? ConversationReadiness.members(of: conversation, agents: state.agents)
             : state.agents.agent(conversation.agentID).map { [$0] } ?? []
-        guard onBoard else { return conversation.isGroup ? inside : [] }
+        guard mentionsAgents else { return conversation.isGroup ? inside : [] }
         return inside + state.agents.agents.filter { agent in !inside.contains { $0.id == agent.id } }
+    }
+
+    /// 消息's and the canvas's composer (user 2026-09-28): not the files pane's, which carries the file it was opened on.
+    private var mentionsAgents: Bool { carry == nil }
+
+    /// Whether `@`-ing this Agent brings it into the conversation.
+    private func joins(_ agent: AgentRecord) -> Bool {
+        conversation.isGroup ? !conversation.members.contains { $0.agentID == agent.id } : conversation.agentID != agent.id
     }
 
     /// A `/word` this composer runs: a command of its roles, a Skill, a subagent.
@@ -382,14 +416,19 @@ struct ComposerView: View {
             }
         case .effort:
             return [PopoverSection(title: "推理强度", items: state.effortChoices(id, query: token.query).map { .effort($0) })]
+        case .permissions:
+            return [PopoverSection(title: "权限", items: state.permissionChoices(id, query: token.query).map { .permission($0) })]
         case .at:
             let needle = FileSearch.normalize(token.query)
             var result: [PopoverSection] = []
-            if conversation.isGroup || onBoard {
+            if !members.isEmpty {
+                // Who isn't in it yet says what picking them does (user 2026-09-28).
+                let joinNote = conversation.isGroup ? "发出后加入群聊" : "发出后加入，这里变成群聊"
                 let picked = members
                     .filter { needle.isEmpty || FileSearch.normalize($0.displayName).contains(needle) || FileSearch.normalize($0.customName).contains(needle) }
                     .map { PopoverItem.member(MentionItem(agent: $0, reason: ConversationReadiness.assignmentReason(
-                        $0, in: conversation, currentProject: session.current, providers: state.providers))) }
+                        $0, in: conversation, currentProject: session.current, providers: state.providers),
+                        joinNote: joins($0) ? joinNote : nil)) }
                 result.append(PopoverSection(title: "角色", items: picked))
             }
             // Files whose name matches first, then those matching only by folder.
@@ -414,8 +453,10 @@ struct ComposerView: View {
         case .effort:
             if state.effortOptions(id).isEmpty { return "这个模型的推理强度不能调" }
             return "没有这一档"
+        case .permissions:
+            return "没有这一档"
         case .at:
-            if conversation.isGroup || onBoard { return filtered ? "没有匹配的角色或文件" : "还没有角色或项目文件" }
+            if !members.isEmpty { return filtered ? "没有匹配的角色或文件" : "还没有角色或项目文件" }
             if session.accessibleRoot == nil { return "项目文件夹现在打不开" }
             return filtered ? "没有匹配的项目文件" : "还没有项目文件"
         }
@@ -473,6 +514,9 @@ struct ComposerView: View {
         case .effort(let choice):
             state.composerDrafts[id, default: AppState.ComposerDraft()].text = ""
             state.setEffort(choice, in: id)
+        case .permission(let choice):
+            state.composerDrafts[id, default: AppState.ComposerDraft()].text = ""
+            state.setPermission(choice, in: id)
         }
         token = nil
     }
@@ -555,6 +599,8 @@ struct MentionItem: Identifiable {
     let agent: AgentRecord
     /// Why it can't be picked — greyed, the reason in alert (mockup `.cmd-item.disabled`).
     let reason: String?
+    /// Not in the conversation yet: what picking it does (user 2026-09-28).
+    var joinNote: String? = nil
 
     var id: UUID { agent.id }
 }
@@ -571,6 +617,8 @@ enum PopoverItem: Identifiable {
     case model(ModelChoice)
     /// A reasoning level (user 2026-09-23).
     case effort(EffortChoice)
+    /// A 权限模式 for this conversation (user 2026-09-28).
+    case permission(PermissionChoice)
 
     var id: String {
         switch self {
@@ -581,6 +629,7 @@ enum PopoverItem: Identifiable {
         case .file(let path): "file:" + path
         case .model(let choice): "model:" + choice.id
         case .effort(let choice): "effort:" + choice.id
+        case .permission(let choice): "permission:" + choice.id
         }
     }
 }
@@ -656,6 +705,7 @@ private struct ComposerPopover: View {
         case .file(let path): FileRow(path: path, isOn: isOn) { pick(item) }
         case .model(let choice): ModelRow(choice: choice, isOn: isOn) { pick(item) }
         case .effort(let choice): EffortRow(choice: choice, isOn: isOn) { pick(item) }
+        case .permission(let choice): PermissionRow(choice: choice, isOn: isOn) { pick(item) }
         }
     }
 }
@@ -782,7 +832,7 @@ private struct MentionRow: View {
                         .font(FormoraFont.ui(12.5))
                         .foregroundStyle(Palette.ink.color)
                         .opacity(blocked ? 0.32 : 1)
-                    Text(item.reason ?? item.agent.role.name)
+                    Text(item.reason ?? [item.agent.role.name, item.joinNote].compactMap { $0 }.joined(separator: " · "))
                         .font(FormoraFont.ui(11))
                         .foregroundStyle(blocked ? Palette.alert.color : Palette.inkFaint.color)
                         .lineLimit(2)
@@ -799,6 +849,7 @@ private struct MentionRow: View {
         .buttonStyle(.plain)
         .disabled(blocked)
         .onHover { isHovering = $0 }
+        .accessibilityValue(item.joinNote ?? "")
         .accessibilityIdentifier("mention.\(item.agent.customName)")
     }
 }
@@ -833,13 +884,17 @@ private struct SendButton: View {
 private struct EffortLabel: View {
     let state: AppState
     let conversation: Conversation
+    /// Where the row is narrow: the level alone.
+    var compact = false
 
     var body: some View {
         let label = state.effortLabel(conversation.id)
-        Text(label)
+        Text(compact ? String(label.dropFirst("effort: ".count)) : label)
             .font(FormoraFont.mono(11))
             .foregroundStyle(Palette.inkMuted.color)
-            .padding(.horizontal, 10)
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, compact ? 7 : 10)
             .frame(height: 26)
             .overlay(Capsule().strokeBorder(Palette.line.color, lineWidth: 1))
             .help(state.effortLevel(conversation.id) == nil ? "这个模型的推理强度不能调" : "推理强度，输入 /effort 调整")
@@ -884,6 +939,69 @@ private struct EffortRow: View {
     }
 }
 
+/// 权限 on the tool row (user 2026-09-28): `perm: write` — words, not a button, like `effort`; `/permissions` changes it.
+/// 全部放行 in the alert colour: this conversation no longer asks.
+private struct PermissionLabel: View {
+    let state: AppState
+    let conversation: Conversation
+    /// Where the row is narrow: the word alone.
+    var compact = false
+
+    var body: some View {
+        let label = state.permissionLabel(conversation.id)
+        let mode = state.permissionMode(conversation.id)
+        Text(compact ? String(label.dropFirst("perm: ".count)) : label)
+            .font(FormoraFont.mono(11))
+            .foregroundStyle(mode == .yolo ? Palette.alert.color : Palette.inkMuted.color)
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, compact ? 7 : 10)
+            .frame(height: 26)
+            .overlay(Capsule().strokeBorder(mode == .yolo ? Palette.alertLine.color : Palette.line.color, lineWidth: 1))
+            .help(mode.map { "权限：\($0.label)。\($0.note)输入 /permissions 调整" } ?? "群成员的权限各不相同，输入 /permissions 给这个群定一档")
+            .accessibilityLabel(label)
+            .accessibilityIdentifier("composer.permission")
+    }
+}
+
+/// One mode of the `/permissions` list (user 2026-09-28): omp's word, its name and what it lets through, a check on the current.
+private struct PermissionRow: View {
+    let choice: PermissionChoice
+    let isOn: Bool
+    let action: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(choice.word)
+                    .font(FormoraFont.mono(12))
+                    .foregroundStyle(choice.isCurrent ? Palette.accent.color : Palette.ink.color)
+                    .frame(minWidth: 40, alignment: .leading)
+                Text("\(choice.mode.label) · \(choice.mode.brief)")
+                    .font(FormoraFont.ui(11.5))
+                    .foregroundStyle(Palette.inkFaint.color)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 0)
+                if choice.isCurrent { IconView(Icons.check, size: 13).foregroundStyle(Palette.accent.color) }
+            }
+            .padding(.vertical, 7)
+            .padding(.horizontal, 10)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(isOn || isHovering ? Palette.surfaceRaised2.color : .clear))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .help("\(choice.mode.label)：\(choice.mode.note)")
+        .accessibilityLabel(choice.word)
+        .accessibilityValue(choice.isCurrent ? "当前" : "")
+        .accessibilityIdentifier("popover.permission.\(choice.word)")
+    }
+}
+
 /// One key the `@` list takes while it is open.
 enum MentionKey {
     case up, down, accept, cancel
@@ -896,6 +1014,8 @@ struct ComposerToken: Equatable {
         case slash, at, model
         /// `/effort …` (user 2026-09-23): the levels list, filtered by what follows.
         case effort
+        /// `/permissions …` (user 2026-09-28): the conversation's 权限模式, filtered by what follows.
+        case permissions
     }
 
     let kind: Kind
@@ -912,6 +1032,7 @@ struct ComposerToken: Equatable {
     /// name may be typed in pieces (`claude son`).
     static func model(in text: String) -> ComposerToken? {
         line(text, command: "/model", kind: .model) ?? line(text, command: "/effort", kind: .effort)
+            ?? line(text, command: "/permissions", kind: .permissions)
     }
 
     private static func line(_ text: String, command: String, kind: Kind) -> ComposerToken? {

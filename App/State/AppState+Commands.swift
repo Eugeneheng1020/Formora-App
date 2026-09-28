@@ -57,6 +57,34 @@ extension AppState {
         toasts.show("effort: \(choice.word)", note: "推理强度「\(choice.option.label)」，只影响这个对话", seconds: 2)
     }
 
+    /// The 权限模式 a conversation's steps go by (user 2026-09-28): its own, else its Agent's — in a group the members'
+    /// when they agree; `nil` when they don't.
+    func permissionMode(_ id: UUID) -> ApprovalMode? {
+        if let own = conversations.approvalMode(for: id) { return own }
+        guard let conversation = conversations.conversation(id) else { return nil }
+        let members = conversation.isGroup ? ConversationReadiness.members(of: conversation, agents: agents)
+            : [agents.agent(conversation.agentID)].compactMap { $0 }
+        let modes = Set(members.map(\.approvalMode))
+        return modes.count == 1 ? modes.first : nil
+    }
+
+    /// The tool row's `perm: write` (user 2026-09-28: omp's words, like `effort: high`); a group whose members differ says so.
+    func permissionLabel(_ id: UUID) -> String { "perm: " + (permissionMode(id)?.word ?? "mixed") }
+
+    /// `/permissions` and what follows: the modes whose word or name has it, the one in use marked.
+    func permissionChoices(_ id: UUID, query: String) -> [PermissionChoice] {
+        let current = permissionMode(id)
+        let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
+        return ApprovalMode.allCases.filter { needle.isEmpty || $0.word.contains(needle) || $0.label.contains(needle) }
+            .map { PermissionChoice(mode: $0, word: $0.word, isCurrent: $0 == current) }
+    }
+
+    /// Takes effect from the next step, and only in this conversation: its Agent's setting stays (user 2026-09-28).
+    func setPermission(_ choice: PermissionChoice, in id: UUID) {
+        conversations.setApprovalMode(choice.mode, in: id)
+        toasts.show("perm: \(choice.word)", note: "权限「\(choice.mode.label)」，只影响这个对话", seconds: 2)
+    }
+
     /// The Agent a command is about: the direct chat's; in a group whoever answered last, else the first member.
     func commandAgent(_ conversation: Conversation) -> AgentRecord? {
         guard conversation.isGroup else { return agents.agent(conversation.agentID) }
@@ -114,6 +142,13 @@ extension AppState {
                 return matches.isEmpty ? "没有「\(argument)」这一档，输入 /effort 从列表里选" : "输入 /effort 从列表里选一档"
             }
             setEffort(choice, in: id)
+        case .permissions:
+            // Like /effort: the list is the popover's; a line sent as is must name one mode outright.
+            let matches = permissionChoices(id, query: argument)
+            guard matches.count == 1, let choice = matches.first else {
+                return matches.isEmpty ? "没有「\(argument)」这一档，输入 /permissions 从列表里选" : "输入 /permissions 从列表里选一档"
+            }
+            setPermission(choice, in: id)
         case .model:
             // The list is the popover's while typing; a line sent as is must name one model outright.
             let matches = modelChoices(for: conversation, query: argument).flatMap(\.items)
@@ -342,6 +377,15 @@ extension AppState {
 }
 
 /// One level of the `/effort` list (user 2026-09-23).
+/// One mode of the `/permissions` list (user 2026-09-28).
+struct PermissionChoice: Identifiable, Equatable {
+    let mode: ApprovalMode
+    let word: String
+    let isCurrent: Bool
+
+    var id: String { mode.rawValue }
+}
+
 struct EffortChoice: Identifiable, Equatable {
     let option: ModelThinking.Option
     let word: String

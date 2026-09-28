@@ -1,7 +1,7 @@
 import Foundation
 
-/// 要你做决定的事一律停在输入框上方 (user 2026-09-15; spec §5): 等你确认, 选项确认, a reply's numbered ways, 方案出来了,
-/// 要继续吗, 重试 — cards and the board's 「运行过程」 only tell, the composer's dock asks. Pure lookups; the composer reads them.
+/// 要你做决定的事一律停在输入框上方 (user 2026-09-15; spec §5): 等你确认, 选项确认, a reply's numbered ways, 要继续吗,
+/// 重试 — cards and the board's 「运行过程」 only tell, the composer's dock asks. Pure lookups; the composer reads them.
 enum Decisions {
     /// A tool call waiting for 允许 / 拒绝, wherever it runs.
     struct PendingApproval: Equatable {
@@ -41,7 +41,8 @@ enum Decisions {
         conversation.messages.last { !$0.isHidden }
     }
 
-    /// A plan-mode run ended on its answer (D5): 「按这个计划做」 waits.
+    /// A plan-mode run ended on its answer (D5): typing 「按这个计划做」 or 「继续」 approves it (user 2026-09-28: the card is
+    /// gone — a plan with its steps listed is carried out at once, `ChatRunner.planReady`).
     static func planAwaitsApproval(_ conversation: Conversation, isRunning: Bool, hasQuestion: Bool) -> Bool {
         guard conversation.plansOnly, !isRunning, !hasQuestion, let last = lastShown(conversation) else { return false }
         // A reply from before plan mode was turned on isn't a plan (user 2026-09-23: the mode stays on, so turning it on
@@ -82,13 +83,13 @@ enum ApprovalText {
             return "要操作电脑，做下面这几步。允许后，这次任务里它再操作电脑就不再问你；屏幕顶部会出现停止条，按 ⌘ + Esc 或者在别的应用里动一下鼠标键盘就会停。"
         }
         if call.name == ScriptTools.osascript.name {
-            return "要运行这段脚本，它可能会控制别的应用（macOS 会为每个被控制的应用单独问你一次）。按这个 Agent 的「权限模式」，需要你确认。"
+            return "要运行这段脚本，它可能会控制别的应用（macOS 会为每个被控制的应用单独问你一次）。按这个对话现在的权限，需要你确认。"
         }
         if call.name == ScriptTools.shortcutRun.name {
-            return "要运行你的快捷指令「\(args["name"] as? String ?? "")」。按这个 Agent 的「权限模式」，需要你确认。"
+            return "要运行你的快捷指令「\(args["name"] as? String ?? "")」。按这个对话现在的权限，需要你确认。"
         }
-        if call.name == "bash" { return "要在项目文件夹里运行这条命令。按这个 Agent 的「权限模式」，需要你确认。" }
-        if call.name == "open_url" { return "要在你的浏览器里打开 \(args["url"] as? String ?? "这个网址")。按这个 Agent 的「权限模式」，需要你确认。" }
+        if call.name == "bash" { return "要在项目文件夹里运行这条命令。按这个对话现在的权限，需要你确认。" }
+        if call.name == "open_url" { return "要在你的浏览器里打开 \(args["url"] as? String ?? "这个网址")。按这个对话现在的权限，需要你确认。" }
         let path = args["path"] as? String ?? "文件"
         let what: String
         switch call.name {
@@ -101,7 +102,7 @@ enum ApprovalText {
         default:
             what = "要\(call.summary)"
         }
-        return "\(what)。按这个 Agent 的「权限模式」，这一步需要你确认。"
+        return "\(what)。按这个对话现在的权限，这一步需要你确认。"
     }
 
     /// What is being allowed, in full: a command as it will run, a script, or a computer call's steps (7j, C2).

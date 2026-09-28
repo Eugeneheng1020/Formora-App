@@ -10,7 +10,7 @@ enum PlanTool {
         parameters: #"{"type":"object","properties":{"op":{"type":"string","enum":["init","start","done","drop","append","view"]},"items":{"type":"array","items":{"type":"string"},"description":"Steps, for init and append"},"item":{"type":"string","description":"The exact text of one step, for start, done and drop"}},"required":["op"]}"#,
         tier: .read)
 
-    /// What 「按这个计划做」 sends.
+    /// What the model is told when its plan is carried out (user 2026-09-28: at once, unseen), and a go-ahead the user types.
     static let goAhead = "按这个计划做。"
 
     /// Whether the user's words mean the plan (user 2026-09-17): the button's, or a few words that say go on. A longer

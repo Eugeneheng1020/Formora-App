@@ -12,6 +12,15 @@ enum ToolTier: Int, Comparable, Sendable {
 enum ApprovalMode: String, Codable, CaseIterable, Sendable {
     case alwaysAsk, write, yolo
 
+    /// omp's words (user 2026-09-28: `perm: write` on the tool row, the `/permissions` list).
+    var word: String {
+        switch self {
+        case .alwaysAsk: "ask"
+        case .write: "write"
+        case .yolo: "yolo"
+        }
+    }
+
     var label: String {
         switch self {
         case .alwaysAsk: "每次询问"
@@ -25,6 +34,15 @@ enum ApprovalMode: String, Codable, CaseIterable, Sendable {
         case .alwaysAsk: "查看文件和搜索直接做；写文件、读网页、执行命令之前都先问你。"
         case .write: "查看和写文件、搜索直接做；读网页、执行命令之前先问你。"
         case .yolo: "所有操作直接做，不再询问。只在你信得过这个 Agent 和项目时用。"
+        }
+    }
+
+    /// The `/permissions` list's short line (user 2026-09-28): what still asks.
+    var brief: String {
+        switch self {
+        case .alwaysAsk: "写文件、命令、网页都先问"
+        case .write: "写文件不问，命令和网页先问"
+        case .yolo: "都不问，只有接入 MCP 还问"
         }
     }
 
