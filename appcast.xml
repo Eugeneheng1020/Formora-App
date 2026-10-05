@@ -5,6 +5,15 @@
     <description>Formora 的更新</description>
     <language>zh-Hans</language>
     <item>
+      <title>1.0.29</title>
+      <pubDate>Tue, 06 Oct 2026 04:53:58 +0800</pubDate>
+      <sparkle:version>45</sparkle:version>
+      <sparkle:shortVersionString>1.0.29</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[<p>回复中断、要继续吗这两张只有一个按钮的卡片可以关闭了</p>]]></description>
+      <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.29/Formora-1.0.29.dmg" type="application/octet-stream" sparkle:edSignature="1zdaCYUZoPsFR04ejq5EvIHVIzluuV0V/5u8TIvRHYqXCHPTkdQEFT2IjPFsjcVAXnCa/cDrACx2E9931qhsAA==" length="13607988"/>
+    </item>
+    <item>
       <title>1.0.28</title>
       <pubDate>Mon, 28 Sep 2026 21:08:31 +0800</pubDate>
       <sparkle:version>44</sparkle:version>
@@ -84,15 +93,6 @@
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
       <description><![CDATA[<p>真实模型测试后的修正：缓存命中从 6% 提到 95% 左右；Command Code 这类混合协议平台按模型自动选协议；旁审次数减半、不再发过期提醒</p>]]></description>
       <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.20/Formora-1.0.20.dmg" type="application/octet-stream" sparkle:edSignature="V/nHhpRBofbPGgqsoG+Xo2CcBF61S2nGzsbSrLE/pDabYDsBCb+NCADjZjIrWLdF1pXoakPHBglLikPV2R1dDw==" length="13023911"/>
-    </item>
-    <item>
-      <title>1.0.19</title>
-      <pubDate>Fri, 18 Sep 2026 01:18:44 +0800</pubDate>
-      <sparkle:version>35</sparkle:version>
-      <sparkle:shortVersionString>1.0.19</sparkle:shortVersionString>
-      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <description><![CDATA[<p>提示词瘦身：重复的规则合并、岗位段只留立场和交付标准、记忆规则缩成一句，每次调用少约 1000 token；单聊里顺手的小事不再推给别的岗位</p>]]></description>
-      <enclosure url="https://github.com/Eugeneheng1020/Formora-App/releases/download/v1.0.19/Formora-1.0.19.dmg" type="application/octet-stream" sparkle:edSignature="xpSj73F6U/8CBg90PyBP6TeJ7dXxMsJRTso4sZXMha0LPsRGP2/2vPtJWDLF69FcCNJrFfJa/vh881sHuyo0BA==" length="13004662"/>
     </item>
   </channel>
 </rss>
