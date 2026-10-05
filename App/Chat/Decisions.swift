@@ -51,16 +51,21 @@ enum Decisions {
         return last.role == .agent && last.failure == nil && last.pause == nil
     }
 
-    /// The run stopped to ask 「继续？」 (L2), and why.
-    static func pause(_ conversation: Conversation, isRunning: Bool) -> String? {
-        guard !isRunning, let last = lastShown(conversation), last.role == .agent else { return nil }
+    /// The run stopped to ask 「继续？」 (L2), and why — unless the user put the card away with × (user 2026-10-06).
+    static func pause(_ conversation: Conversation, isRunning: Bool, dismissed: Set<UUID> = []) -> String? {
+        guard !isRunning, let last = lastShown(conversation), last.role == .agent, !dismissed.contains(last.id) else { return nil }
         return last.pause
     }
 
-    /// The last reply never came (L3), and why: 重试 waits.
-    static func failure(_ conversation: Conversation, isRunning: Bool) -> String? {
-        guard !isRunning, let last = lastShown(conversation), last.role == .agent else { return nil }
+    /// The last reply never came (L3), and why: 重试 waits — unless the user put the card away with × (user 2026-10-06).
+    static func failure(_ conversation: Conversation, isRunning: Bool, dismissed: Set<UUID> = []) -> String? {
+        guard !isRunning, let last = lastShown(conversation), last.role == .agent, !dismissed.contains(last.id) else { return nil }
         return last.failure
+    }
+
+    /// The message a docked 要继续吗 / 重试 card stands for: what its × puts away.
+    static func lastReplyID(_ conversation: Conversation) -> UUID? {
+        lastShown(conversation)?.id
     }
 
     /// The last reply lists ways and asks which: a card, unless another decision waits or the user put this one away.

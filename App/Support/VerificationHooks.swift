@@ -562,6 +562,13 @@ enum VerificationHooks {
            let other = store.list(project: currentProject?.id, hiddenView: false).first(where: { $0.id != selected }) {
             for _ in 0..<3 { store.incrementUnread(other.id) }
         }
+        // `-FormoraSeedPause YES` (user 2026-10-06): the open conversation's run stopped to ask 要继续吗 — the card's ×.
+        if settings.bool(forKey: seedPauseKey), let id = state.selectedConversationID, let conversation = store.conversation(id),
+           let agentID = conversation.agentID ?? conversation.members.first?.agentID {
+            store.append(Message(role: .user, text: "把整个 PRD 过一遍，错别字都改掉"), to: id)
+            store.append(Message(role: .agent, agentID: agentID, speakerName: state.agents.agent(agentID)?.displayName,
+                                 text: "改到第 3 章了。", runID: UUID(), pause: "已经连续做了 50 轮。"), to: id)
+        }
         // `-FormoraSeedInterrupted YES` (user 2026-09-15): 没有回复 on a row, 重试 above its composer once opened.
         if settings.bool(forKey: seedInterruptedKey), let selected = state.selectedConversationID,
            let other = store.list(project: currentProject?.id, hiddenView: false).first(where: { $0.id != selected }),
@@ -709,6 +716,8 @@ enum VerificationHooks {
         guard (try? state.subagents.save(definition, scope: .project)) != nil else { return }
         state.conversations.append(Message(role: .user, text: "", event: SubagentGenerator.created(definition)), to: id)
     }
+    /// `-FormoraSeedPause YES`: the open conversation's last reply stopped to ask 要继续吗.
+    static let seedPauseKey = "FormoraSeedPause"
     /// `-FormoraSeedInterrupted YES`: a conversation other than the open one ends on a reply that never came, unread.
     static let seedInterruptedKey = "FormoraSeedInterrupted"
     static let seedInstructionsKey = "FormoraSeedInstructions"

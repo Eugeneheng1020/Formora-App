@@ -3,7 +3,8 @@ import SwiftUI
 /// The composer's dock of decisions (user 2026-09-15; spec §5): whatever waits for the user sits here, in 消息 and over the
 /// board alike — a step waiting for 允许 / 拒绝, a question, a reply's numbered ways, 要继续吗, 重试 (方案出来了 is gone: the
 /// plan is carried out at once, user 2026-09-28). Cards in the thread and the board's 「运行过程」 only tell. `focus` is the
-/// board's focused run; `pick` sends a choice as the user's words.
+/// board's focused run; `pick` sends a choice as the user's words. A card whose only button is 重试 or 继续 also closes
+/// (user 2026-10-06: a retry that keeps failing mustn't leave its card there for good).
 struct DecisionDock: View {
     let state: AppState
     let conversation: Conversation
@@ -27,8 +28,8 @@ struct DecisionDock: View {
                 .id(pending.call.id)
                 .padding(.bottom, 10)
         } else if let choices = Decisions.choices(conversation, isRunning: isRunning, hasQuestion: false, hasApproval: false,
-                                                  dismissed: state.dismissedChoices) {
-            ChoicePanel(found: choices.found, dismiss: { state.dismissedChoices.insert(choices.messageID) },
+                                                  dismissed: state.dismissedDecisions) {
+            ChoicePanel(found: choices.found, dismiss: { state.dismissedDecisions.insert(choices.messageID) },
                         pick: { pick(ProseChoices.reply($0)) })
                 .id(choices.messageID)
                 .padding(.bottom, 10)
@@ -40,13 +41,18 @@ struct DecisionDock: View {
                 .id(pending.id)
                 .padding(.bottom, 10)
         }
-        if let pause = Decisions.pause(conversation, isRunning: isRunning) {
-            PauseCard(reason: pause) { state.chat.resume(id) }
+        if let pause = Decisions.pause(conversation, isRunning: isRunning, dismissed: state.dismissedDecisions) {
+            PauseCard(reason: pause, resume: { state.chat.resume(id) }, dismiss: dismissLastReply)
                 .padding(.bottom, 10)
-        } else if let failure = Decisions.failure(conversation, isRunning: isRunning) {
-            RetryPanel(reason: failure) { state.chat.retry(id) }
+        } else if let failure = Decisions.failure(conversation, isRunning: isRunning, dismissed: state.dismissedDecisions) {
+            RetryPanel(reason: failure, retry: { state.chat.retry(id) }, dismiss: dismissLastReply)
                 .padding(.bottom, 10)
         }
+    }
+
+    /// × on 要继续吗 / 重试: the card goes; the reply stays in the thread, and the next message carries on from it.
+    private func dismissLastReply() {
+        if let reply = Decisions.lastReplyID(conversation) { state.dismissedDecisions.insert(reply) }
     }
 }
 
@@ -220,16 +226,20 @@ struct ChoicePanel: View {
     }
 }
 
-/// 回复中断 above the composer (L3; user 2026-09-15): why, and 重试. The reply's own card in the thread keeps the reason.
+/// 回复中断 above the composer (L3; user 2026-09-15): why, and 重试. The reply's own card in the thread keeps the reason;
+/// × puts the card away (user 2026-10-06).
 struct RetryPanel: View {
     let reason: String
     let retry: () -> Void
+    let dismiss: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 7) {
+            HStack(alignment: .top, spacing: 7) {
                 IconView(Icons.alertCircle, size: 14)
                 Text("回复中断").font(FormoraFont.ui(12.5, weight: 700))
+                Spacer(minLength: 0)
+                DockCloseButton(label: "关闭", identifier: "retry.close", action: dismiss)
             }
             .foregroundStyle(Palette.alert.color)
             Text(reason)
@@ -237,8 +247,11 @@ struct RetryPanel: View {
                 .foregroundStyle(Palette.inkMuted.color)
                 .lineSpacing(3)
                 .fixedSize(horizontal: false, vertical: true)
-            HStack {
+            HStack(spacing: 8) {
                 Spacer(minLength: 0)
+                Button("关闭", action: dismiss)
+                    .buttonStyle(FormoraButtonStyle(kind: .ghost))
+                    .accessibilityIdentifier("reply.dismiss")
                 Button("重试", action: retry)
                     .buttonStyle(FormoraButtonStyle(kind: .primary))
                     .accessibilityIdentifier("reply.retry")
@@ -309,5 +322,19 @@ struct CreationConfirmCard: View {
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Palette.commandLine.color, lineWidth: 1))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("creation.confirm")
+    }
+}
+
+/// × in the top-right corner of a docked card whose only button is 重试 or 继续 (user 2026-10-06). It takes no height of
+/// its own, so a one-line header stays one line, and its glyph lines up with the card's right edge.
+struct DockCloseButton: View {
+    let label: String
+    let identifier: String
+    let action: () -> Void
+
+    var body: some View {
+        IconActionButton(icon: Icons.close, label: label, identifier: identifier, action: action)
+            .padding(.vertical, -8)
+            .padding(.trailing, -7)
     }
 }

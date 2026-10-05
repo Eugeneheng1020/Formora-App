@@ -189,8 +189,9 @@ final class AppState {
     /// The same in Bob's panel, and what he is drafting now.
     var bobPendingCreation: Creations.Pending?
     var bobCreating: Creations.Kind?
-    /// A reply's numbered ways the user put away (user 2026-09-15): by message id, this session only.
-    var dismissedChoices: Set<UUID> = []
+    /// Docked cards the user put away with × (user 2026-09-15, 2026-10-06): a reply's numbered ways, 要继续吗, 重试 — by the
+    /// reply's id, this session only. The reply itself stays in the thread.
+    var dismissedDecisions: Set<UUID> = []
     /// QA only (`-FormoraRevealCompaction`): a new compaction's divider scrolls into view with its summary open.
     var revealsCompaction = false
     /// `nil` = the provider editor is closed.

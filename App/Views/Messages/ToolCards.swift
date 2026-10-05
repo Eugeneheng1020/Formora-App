@@ -322,16 +322,21 @@ private extension Array where Element == String {
 }
 
 /// The run stopped to ask 「继续？」 (7b, L2) — after 50 model calls or an hour; docked above the composer (user 2026-09-15).
+/// 先不继续 and × put the card away (user 2026-10-06): the run stays stopped, the next message carries on from it.
 struct PauseCard: View {
     let reason: String
     let resume: () -> Void
+    let dismiss: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("要继续吗？").font(FormoraFont.ui(12.5, weight: 700)).foregroundStyle(Palette.ink.color)
-                Spacer(minLength: 12)
-                Text("PAUSED").font(FormoraFont.mono(10)).foregroundStyle(Palette.inkFaint.color)
+            HStack(alignment: .top, spacing: 8) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("要继续吗？").font(FormoraFont.ui(12.5, weight: 700)).foregroundStyle(Palette.ink.color)
+                    Spacer(minLength: 12)
+                    Text("PAUSED").font(FormoraFont.mono(10)).foregroundStyle(Palette.inkFaint.color)
+                }
+                DockCloseButton(label: "关闭", identifier: "run.pause.close", action: dismiss)
             }
             .padding(.bottom, 11)
             Text("\(reason)看一下它做到哪了：要它接着做就点「继续」，也可以直接发消息告诉它下一步。")
@@ -343,6 +348,9 @@ struct PauseCard: View {
                 Button("继续", action: resume)
                     .buttonStyle(FormoraButtonStyle(kind: .primary))
                     .accessibilityIdentifier("run.resume")
+                Button("先不继续", action: dismiss)
+                    .buttonStyle(FormoraButtonStyle(kind: .ghost))
+                    .accessibilityIdentifier("run.dismiss")
             }
             .padding(.top, 12)
         }
